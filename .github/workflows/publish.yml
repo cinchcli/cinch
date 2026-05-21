@@ -228,12 +228,10 @@ jobs:
           ls dist/
       - name: Generate release notes
         run: |
-          PREV_TAG=$(git tag --list '${{ needs.prepare.outputs.channel }}/*' | sort -V | tail -n1)
-          if [ -z "$PREV_TAG" ]; then
-            git log --pretty=format:"- %s" > release-notes.md
-          else
-            git log "$PREV_TAG"..HEAD --pretty=format:"- %s" > release-notes.md
-          fi
+          ./scripts/generate-release-notes.sh \
+            "${{ needs.prepare.outputs.channel }}" \
+            "${{ needs.prepare.outputs.version }}" \
+            > release-notes.md
           cat release-notes.md
       - name: Build updater manifest
         # Tauri 2 names the updater bundle just `<productName>.app.tar.gz`
