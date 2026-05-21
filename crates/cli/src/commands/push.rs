@@ -202,9 +202,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
 
         if !args.silent {
             eprintln!(
-                "\u{2713} Pushed {} ({} \u{2192} local) [{}ms]",
+                "\u{2713} Pushed {} \u{00B7} {} ms",
                 format_bytes(resp.byte_size),
-                hostname,
                 start.elapsed().as_millis()
             );
         }
@@ -242,9 +241,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
             PushOutcome::Synced(_clip_id) => {
                 if !args.silent {
                     eprintln!(
-                        "\u{2713} Pushed {} ({} \u{2192} local) [{}ms]",
+                        "\u{2713} Pushed {} \u{00B7} {} ms",
                         format_bytes(original_size),
-                        hostname,
                         start.elapsed().as_millis()
                     );
                 }
@@ -252,9 +250,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
             PushOutcome::Queued(clip_id) => {
                 if !args.silent {
                     eprintln!(
-                        "\u{21BB} Queued {} offline ({}, id={}) [{}ms]",
+                        "\u{21BB} Queued {} offline (id={}) \u{00B7} {} ms",
                         format_bytes(original_size),
-                        hostname,
                         clip_id,
                         start.elapsed().as_millis()
                     );
@@ -284,9 +281,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
 
     if !args.silent {
         eprintln!(
-            "\u{2713} Pushed {} ({} \u{2192} local) [{}ms]",
+            "\u{2713} Pushed {} \u{00B7} {} ms",
             format_bytes(resp.byte_size),
-            hostname,
             start.elapsed().as_millis()
         );
     }
@@ -527,12 +523,12 @@ fn detect_content_type(data: &[u8]) -> ContentType {
 }
 
 fn format_bytes(n: i64) -> String {
-    let n = n as f64;
-    if n >= 1024.0 * 1024.0 {
-        format!("{:.1}MB", n / (1024.0 * 1024.0))
-    } else if n >= 1024.0 {
-        format!("{:.1}KB", n / 1024.0)
+    let f = n as f64;
+    if f >= 1024.0 * 1024.0 {
+        format!("{:.1} MB", f / (1024.0 * 1024.0))
+    } else if f >= 1024.0 {
+        format!("{:.1} KB", f / 1024.0)
     } else {
-        format!("{} bytes", n as i64)
+        format!("{} B", n)
     }
 }
