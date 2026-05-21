@@ -1370,13 +1370,14 @@ mod set_display_name_tests {
             Ok("Alice".to_string())
         })
         .await;
-        // This may fail with "Not authenticated" if no config is loaded — that
-        // is a legitimate outcome under no auth. Accept either Ok("Alice") OR
-        // Err("Not authenticated").
+        // This may fail in environments without a config file ("no active
+        // relay configured") or with an empty token ("Not authenticated").
+        // Both are legitimate outcomes when the test runs without a real
+        // login state. Accept Ok("Alice") OR any config/auth-related error.
         match result {
             Ok(s) => assert_eq!(s, "Alice"),
             Err(e) => assert!(
-                e.contains("Not authenticated") || e.contains("authenticated"),
+                e.contains("authenticated") || e.contains("relay") || e.contains("config"),
                 "unexpected error: {}",
                 e
             ),
