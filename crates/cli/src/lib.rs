@@ -8,16 +8,16 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
-pub mod client_info;
-pub mod commands;
-pub mod desktop_handoff;
-pub mod exit;
-pub mod fmt;
-pub mod key_state;
-pub mod runtime;
-pub mod telemetry;
-pub mod update;
-pub mod update_check;
+mod client_info;
+mod commands;
+mod desktop_handoff;
+mod exit;
+mod fmt;
+mod key_state;
+mod runtime;
+mod telemetry;
+mod update;
+mod update_check;
 
 #[derive(Parser)]
 #[command(
