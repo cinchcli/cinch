@@ -23,6 +23,7 @@ apps/desktop/src-tauri/gen/
 # Environment / secrets
 .env
 .env.local
+.secrets.env
 *.secret
 
 # Build outputs
