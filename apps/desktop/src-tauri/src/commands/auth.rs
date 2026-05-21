@@ -3,6 +3,9 @@
 
 use std::sync::Arc;
 
+use client_core::pair_script::{
+    sh_single_quote, FIND_SUPPORTED_CINCH_BLOCK, INSTALL_BLOCK, SKIP_INSTALL_BLOCK,
+};
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
@@ -917,22 +920,6 @@ fn parse_ssh_config_hosts(config: &str) -> Vec<String> {
     hosts
 }
 
-/// Escape a value for safe use inside POSIX single-quoted shell literals.
-/// `foo'bar` → `'foo'\''bar'`.
-fn sh_single_quote(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('\'');
-    for ch in value.chars() {
-        if ch == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(ch);
-        }
-    }
-    out.push('\'');
-    out
-}
-
 fn build_pair_script(relay_url: &str, skip_install: bool, expected_user_id: &str) -> String {
     let mut s = String::new();
     s.push_str("#!/bin/sh\nset -e\n\n");
@@ -954,63 +941,16 @@ fi
 "#,
     );
 
-    if !skip_install {
-        // install.sh is idempotent and always installs the latest published
-        // build — re-running it upgrades any older cinch already on disk to
-        // the version that supports pairing-complete markers.
-        s.push_str(
-            r#"echo "Installing/upgrading cinch..."
-SUDO=""
-if [ "$(id -u)" -ne 0 ]; then
-  if command -v sudo >/dev/null 2>&1; then
-    SUDO="sudo"
-  fi
-fi
-curl -fsSL https://cinchcli.com/install.sh | $SUDO sh -s cinch
-if ! command -v cinch >/dev/null 2>&1; then
-  echo "Error: cinch installation failed." >&2
-  exit 1
-fi
-echo ""
-"#,
-        );
+    if skip_install {
+        s.push_str(SKIP_INSTALL_BLOCK);
     } else {
-        s.push_str(
-            r#"if ! command -v cinch >/dev/null 2>&1; then
-  echo "Error: cinch not found. Remove skip_install or install manually." >&2
-  exit 1
-fi
-"#,
-        );
+        s.push_str(INSTALL_BLOCK);
     }
 
+    s.push_str(FIND_SUPPORTED_CINCH_BLOCK);
+
     s.push_str(
-        r#"find_supported_cinch() {
-  if command -v cinch >/dev/null 2>&1; then
-    CANDIDATE="$(command -v cinch)"
-    if "$CANDIDATE" auth login --help 2>&1 | grep -q -- "--headless"; then
-      printf '%s\n' "$CANDIDATE"
-      return 0
-    fi
-  fi
-
-  for CANDIDATE in "$HOME/.local/bin/cinch" /usr/local/bin/cinch /opt/homebrew/bin/cinch /home/linuxbrew/.linuxbrew/bin/cinch /usr/bin/cinch; do
-    if [ -x "$CANDIDATE" ] && "$CANDIDATE" auth login --help 2>&1 | grep -q -- "--headless"; then
-      printf '%s\n' "$CANDIDATE"
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-CINCH_BIN="$(find_supported_cinch)" || {
-  echo "Error: installed cinch does not support SSH pairing." >&2
-  echo "Install or upgrade to a cinch build with 'cinch auth login --headless'." >&2
-  exit 1
-}
-
-CINCH_DIR="$HOME/.cinch"
+        r#"CINCH_DIR="$HOME/.cinch"
 CINCH_CONFIG="$CINCH_DIR/config.json"
 mkdir -p "$CINCH_DIR"
 
@@ -1303,12 +1243,9 @@ Host HomeServer
         assert!(script.contains("curl -fsSL https://cinchcli.com/install.sh"));
     }
 
-    #[test]
-    fn sh_single_quote_escapes_single_quotes() {
-        assert_eq!(sh_single_quote("plain"), "'plain'");
-        assert_eq!(sh_single_quote("it's"), "'it'\\''s'");
-        assert_eq!(sh_single_quote(""), "''");
-    }
+    // sh_single_quote and its tests live in
+    // `client_core::pair_script` now — see the inline #[cfg(test)] mod
+    // there for the same `it's` / empty-string coverage.
 }
 
 #[cfg(test)]
