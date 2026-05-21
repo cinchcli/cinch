@@ -550,7 +550,7 @@ const file_cinch_v1_event_stream_proto_rawDesc = "" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x124\n" +
 	"\x16device_key_fingerprint\x18\x03 \x01(\tR\x14deviceKeyFingerprint2V\n" +
 	"\x12EventStreamService\x12@\n" +
-	"\tSubscribe\x12\x1a.cinch.v1.SubscribeRequest\x1a\x15.cinch.v1.ServerEvent0\x01B4Z2github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1b\x06proto3"
+	"\tSubscribe\x12\x1a.cinch.v1.SubscribeRequest\x1a\x15.cinch.v1.ServerEvent0\x01B/Z-github.com/cinchcli/cinch/go/cinch/v1;cinchv1b\x06proto3"
 
 var (
 	file_cinch_v1_event_stream_proto_rawDescOnce sync.Once

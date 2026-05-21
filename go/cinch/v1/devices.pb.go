@@ -485,7 +485,7 @@ const file_cinch_v1_devices_proto_rawDesc = "" +
 	"\x0eDevicesService\x12J\n" +
 	"\vListDevices\x12\x1c.cinch.v1.ListDevicesRequest\x1a\x1d.cinch.v1.ListDevicesResponse\x12J\n" +
 	"\vSetNickname\x12\x1c.cinch.v1.SetNicknameRequest\x1a\x1d.cinch.v1.SetNicknameResponse\x12M\n" +
-	"\fSetRetention\x12\x1d.cinch.v1.SetRetentionRequest\x1a\x1e.cinch.v1.SetRetentionResponseB4Z2github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1b\x06proto3"
+	"\fSetRetention\x12\x1d.cinch.v1.SetRetentionRequest\x1a\x1e.cinch.v1.SetRetentionResponseB/Z-github.com/cinchcli/cinch/go/cinch/v1;cinchv1b\x06proto3"
 
 var (
 	file_cinch_v1_devices_proto_rawDescOnce sync.Once

@@ -709,7 +709,7 @@ const file_cinch_v1_clips_proto_rawDesc = "" +
 	"\tListClips\x12\x1a.cinch.v1.ListClipsRequest\x1a\x1b.cinch.v1.ListClipsResponse\x12P\n" +
 	"\rGetLatestClip\x12\x1e.cinch.v1.GetLatestClipRequest\x1a\x1f.cinch.v1.GetLatestClipResponse\x12G\n" +
 	"\n" +
-	"DeleteClip\x12\x1b.cinch.v1.DeleteClipRequest\x1a\x1c.cinch.v1.DeleteClipResponseB4Z2github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1b\x06proto3"
+	"DeleteClip\x12\x1b.cinch.v1.DeleteClipRequest\x1a\x1c.cinch.v1.DeleteClipResponseB/Z-github.com/cinchcli/cinch/go/cinch/v1;cinchv1b\x06proto3"
 
 var (
 	file_cinch_v1_clips_proto_rawDescOnce sync.Once

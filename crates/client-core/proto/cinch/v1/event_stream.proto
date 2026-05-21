@@ -4,7 +4,7 @@ package cinch.v1;
 
 import "cinch/v1/clips.proto";
 
-option go_package = "github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1";
+option go_package = "github.com/cinchcli/cinch/go/cinch/v1;cinchv1";
 
 // EventStreamService provides a server-streaming channel for desktop agent events.
 // Intended to replace the WebSocket /ws endpoint; both run in parallel during migration.

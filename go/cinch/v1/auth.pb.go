@@ -1393,7 +1393,7 @@ const file_cinch_v1_auth_proto_rawDesc = "" +
 	"\fKeyBundleGet\x12\x1d.cinch.v1.KeyBundleGetRequest\x1a\x1e.cinch.v1.KeyBundleGetResponse\x12S\n" +
 	"\x0eKeyBundleRetry\x12\x1f.cinch.v1.KeyBundleRetryRequest\x1a .cinch.v1.KeyBundleRetryResponse\x12n\n" +
 	"\x17RegisterDevicePublicKey\x12(.cinch.v1.RegisterDevicePublicKeyRequest\x1a).cinch.v1.RegisterDevicePublicKeyResponse\x12S\n" +
-	"\x0eSetDisplayName\x12\x1f.cinch.v1.SetDisplayNameRequest\x1a .cinch.v1.SetDisplayNameResponseB4Z2github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1b\x06proto3"
+	"\x0eSetDisplayName\x12\x1f.cinch.v1.SetDisplayNameRequest\x1a .cinch.v1.SetDisplayNameResponseB/Z-github.com/cinchcli/cinch/go/cinch/v1;cinchv1b\x06proto3"
 
 var (
 	file_cinch_v1_auth_proto_rawDescOnce sync.Once

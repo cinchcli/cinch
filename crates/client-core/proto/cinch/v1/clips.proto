@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package cinch.v1;
 
-option go_package = "github.com/cinchcli/cinch-core/go/cinch/v1;cinchv1";
+option go_package = "github.com/cinchcli/cinch/go/cinch/v1;cinchv1";
 
 // ClipsService handles clipboard clip operations.
 service ClipsService {
