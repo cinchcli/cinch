@@ -1,9 +1,22 @@
 # cinchcli-core
 
-Shared client-side primitives for [Cinch](https://cinchcli.com) — the
-encrypted clipboard sync service. Used by the `cinch` CLI and the desktop
-app; published from this repo so external clients can talk to a Cinch
-relay without re-implementing the wire format, auth flow, or crypto.
+Shared client primitives for [Cinch](https://cinchcli.com) — the encrypted clipboard sync service. Used by the `cinch` CLI (`crates/cli/`) and the macOS desktop app (`apps/desktop/`) inside this monorepo. Not published to crates.io.
+
+## Internal usage
+
+Sibling crates in this workspace depend on this via path:
+
+```toml
+client-core = { package = "cinchcli-core", path = "../client-core" }
+```
+
+The desktop app also enables the `specta` feature for tauri-specta TypeScript bindings:
+
+```toml
+client-core = { package = "cinchcli-core", path = "../../../crates/client-core", features = ["specta"] }
+```
+
+The `package =` alias keeps imports spelled `client_core::*` regardless of the crate name.
 
 ## What's inside
 
@@ -27,17 +40,7 @@ relay without re-implementing the wire format, auth flow, or crypto.
 - **`client_core::sync`** — `LocalPusher` for encrypt + push +
   write-through.
 
-## Usage
-
-```toml
-[dependencies]
-client-core = { package = "cinchcli-core", version = "0.2" }
-```
-
-The crate name on crates.io is `cinchcli-core` (the unqualified
-`client-core` was already taken). The `package =` alias keeps imports
-spelled `client_core::*` so call sites are independent of the
-distribution name.
+## Example
 
 ```rust
 use client_core::config::ConfigStore;
