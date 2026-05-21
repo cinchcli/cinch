@@ -11,6 +11,7 @@ pub mod types;
 
 pub use types::{ClipboardError, PollContent, PollSnapshot};
 
+#[cfg(target_os = "macos")]
 pub(crate) mod macos;
 
 /// Platform-agnostic contract every backend implements.
@@ -26,6 +27,17 @@ pub(crate) trait Backend: Send {
 }
 
 /// Construct the platform-appropriate backend for this build target.
+///
+/// The cinch-desktop crate compiles on every host so workspace-wide
+/// `cargo test` / `cargo build` succeed in CI, but the runtime is
+/// macOS-only — the clipboard backend on other platforms panics if
+/// anything actually tries to instantiate it.
+#[cfg(target_os = "macos")]
 pub(crate) fn platform_default() -> Box<dyn Backend + Send> {
     Box::new(macos::MacBackend::new())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn platform_default() -> Box<dyn Backend + Send> {
+    panic!("cinch-desktop runtime is macOS-only; no clipboard backend for this target")
 }
