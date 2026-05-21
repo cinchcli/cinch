@@ -1,61 +1,68 @@
 {
-	"$schema": "https://schema.tauri.app/config/2",
-	"productName": "Cinch",
-	"version": "0.3.0",
-	"identifier": "me.jinmu.cinch",
-	"build": {
-		"beforeDevCommand": "npm run dev",
-		"devUrl": "http://localhost:1420",
-		"beforeBuildCommand": "npm run build",
-		"frontendDist": "../dist"
-	},
-	"app": {
-		"macOSPrivateApi": true,
-		"windows": [
-			{
-				"title": "Cinch",
-				"width": 960,
-				"height": 600,
-				"visible": false,
-				"decorations": false,
-				"transparent": true,
-				"shadow": true,
-				"resizable": false,
-				"backgroundColor": [0, 0, 0, 0]
-			}
-		],
-		"security": {
-			"csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' cinch: data: blob:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data: https://fonts.gstatic.com"
-		}
-	},
-	"bundle": {
-		"active": true,
-		"targets": [
-			"dmg",
-			"app"
-		],
-		"icon": [
-			"icons/32x32.png",
-			"icons/128x128.png",
-			"icons/128x128@2x.png",
-			"icons/icon.icns",
-			"icons/icon.ico"
-		],
-		"macOS": {
-			"minimumSystemVersion": "10.15"
-		}
-	},
-	"plugins": {
-		"deep-link": {
-			"desktop": {
-				"schemes": ["cinch"]
-			}
-		},
-		"updater": {
-			"endpoints": [
-				"https://github.com/cinchcli/desktop/releases/latest/download/latest.json"
-			],
-			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwRDg5NzMxNEMwQkY0QUMKUldTczlBdE1NWmZZME41NnE2akU2L3RHaFM5Y1NPM0prSkpqK2lWM3JqQXRtdy9KTFNxUjJOcFIK"
-		}
-	}
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Cinch",
+  "version": "0.3.0",
+  "identifier": "me.jinmu.cinch",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "Cinch",
+        "width": 960,
+        "height": 600,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "resizable": false,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' cinch: data: blob:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data: https://fonts.gstatic.com"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "dmg",
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "cinch"
+        ]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/cinchcli/desktop/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRjBDMzAyOEMzMTJCRTE2NQpSV1JsNFNzeGpBTEQ4RzVJMms3Q1VHd3JRRmhFZWxzRXFGVllCRUhpanJPVEFaSzF0VHhtUnh4RQo="
+    }
+  }
 }
