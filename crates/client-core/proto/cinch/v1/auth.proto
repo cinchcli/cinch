@@ -221,5 +221,3 @@ message ErrorResponse {
   string message = 2;
   string fix = 3;
 }
-
-// proto-sync E2E test marker — remove after verification
