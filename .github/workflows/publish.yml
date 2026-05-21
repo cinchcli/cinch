@@ -176,7 +176,11 @@ jobs:
             exit 1
           fi
           echo "Notarization credentials verified"
-      - name: Build desktop bundle (embedded CLI)
+      - name: Build desktop bundle (embedded CLI, signs + notarizes + staples inline)
+        # Tauri runs codesign on the binary/app/zip, then submits to notarytool
+        # with --wait, then staples — all inside this single step when APPLE_ID,
+        # APPLE_PASSWORD, and APPLE_TEAM_ID are present. No follow-up notarize
+        # step is needed.
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -187,72 +191,23 @@ jobs:
           CINCH_TELEMETRY_KEY: ${{ secrets.CINCH_TELEMETRY_KEY }}
           CINCH_TELEMETRY_URL: ${{ secrets.CINCH_TELEMETRY_URL }}
         run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
-      - name: Notarize
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          DMG=apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Cinch_${{ needs.prepare.outputs.version }}_${{ matrix.arch_name }}.dmg
-          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple "$DMG"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-${{ matrix.target }}
+          # Tauri (invoked from a Cargo workspace) emits bundles into the
+          # workspace's top-level `target/`, not the package's local target.
           path: |
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.sig
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            target/${{ matrix.target }}/release/bundle/macos/*.sig
 
-  build-desktop-windows:
-    needs: [prepare, build-cli]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/desktop/pnpm-lock.yaml
-      - uses: actions/download-artifact@v4
-        with:
-          name: cli-x86_64-pc-windows-msvc
-          path: cli-staging/
-      - name: Stage CLI for externalBin
-        shell: pwsh
-        run: |
-          Expand-Archive cli-staging/cinch-cli-x86_64-pc-windows-msvc.zip -DestinationPath staging/
-          New-Item -ItemType Directory -Force -Path apps/desktop/src-tauri/binaries
-          Copy-Item staging/cinch.exe apps/desktop/src-tauri/binaries/cinch-x86_64-pc-windows-msvc.exe
-      - name: Install frontend deps
-        run: cd apps/desktop && pnpm install --frozen-lockfile
-      - name: Bump versions
-        shell: bash
-        run: ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
-      - name: Build desktop bundle (MSI + NSIS)
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cd apps/desktop && pnpm tauri build --target x86_64-pc-windows-msvc
-      - uses: actions/upload-artifact@v4
-        with:
-          name: desktop-windows-x86_64
-          path: |
-            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
-            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.sig
+  # Note: Windows desktop bundle is intentionally not built. The Tauri
+  # app is currently macOS-only (clipboard backend, window mgmt, and
+  # accessibility hooks all assume AppKit). The Windows CLI ships
+  # standalone via the cli-x86_64-pc-windows-msvc artifact instead.
 
   publish:
-    needs: [prepare, build-cli, build-desktop-macos, build-desktop-windows]
+    needs: [prepare, build-cli, build-desktop-macos]
     if: needs.prepare.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -267,7 +222,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p dist
-          find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.zip" \) -exec cp {} dist/ \;
+          find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.zip" \) -exec cp {} dist/ \;
           ls dist/
       - name: Generate release notes
         run: |
@@ -281,7 +236,6 @@ jobs:
       - name: Build updater manifest
         env:
           MACOS_AARCH64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_aarch64.app.tar.gz.sig
-          WINDOWS_X86_64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_x64-setup.exe.sig
         run: ./scripts/make-updater-manifest.sh "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" dist/latest.json release-notes.md
       - name: Bump and commit versions
         run: |
