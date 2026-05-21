@@ -12,6 +12,9 @@ apps/desktop/preview/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 
+# Tauri externalBin staging — binaries built by prepare-cli-binary.mjs
+apps/desktop/src-tauri/binaries/cinch-*
+
 # Logs and editors
 *.log
 .DS_Store
