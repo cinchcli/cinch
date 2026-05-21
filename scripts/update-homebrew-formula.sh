@@ -62,30 +62,26 @@ version, sha_darwin_arm, sha_linux_arm, sha_linux_x86 = sys.argv[1:]
 p = Path("Formula/cinch.rb")
 src = p.read_text()
 
-# 1. Bump version
-src = re.sub(r'(\n\s*version\s+)"[^"]+"', f'\\1"{version}"', src, count=1)
+# Note: `version` is intentionally NOT set on the Formula. Homebrew parses
+# the version from the `release/<X.Y.Z>/` segment in `url`, and `brew audit`
+# rejects the formula if both are set ("version X is redundant with version
+# scanned from URL"). Only URLs and SHAs are updated below.
 
-# 2. Replace URLs and SHAs by walking the on_macos / on_linux blocks structurally.
-# The existing Formula uses paths like:
-#   https://github.com/cinchcli/cinch/releases/download/v<version>/cinch_<OS>_<arch>.tar.gz
-# We migrate to the new monorepo's release path:
-#   https://github.com/cinchcli/cinch/releases/download/release/<version>/cinch-cli-<triple>.tar.gz
 url_base = f"https://github.com/cinchcli/cinch/releases/download/release/{version}"
 
+# Match by Rust target triple in the URL, which is stable across Formula
+# versions; sha256 line follows on the next non-empty line.
 replacements = [
-    # darwin arm64
     (
-        r'url\s+"[^"]*cinch[^"]*Darwin[^"]*arm64[^"]*"\s*\n\s*sha256\s+"[^"]+"',
+        r'url\s+"[^"]*aarch64-apple-darwin[^"]*"\s*\n\s*sha256\s+"[^"]+"',
         f'url "{url_base}/cinch-cli-aarch64-apple-darwin.tar.gz"\n      sha256 "{sha_darwin_arm}"',
     ),
-    # linux arm64
     (
-        r'url\s+"[^"]*cinch[^"]*Linux[^"]*arm64[^"]*"\s*\n\s*sha256\s+"[^"]+"',
+        r'url\s+"[^"]*aarch64-unknown-linux-gnu[^"]*"\s*\n\s*sha256\s+"[^"]+"',
         f'url "{url_base}/cinch-cli-aarch64-unknown-linux-gnu.tar.gz"\n      sha256 "{sha_linux_arm}"',
     ),
-    # linux x86_64
     (
-        r'url\s+"[^"]*cinch[^"]*Linux[^"]*x86_64[^"]*"\s*\n\s*sha256\s+"[^"]+"',
+        r'url\s+"[^"]*x86_64-unknown-linux-gnu[^"]*"\s*\n\s*sha256\s+"[^"]+"',
         f'url "{url_base}/cinch-cli-x86_64-unknown-linux-gnu.tar.gz"\n      sha256 "{sha_linux_x86}"',
     ),
 ]
