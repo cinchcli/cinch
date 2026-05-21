@@ -1,0 +1,1142 @@
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { LogicalSize } from '@tauri-apps/api/dpi';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { commands, events } from './bindings';
+import type { LocalClip, SourceInfo, Device } from './bindings';
+import { unwrap } from './lib/tauri';
+import { buildTargets, fuzzySearch, parseFromToken } from './lib/fuzzy';
+import { groupByTimeBucket } from './lib/timeBuckets';
+import { applyClipFilter, type ClipFilter } from './lib/clipFilters';
+import { physicalKey } from './lib/keyboard';
+import {
+  loadMachineTagColors,
+  MACHINE_TAG_COLORS_EVENT,
+  type MachineTagColorMap,
+} from './lib/machineTagColors';
+import {
+  loadMachineDisplayNames,
+  MACHINE_DISPLAY_NAMES_EVENT,
+  type MachineDisplayNameMap,
+} from './lib/machineDisplayNames';
+import { C } from './design';
+import { useAuthState, retryAuth, signOut, type AuthProgress, type AuthErrorReason } from './lib/state/auth';
+import { useNotifyOnRemoteLogin } from './lib/settings';
+import SettingsPane from './SettingsPane';
+import { AdoptedAuthToast } from './components/AdoptedAuthToast';
+import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast';
+import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
+import { AddRelayDialog } from './components/AddRelayDialog';
+import { Rail, type RailPanel } from './components/Rail';
+import { SearchBar, type DeviceOption } from './components/SearchBar';
+import { buildDeviceOptions } from './lib/deviceOptions';
+import { ClipList } from './components/ClipList';
+import { ClipDetail } from './components/ClipDetail';
+import { StatusBar } from './components/StatusBar';
+import { PinnedPanel } from './components/PinnedPanel';
+import { DevicesPanel } from './components/DevicesPanel';
+import { dialogStyles } from './components/dialogPrimitives';
+import { IconCopy, IconTrash } from './icons';
+import { UpdateBanner } from './components/UpdateBanner';
+import { useLatestVersions } from './lib/state/versions';
+import packageJson from '../package.json';
+import './App.css';
+
+// ─── Theme ─────────────────────────────────────────────────
+// Three modes: 'light', 'dark', 'system'. 'system' tracks the OS via
+// prefers-color-scheme — on macOS Auto, that already flips at the real
+// sunrise/sunset boundary tied to Location Services.
+
+type Theme = 'dark' | 'light';
+type ThemeMode = Theme | 'system';
+
+const THEME_STORAGE_KEY = 'cinch-theme';
+
+function systemPreference(): Theme {
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function resolveMode(): ThemeMode {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+  return 'system';
+}
+
+function useTheme(): { mode: ThemeMode; theme: Theme; setMode: (m: ThemeMode) => void } {
+  const [mode, setModeState] = useState<ThemeMode>(resolveMode);
+  const [systemTheme, setSystemTheme] = useState<Theme>(systemPreference);
+
+  // Track OS preference so 'system' mode reflows the moment macOS flips.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemTheme(e.matches ? 'light' : 'dark');
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const theme: Theme = mode === 'system' ? systemTheme : mode;
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+  }, [theme]);
+
+  const setMode = (next: ThemeMode) => {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+    setModeState(next);
+  };
+
+  return { mode, theme, setMode };
+}
+
+
+function handleWindowDrag(e: React.MouseEvent) {
+  const target = e.target as HTMLElement;
+  if (!target.closest('button, input, a, textarea')) {
+    void commands.snapDragStart();
+    void getCurrentWindow().startDragging();
+  }
+}
+
+const WINDOW_PRESETS = {
+  compact:  { width: 760,  height: 480 },
+  standard: { width: 960,  height: 600 },
+  spacious: { width: 1120, height: 720 },
+} as const;
+
+function App() {
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
+
+  useEffect(() => {
+    const saved = localStorage.getItem('cinch-window-size') as keyof typeof WINDOW_PRESETS | null;
+    const preset = saved && saved in WINDOW_PRESETS ? saved : 'standard';
+    const { width, height } = WINDOW_PRESETS[preset];
+    void getCurrentWindow().setSize(new LogicalSize(width, height));
+  }, []);
+
+  const auth = useAuthState();
+  const [notifyOnRemoteLogin] = useNotifyOnRemoteLogin();
+  const latestVersions = useLatestVersions();
+  const currentDesktopVersion = packageJson.version;
+
+  // CLI handoff (cinch://login from `cinch auth login`). Shown above all
+  // auth-state branches so the dialog opens regardless of LocalOnly /
+  // Authenticating / Authenticated.
+  const [handoffRelay, setHandoffRelay] = useState<string | null>(null);
+  useEffect(() => {
+    const unsubP = events.cliHandoffRequested.listen((e) => {
+      setHandoffRelay(e.payload.relay_url || '');
+    });
+    return () => { unsubP.then((f) => f()); };
+  }, []);
+
+  // OS notification when a remote login request arrives (device_code_pending).
+  // Re-runs when notifyOnRemoteLogin changes so toggling the setting takes
+  // effect immediately: when disabled the effect returns early (no listener
+  // is registered), and the cleanup from the previous run unsubscribes.
+  useEffect(() => {
+    if (!notifyOnRemoteLogin) return;
+    let cancelled = false;
+    let unsub: (() => void) | null = null;
+    (async () => {
+      let granted = await isPermissionGranted();
+      if (!granted) {
+        const result = await requestPermission();
+        granted = result === 'granted';
+      }
+      if (cancelled || !granted) return;
+      unsub = await events.deviceCodePending.listen((e) => {
+        const p = e.payload;
+        sendNotification({
+          title: 'Approve remote login?',
+          body: `From ${p.hostname}${p.source_region ? ` (${p.source_region})` : ''}\nCode: ${p.user_code}`,
+        });
+      });
+    })();
+    return () => { cancelled = true; unsub?.(); };
+  }, [notifyOnRemoteLogin]);
+
+  const [_status, setStatus] = useState('connecting');
+  const [clips, setClips] = useState<LocalClip[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [tagColors, setTagColors] = useState<MachineTagColorMap>(() => loadMachineTagColors());
+  const [displayNames, setDisplayNames] = useState<MachineDisplayNameMap>(() => loadMachineDisplayNames());
+  const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
+  const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [activePanel, setActivePanel] = useState<RailPanel>('inbox');
+  const [activeFilter, setActiveFilter] = useState<ClipFilter>('all');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const clipListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const refreshTagColors = () => setTagColors(loadMachineTagColors());
+    window.addEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
+    window.addEventListener('storage', refreshTagColors);
+    return () => {
+      window.removeEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
+      window.removeEventListener('storage', refreshTagColors);
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshDisplayNames = () => setDisplayNames(loadMachineDisplayNames());
+    window.addEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
+    window.addEventListener('storage', refreshDisplayNames);
+    return () => {
+      window.removeEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
+      window.removeEventListener('storage', refreshDisplayNames);
+    };
+  }, []);
+  const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string, icon: 'copy' | 'trash') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, icon });
+    toastTimer.current = setTimeout(() => setToast(null), 1800);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const refreshClips = useCallback(async () => {
+    try {
+      if (activePanel === 'pinned') {
+        const pinned = await unwrap(commands.listPinnedClips());
+        setClips(pinned);
+        return;
+      }
+      const results = await unwrap(commands.listClips(selectedSource, null, 500));
+      setClips(results);
+    } catch (e) {
+      console.error('failed to load clips:', e);
+    }
+  }, [activePanel, selectedSource]);
+
+  const refreshSources = useCallback(async () => {
+    try {
+      setSources(await unwrap(commands.getSources()));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const refreshDevices = useCallback(async () => {
+    try {
+      setDevices(await unwrap(commands.listDevices()));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleNewSourceResponse = async (source: string, enable: boolean) => {
+    await unwrap(commands.setSourceAutoCopy(source, enable));
+    setNewSourcePrompt(null);
+  };
+
+  useEffect(() => {
+    if (auth.variant !== 'Authenticated') return;
+    const timer = setTimeout(() => {
+      refreshClips();
+      refreshSources();
+      refreshDevices();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [auth.variant, refreshClips, refreshSources, refreshDevices]);
+
+  useEffect(() => { refreshClips(); }, [refreshClips]);
+
+  // Scroll selected clip into view when navigating with keyboard
+  useEffect(() => {
+    if (!selectedClip || !clipListRef.current) return;
+    const el = clipListRef.current.querySelector<HTMLElement>(`[data-id="${selectedClip.id}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [selectedClip]);
+
+  useEffect(() => {
+    commands.getWsStatus().then(setStatus).catch(() => {});
+    const unsubs = [
+      events.wsStatus.listen((e) => setStatus(e.payload)),
+      events.clipReceived.listen(() => { refreshClips(); refreshSources(); }),
+      events.remoteClipReceived.listen(() => { refreshClips(); refreshSources(); }),
+      events.clipDeleted.listen(() => { refreshClips(); refreshSources(); }),
+      events.clipPinned.listen(() => { refreshClips(); }),
+      events.newSourceDetected.listen((e) => {
+        setNewSourcePrompt(e.payload);
+      }),
+    ];
+    return () => { unsubs.forEach((p) => p.then((f) => f())); };
+  }, [refreshClips, refreshSources]);
+
+  // OS notification when a clip arrives from another device. The per-source
+  // toggle in DevicesPanel (Alerts on/off) gates this — defaults to on.
+  // Permission is requested lazily on first incoming clip rather than at
+  // launch so users who never receive remote clips aren't prompted.
+  useEffect(() => {
+    let cancelled = false;
+    let unsub: (() => void) | null = null;
+    let permissionChecked = false;
+    let permissionGranted = false;
+
+    (async () => {
+      unsub = await events.remoteClipReceived.listen(async (e) => {
+        const clip = e.payload;
+        try {
+          const enabled = await unwrap(commands.getSourceAlertEnabled(clip.source));
+          if (!enabled) return;
+        } catch {
+          return;
+        }
+        if (cancelled) return;
+        if (!permissionChecked) {
+          permissionChecked = true;
+          let granted = await isPermissionGranted();
+          if (!granted) {
+            const result = await requestPermission();
+            granted = result === 'granted';
+          }
+          permissionGranted = granted;
+        }
+        if (!permissionGranted || cancelled) return;
+        const names = loadMachineDisplayNames();
+        const sourceLabel = clip.source.replace(/^remote:/, '');
+        const title = names[clip.source] ?? sourceLabel;
+        const body =
+          clip.content_type === 'image'
+            ? `New image · ${clip.byte_size.toLocaleString()} B`
+            : `New clipboard · ${clip.byte_size.toLocaleString()} B`;
+        sendNotification({ title, body });
+      });
+    })();
+
+    return () => { cancelled = true; unsub?.(); };
+  }, []);
+
+  useEffect(() => {
+    const unsubBlur = getCurrentWindow().listen('tauri://blur', () => {
+      setSelectedClip(null);
+      setSearchQuery('');
+      setDebouncedQuery('');
+    });
+    return () => { unsubBlur.then((f) => f()); };
+  }, []);
+
+  const copyClip = useCallback((clip: LocalClip) => {
+    if (clip.content_type === 'image') {
+      unwrap(commands.copyImageToClipboard(clip.id));
+      showToast('Copied image to clipboard', 'copy');
+    } else {
+      unwrap(commands.copyClipToClipboard(clip.content));
+      showToast('Copied to clipboard', 'copy');
+    }
+    setSearchQuery('');
+    setDebouncedQuery('');
+    setSelectedClip(null);
+    void unwrap(commands.markClipCopied(clip.id))
+      .then(refreshClips)
+      .catch((e) => console.error('failed to mark clip copied:', e));
+    void commands.focusPreviousApp();
+  }, [showToast, refreshClips]);
+
+  const handleDelete = async (id: string) => {
+    await unwrap(commands.deleteClip(id));
+    if (selectedClip?.id === id) setSelectedClip(null);
+    refreshClips();
+    refreshSources();
+    showToast('Deleted', 'trash');
+  };
+
+  const handlePin = async (clip: LocalClip, note: string | null) => {
+    await unwrap(commands.pinClip(clip.id, note));
+    setPinNoteDialog(null);
+    refreshClips();
+    showToast('Pinned', 'copy');
+  };
+
+  const handleUnpin = async (clip: LocalClip) => {
+    await unwrap(commands.unpinClip(clip.id));
+    refreshClips();
+    showToast('Unpinned', 'trash');
+  };
+
+  const totalClips = sources.reduce((sum, s) => sum + s.clip_count, 0);
+
+  // Parse from:<nickname> + residual fuzzy term
+  const parsed = useMemo(() => parseFromToken(debouncedQuery), [debouncedQuery]);
+
+  const sourceFilter = useMemo(() => {
+    if (!parsed.from) return null;
+    const nick = parsed.from.toLowerCase();
+    const localDisplayNameMatch = Object.entries(displayNames).find(
+      ([source, name]) =>
+        name.toLowerCase() === nick ||
+        source.replace(/^remote:/, '').toLowerCase() === nick,
+    );
+    if (localDisplayNameMatch) return localDisplayNameMatch[0];
+
+    const matched = devices.find(
+      d => (d.nickname?.toLowerCase() === nick) || (d.hostname?.toLowerCase() === nick),
+    );
+    return matched ? matched.source_key : '__no_match__';
+  }, [parsed.from, displayNames, devices]);
+
+  // Build source -> nickname map for SourcePill and from: filter
+  const nicknameBySource = useMemo(() => {
+    const map: Record<string, string> = { ...displayNames };
+    for (const d of devices) {
+      if (d.nickname && d.source_key) {
+        map[d.source_key] = displayNames[d.source_key] ?? d.nickname;
+      }
+    }
+    return map;
+  }, [displayNames, devices]);
+
+  const deviceOptions = useMemo<DeviceOption[]>(
+    () => buildDeviceOptions({ devices, sources, displayNames, tagColors }),
+    [devices, sources, displayNames, tagColors],
+  );
+
+  const filteredClips = useMemo(() => {
+    // 1. Apply source filter (from:<nickname>)
+    let pool = clips;
+    if (sourceFilter === '__no_match__') return [];
+    if (sourceFilter) pool = pool.filter(c => c.source === sourceFilter);
+
+    // 2. Fuzzy-rank the residual query against content + nickname
+    const targets = buildTargets(pool, nicknameBySource, activePanel === 'pinned');
+    return fuzzySearch(targets, parsed.residual);
+  }, [clips, sourceFilter, parsed.residual, nicknameBySource, activePanel]);
+
+  const typeFilteredClips = useMemo(() => {
+    return applyClipFilter(filteredClips, activeFilter);
+  }, [filteredClips, activeFilter]);
+
+  // Arrow-key nav must follow what the user sees. The inbox view groups
+  // by time bucket (Today → Yesterday → This week → Older), so flatten
+  // in that order for navigation. Pinned view groups by note in input
+  // order, which already matches `filteredClips`.
+  const navOrderClips = useMemo(() => {
+    if (activePanel === 'pinned') return filteredClips;
+    return groupByTimeBucket(typeFilteredClips).flatMap((g) => g.items);
+  }, [filteredClips, typeFilteredClips, activePanel]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTextEntry =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        !!target?.isContentEditable;
+
+      // Resolve the physical key (e.code) for letter/digit shortcuts so they
+      // survive Korean IME (ㅓ on KeyJ) and non-QWERTY layouts.
+      const key = physicalKey(e);
+
+      if ((e.metaKey || e.ctrlKey) && key === 'F') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+      if (key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextEntry) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (key === 'Escape') {
+        if (showShortcuts) { setShowShortcuts(false); return; }
+        if (document.activeElement === searchRef.current) {
+          searchRef.current?.blur();
+        } else if (searchQuery) {
+          setSearchQuery('');
+        } else if (selectedClip) {
+          setSelectedClip(null);
+        }
+      }
+      if (key === '?' && !(e.target instanceof HTMLInputElement)) {
+        e.preventDefault();
+        setShowShortcuts(v => !v);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && key === ',') {
+        e.preventDefault();
+        setShowSettings(v => !v);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (key === '1' || key === '2' || key === '3')) {
+        e.preventDefault();
+        const panels: RailPanel[] = ['inbox', 'pinned', 'devices'];
+        const panel = panels[parseInt(key) - 1];
+        setActivePanel(panel);
+        setSelectedClip(null);
+        setSelectedSource(null);
+        return;
+      }
+      if (
+        key === 'Tab' &&
+        !e.metaKey && !e.ctrlKey && !e.altKey &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        const panels: RailPanel[] = ['inbox', 'pinned', 'devices'];
+        const idx = panels.indexOf(activePanel);
+        const next = e.shiftKey
+          ? (idx - 1 + panels.length) % panels.length
+          : (idx + 1) % panels.length;
+        setActivePanel(panels[next]);
+        setSelectedClip(null);
+        setSelectedSource(null);
+        return;
+      }
+      // Cmd+P — pin/unpin: prevent print dialog unconditionally, act when a clip is selected.
+      if ((e.metaKey || e.ctrlKey) && key === 'P') {
+        e.preventDefault();
+        if (selectedClip) {
+          if (selectedClip.is_pinned) {
+            handleUnpin(selectedClip);
+          } else {
+            setPinNoteDialog({ clip: selectedClip });
+          }
+        }
+        return;
+      }
+      if (selectedClip) {
+        if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
+          e.preventDefault();
+          copyClip(selectedClip);
+        }
+        if ((e.metaKey || e.ctrlKey) && key === 'C') {
+          if (!window.getSelection()?.toString()) copyClip(selectedClip);
+        }
+      }
+      // Ctrl+H / Ctrl+L — cycle sources (only when not typing in search)
+      if (e.ctrlKey && (key === 'H' || key === 'L') && !(e.target instanceof HTMLInputElement)) {
+        e.preventDefault();
+        const all = [null, ...sources.map((s) => s.source)];
+        const idx = all.indexOf(selectedSource);
+        const next = key === 'L'
+          ? (idx + 1) % all.length
+          : (idx - 1 + all.length) % all.length;
+        setSelectedSource(all[next]);
+        setSelectedClip(null);
+      }
+      const isDown = key === 'ArrowDown' || (e.ctrlKey && key === 'J');
+      const isUp = key === 'ArrowUp' || (e.ctrlKey && key === 'K');
+      if (isDown || isUp) {
+        if (navOrderClips.length === 0) return;
+        e.preventDefault();
+        const idx = selectedClip ? navOrderClips.findIndex((c) => c.id === selectedClip.id) : -1;
+        const next = idx === -1
+          ? 0
+          : isDown
+            ? Math.min(idx + 1, navOrderClips.length - 1)
+            : Math.max(idx - 1, 0);
+        setSelectedClip(navOrderClips[next]);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, showShortcuts, activePanel]);
+
+  const currentDeviceID =
+    auth.variant === 'Authenticated' ? auth.payload.device_id : '';
+  const currentMachineId =
+    auth.variant === 'Authenticated' ? auth.payload.machine_id : '';
+
+  const handoffDialog = handoffRelay !== null ? (
+    <AddRelayDialog
+      onClose={() => setHandoffRelay(null)}
+      initialRelayUrl={handoffRelay}
+      fromCli
+    />
+  ) : null;
+
+  if (showSettings) {
+    return (
+      <>
+        <SettingsPane
+          onClose={() => { setShowSettings(false); if (auth.variant === 'Authenticated') refreshDevices(); }}
+          clipCount={totalClips}
+        />
+        {handoffDialog}
+      </>
+    );
+  }
+
+  if (auth.variant === 'LocalOnly') {
+    return (
+      <main data-testid="dashboard-root" style={S.main}>
+        {handoffRelay !== null ? (
+          <AddRelayDialog
+            onClose={() => setHandoffRelay(null)}
+            initialRelayUrl={handoffRelay}
+            fromCli
+          />
+        ) : (
+          <AddRelayDialog onClose={() => {}} hideClose />
+        )}
+        <AdoptedAuthToast />
+        <OfflineQueueDroppedToast />
+        <ClipDecryptFailedToast />
+      </main>
+    );
+  }
+  if (auth.variant === 'Authenticating') {
+    return <AuthLoadingScreen progress={auth.payload.progress} />;
+  }
+  if (auth.variant === 'ErrorRecoverable') {
+    return (
+      <AuthErrorScreen
+        reason={auth.payload.reason}
+        retryAfterMs={auth.payload.retry_after_ms}
+      />
+    );
+  }
+  // auth.variant === 'Authenticated' — render dashboard.
+
+  return (
+    <main data-testid="dashboard-root" style={S.main}>
+      <UpdateBanner currentVersion={currentDesktopVersion} latest={latestVersions} />
+      <SearchBar
+        ref={searchRef}
+        value={searchQuery}
+        onChange={setSearchQuery}
+        onClear={() => setSearchQuery('')}
+        themeMode={themeMode}
+        onSetThemeMode={setThemeMode}
+        onMouseDown={handleWindowDrag}
+        activeFilter={activeFilter}
+        onFilterChange={setActiveFilter}
+        deviceOptions={deviceOptions}
+        selectedSource={selectedSource}
+        onSourceChange={setSelectedSource}
+      />
+
+      <div style={S.body}>
+        <Rail
+          active={activePanel}
+          onSelect={(panel) => {
+            setActivePanel(panel);
+            setSelectedClip(null);
+            setSelectedSource(null);
+            setActiveFilter('all');
+          }}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+
+        {activePanel === 'devices' ? (
+          <DevicesPanel
+            currentDeviceID={currentDeviceID}
+            currentMachineId={currentMachineId}
+            onShowToast={(msg) => showToast(msg, 'copy')}
+            onDeviceChange={refreshDevices}
+          />
+        ) : activePanel === 'pinned' ? (
+          <PinnedPanel
+            clips={filteredClips}
+            selected={selectedClip}
+            onSelect={setSelectedClip}
+            onCopy={copyClip}
+            onPin={(c) => setPinNoteDialog({ clip: c })}
+            onUnpin={handleUnpin}
+            onDelete={(c) => handleDelete(c.id)}
+            query={debouncedQuery}
+            deviceNicknames={nicknameBySource}
+            tagColors={tagColors}
+            listRef={clipListRef}
+          />
+        ) : (
+          <>
+            <ClipList
+              ref={clipListRef}
+              clips={typeFilteredClips}
+              selected={selectedClip}
+              onSelect={setSelectedClip}
+              onCopy={copyClip}
+              query={debouncedQuery}
+              deviceNicknames={nicknameBySource}
+              tagColors={tagColors}
+            />
+            <ClipDetail
+              clip={selectedClip}
+              onCopy={copyClip}
+              onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
+              onDelete={(c) => handleDelete(c.id)}
+              searchQuery={debouncedQuery}
+              tagColors={tagColors}
+              sourceDisplayNames={nicknameBySource}
+            />
+          </>
+        )}
+      </div>
+
+      <StatusBar
+        clipCount={totalClips}
+        devicesOnline={devices.length > 0 ? devices.filter(d => d.online).length : undefined}
+        devicesTotal={devices.length > 0 ? devices.length : undefined}
+        hints={selectedClip
+          ? [
+              { keys: '↵', label: 'copy' },
+              { keys: '?', label: 'shortcuts' },
+            ]
+          : [
+              { keys: '⌘F /', label: 'search' },
+              { keys: '↑↓', label: 'navigate' },
+              { keys: '?', label: 'shortcuts' },
+            ]}
+        onMouseDown={handleWindowDrag}
+      />
+
+      {selectedClip && (
+        <HiddenActions
+          onCopy={() => copyClip(selectedClip)}
+          onDelete={() => handleDelete(selectedClip.id)}
+        />
+      )}
+
+      {pinNoteDialog && (
+        <PinNoteDialog
+          clip={pinNoteDialog.clip}
+          onConfirm={(note) => handlePin(pinNoteDialog.clip, note || null)}
+          onCancel={() => setPinNoteDialog(null)}
+        />
+      )}
+
+      {newSourcePrompt && (
+        <NewSourceDialog
+          source={newSourcePrompt}
+          onAccept={() => setNewSourcePrompt(null)}
+          onDisableAutoCopy={() => handleNewSourceResponse(newSourcePrompt, false)}
+        />
+      )}
+
+      {showShortcuts && <ShortcutPanel onClose={() => setShowShortcuts(false)} />}
+      {toast && <Toast message={toast.message} icon={toast.icon} />}
+      <AdoptedAuthToast />
+      <OfflineQueueDroppedToast />
+      <ClipDecryptFailedToast />
+      {handoffDialog}
+    </main>
+  );
+}
+
+// ─── Auth transition screens (plumbing only per D-14 — no visual redesign) ────
+
+function AuthLoadingScreen({ progress }: { progress: AuthProgress }) {
+  const [timedOut, setTimedOut] = useState(false);
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTimedOut(true), 5 * 60 * 1000); // 5 minutes
+    return () => clearTimeout(timer);
+  }, []);
+
+  const heading = timedOut
+    ? 'Sign-in timed out.'
+    : progress.kind === 'SigningIn'
+      ? 'Signing in...'
+      : progress.kind === 'Pairing'
+        ? 'Pairing device...'
+        : 'Rotating token...';
+
+  const subtext = timedOut
+    ? 'Try again when ready.'
+    : 'Complete sign-in in your browser.';
+
+  const buttonLabel = timedOut ? 'Back to local mode' : 'Stop sign-in';
+
+  const handleCancel = async () => {
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('cancel auth failed:', e);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        gap: 24,
+        color: C.t1,
+        background: C.bg,
+        fontFamily: 'inherit',
+      }}
+    >
+      {/* Spinner or static dot */}
+      {prefersReducedMotion ? (
+        <span
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            backgroundColor: C.t1,
+          }}
+        />
+      ) : (
+        <span
+          style={{
+            width: 20,
+            height: 20,
+            border: '2px solid transparent',
+            borderTopColor: C.t1,
+            borderRightColor: C.t1,
+            borderBottomColor: C.t1,
+            borderRadius: '50%',
+            animation: 'spin 800ms linear infinite',
+            boxSizing: 'border-box',
+          }}
+        />
+      )}
+
+      {/* Heading */}
+      <span
+        style={{
+          fontSize: 22,
+          fontWeight: 600,
+          letterSpacing: '-0.018em',
+          color: C.t1,
+        }}
+      >
+        {heading}
+      </span>
+
+      {/* Subtext */}
+      <span
+        style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          fontWeight: 500,
+          color: C.t2,
+          marginTop: -16,
+        }}
+      >
+        {subtext}
+      </span>
+
+      {/* Cancel button — ghost style */}
+      <button
+        onClick={handleCancel}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          fontWeight: 500,
+          color: C.t3,
+          padding: '6px 14px',
+          borderRadius: 4,
+          transition: 'color 150ms ease',
+        }}
+        onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.color = 'var(--text-primary)'; }}
+        onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.color = 'var(--text-faint)'; }}
+      >
+        {buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+function AuthErrorScreen({
+  reason,
+  retryAfterMs,
+}: {
+  reason: AuthErrorReason;
+  retryAfterMs: number | null;
+}) {
+  const [retrying, setRetrying] = useState(false);
+  const label =
+    reason.kind === 'RelayUnreachable'
+      ? 'Relay unreachable'
+      : reason.kind === 'KeyringUnavailable'
+        ? 'Keyring unavailable'
+        : reason.kind === 'NetworkDown'
+          ? 'No network connection'
+          : 'Invalid pair token';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        gap: 16,
+        color: C.t1,
+        background: C.bg,
+        fontFamily: 'inherit',
+      }}
+    >
+      <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.018em', color: C.t1 }}>{label}</span>
+      {retryAfterMs !== null && (
+        <span style={{ color: C.t3, fontSize: 14 }}>
+          Auto-retry in {Math.round(retryAfterMs / 1000)}s
+        </span>
+      )}
+      <button
+        onClick={async () => {
+          setRetrying(true);
+          await retryAuth();
+          setRetrying(false);
+        }}
+        disabled={retrying}
+        style={dialogStyles.btnPrimary}
+      >
+        Retry now
+      </button>
+    </div>
+  );
+}
+
+// ─── Internal helper components ────────────────────────────
+
+// Off-screen buttons so screen-readers/keyboard can still trigger actions.
+function HiddenActions({ onCopy, onDelete }: { onCopy: () => void; onDelete: () => void }) {
+  return (
+    <div style={{ position: 'absolute', left: -9999, top: -9999 }} aria-hidden="true">
+      <button onClick={onCopy}><IconCopy /></button>
+      <button onClick={onDelete}><IconTrash /></button>
+    </div>
+  );
+}
+
+function ShortcutPanel({ onClose }: { onClose: () => void }) {
+  const groups: { title: string; rows: { keys: string[]; label: string }[] }[] = [
+    {
+      title: 'Navigation',
+      rows: [
+        { keys: ['↑', '↓'], label: 'Move between clips' },
+        { keys: ['^J', '^K'], label: 'Move between clips (vim)' },
+        { keys: ['^H', '^L'], label: 'Cycle source filter' },
+        { keys: ['⌘1'], label: 'Go to Inbox' },
+        { keys: ['⌘2'], label: 'Go to Pinned' },
+        { keys: ['⌘3'], label: 'Go to Devices' },
+        { keys: ['⇥'], label: 'Next panel (Inbox → Pinned → Devices)' },
+        { keys: ['⇧⇥'], label: 'Previous panel' },
+      ],
+    },
+    {
+      title: 'Actions',
+      rows: [
+        { keys: ['↵'], label: 'Copy selected clip' },
+        { keys: ['⌘C'], label: 'Copy selected clip' },
+        { keys: ['⌘P'], label: 'Pin / unpin selected clip' },
+      ],
+    },
+    {
+      title: 'Search',
+      rows: [
+        { keys: ['⌘F', '/'], label: 'Focus search' },
+        { keys: ['Esc'], label: 'Clear search / deselect' },
+      ],
+    },
+    {
+      title: 'General',
+      rows: [
+        { keys: ['?'], label: 'Toggle this panel' },
+        { keys: ['⌘,'], label: 'Open settings' },
+      ],
+    },
+  ];
+
+  const kbdStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    padding: '1px 5px',
+    background: 'var(--kbd-bg)',
+    border: '1px solid var(--kbd-border)',
+    borderRadius: 3,
+    color: 'var(--kbd-color)',
+    lineHeight: 1.4,
+    minWidth: 16,
+    textAlign: 'center',
+  };
+
+  return (
+    <div style={dialogStyles.overlay} onClick={onClose}>
+      <div style={{ ...dialogStyles.dialog, maxWidth: 340, padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>Keyboard shortcuts</span>
+          <button style={{ ...dialogStyles.btnGhost, padding: '2px 8px', fontSize: 11 }} onClick={onClose}>Esc</button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {groups.map((g) => (
+            <div key={g.title}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.t3, letterSpacing: '0.01em', marginBottom: 8 }}>
+                {g.title}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {g.rows.map((r) => (
+                  <div key={r.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, color: C.t2 }}>{r.label}</span>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {r.keys.map((k) => (
+                        <kbd key={k} style={kbdStyle}>{k}</kbd>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinNoteDialog({
+  clip,
+  onConfirm,
+  onCancel,
+}: {
+  clip: LocalClip;
+  onConfirm: (note: string) => void;
+  onCancel: () => void;
+}) {
+  const [note, setNote] = useState(clip.pin_note ?? '');
+  const preview = clip.content.replace(/\s+/g, ' ').trim().substring(0, 60);
+
+  return (
+    <div style={dialogStyles.overlay} onClick={onCancel}>
+      <div style={{ ...dialogStyles.dialog, maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+        <div style={dialogStyles.title}>Pin clip</div>
+        <div style={{ fontSize: 11, color: C.t3, marginBottom: 10, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {preview || '(image)'}
+        </div>
+        <textarea
+          autoFocus
+          placeholder="Add a note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onConfirm(note); }
+            if (e.key === 'Escape') onCancel();
+          }}
+          style={{
+            width: '100%',
+            minHeight: 60,
+            background: C.card2,
+            border: `1px solid ${C.border}`,
+            borderRadius: 4,
+            color: C.t1,
+            fontSize: 12,
+            fontFamily: 'inherit',
+            padding: '6px 8px',
+            resize: 'none',
+            outline: 'none',
+            boxSizing: 'border-box',
+            marginBottom: 12,
+          }}
+        />
+        <div style={dialogStyles.actions}>
+          <button style={dialogStyles.btnGhost} onClick={onCancel}>Cancel</button>
+          <button style={dialogStyles.btnPrimary} onClick={() => onConfirm(note)}>Pin</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' }) {
+  const toastStyle: React.CSSProperties = {
+    position: 'fixed',
+    bottom: 44,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: C.card2,
+    border: `1px solid ${C.border}`,
+    borderRadius: 8,
+    padding: '6px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 200,
+    pointerEvents: 'none',
+    boxShadow: '0 4px 20px rgba(10, 8, 5, 0.4)',
+    whiteSpace: 'nowrap',
+  };
+  const textStyle: React.CSSProperties = { fontSize: 12, color: C.t2 };
+  return (
+    <div style={toastStyle}>
+      <span style={{ color: C.t3, display: 'flex', alignItems: 'center' }}>
+        {icon === 'copy' ? <IconCopy size={12} /> : <IconTrash size={12} />}
+      </span>
+      <span style={textStyle}>{message}</span>
+    </div>
+  );
+}
+
+function NewSourceDialog({
+  source,
+  onAccept,
+  onDisableAutoCopy,
+}: {
+  source: string;
+  onAccept: () => void;
+  onDisableAutoCopy: () => void;
+}) {
+  return (
+    <div style={dialogStyles.overlay} onClick={onAccept}>
+      <div style={dialogStyles.dialog} onClick={(e) => e.stopPropagation()}>
+        <div style={dialogStyles.title}>New source detected</div>
+        <div style={dialogStyles.body}>
+          <code style={{ color: C.accent, fontFamily: 'var(--font-mono)' }}>
+            {source.replace('remote:', '')}
+          </code>{' '}
+          is sending clips. Auto-copy is on by default.
+        </div>
+        <div style={dialogStyles.actions}>
+          <button style={dialogStyles.btnGhost} onClick={onDisableAutoCopy}>
+            Disable auto-copy
+          </button>
+          <button style={dialogStyles.btnPrimary} onClick={onAccept}>OK</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Styles ────────────────────────────────────────────────
+
+const S: Record<string, React.CSSProperties> = {
+  main: {
+    background: C.bg,
+    color: C.t1,
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    borderRadius: 'var(--radius-xl)',
+    overflow: 'hidden',
+    border: `1px solid ${C.border}`,
+  },
+  body: {
+    display: 'flex',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+
+};
+
+export default App;

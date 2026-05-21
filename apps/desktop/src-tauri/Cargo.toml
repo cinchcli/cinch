@@ -1,0 +1,61 @@
+[package]
+name = "cinch-desktop"
+version = "0.2.0"
+description = "Cinch Desktop — Multi-server clipboard dashboard"
+authors = ["jinmu"]
+edition = "2021"
+
+[lib]
+name = "cinch_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# Phase 1: desktop is macOS-only; no target-specific deps (D-11).
+# If a future milestone restores Windows/Linux desktop builds, add a
+# target-scoped dependencies table at the bottom of this file — do NOT
+# branch inside the Rust source with `#[cfg(not(target_os = "macos"))]`.
+[dependencies]
+client-core = { package = "cinchcli-core", path = "../../../crates/client-core", features = ["specta"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-deep-link = "2"
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json"] }
+semver = "1"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+dirs = "6"
+objc = "0.2"
+sha2 = "0.11"
+ulid = "1"
+uuid = { version = "1", features = ["v7"] }
+image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
+notify = "8"
+notify-debouncer-full = "0.7"
+aes-gcm = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.13"
+base64 = "0.22"
+specta-typescript = "0.0.11"
+specta = { version = "2.0.0-rc.24", features = ["derive"] }
+tauri-specta = { version = "2.0.0-rc.24", features = ["derive", "typescript"] }
+
+[dev-dependencies]
+wiremock = "0.6"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

@@ -1,0 +1,399 @@
+/* ─── Design System Reset (DESIGN.md) ─── */
+
+/* Dark theme — default */
+:root {
+  /* Typography — Geist (single family, weight+tracking does the hierarchy) */
+  --font-body: 'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  --font-display: var(--font-body);
+
+  /* Surfaces — Dark Editorial (cream-tinted dark) */
+  --bg:         #16140F;
+  --surface:    #1E1A12;
+  --surface-2:  rgba(237, 230, 214, 0.05);
+
+  /* Interaction */
+  --hover:    rgba(237, 230, 214, 0.04);
+  --selected: rgba(237, 230, 214, 0.05);
+
+  /* Borders */
+  --border:       rgba(237, 230, 214, 0.08);
+  --border-hover: rgba(237, 230, 214, 0.12);
+
+  /* Text — muted bumped from #9C9486 → #A8A092 for AA contrast on dark cream-tinted bg */
+  --text-primary: #EDE6D6;
+  --text-muted:   #A8A092;
+  --text-faint:   #6F6759;
+  --text-vfaint:  #3F3B33;
+
+  /* Selection bar (left edge of selected row, active rail item) */
+  --selection-bar: #EDE6D6;
+
+  /* Accent — Porcelain Teal preserved only for offline pulse + focus rings */
+  --accent:        #4FB3A9;
+  --accent-muted:  #3E928A;
+  --accent-subtle: rgba(79, 179, 169, 0.10);
+  --accent-pastel: #BED9D7;
+  --accent-on:     #16140F;
+
+  /* Source-pill palette (dark theme, translucent cream-tints) */
+  --pill-1-bg: rgba(190, 217, 215, 0.10);   --pill-1-fg: #BED9D7;  /* mint */
+  --pill-2-bg: rgba(255, 200, 140, 0.10);   --pill-2-fg: #E8B98C;  /* amber */
+  --pill-3-bg: rgba(180, 200, 230, 0.10);   --pill-3-fg: #B4C8E6;  /* sky */
+  --pill-4-bg: rgba(220, 180, 230, 0.10);   --pill-4-fg: #DCB4E6;  /* lilac */
+  --pill-5-bg: rgba(230, 180, 180, 0.10);   --pill-5-fg: #E6B4B4;  /* rose */
+  --pill-6-bg: rgba(190, 220, 180, 0.10);   --pill-6-fg: #BEDCB4;  /* sage */
+  --pill-local-bg: rgba(237, 230, 214, 0.06); --pill-local-fg: #9C9486;
+
+  /* Semantic */
+  --success: #34D399;
+  --warning: #E8B98C;
+  --error:   #FF6363;
+  --info:    #B4C8E6;
+  --highlight: rgba(255, 193, 7, 0.35);
+
+  /* Spacing (8px base + 12) */
+  --sp-2xs: 2px;
+  --sp-xs:  4px;
+  --sp-sm:  8px;
+  --sp-md:  12px;
+  --sp-lg:  16px;
+  --sp-xl:  24px;
+  --sp-2xl: 32px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 14px;
+
+  color-scheme: dark;
+  --list-width: 320px;
+}
+
+@media (max-width: 800px) {
+  :root {
+    --list-width: 280px;
+  }
+}
+
+@media (min-width: 1100px) {
+  :root {
+    --list-width: 380px;
+  }
+}
+
+/* Light theme — toggled via html.light */
+html.light {
+  --bg:         #FBFBFA;
+  --surface:    #FFFFFF;
+  --surface-2:  #F7F6F3;
+
+  --hover:    rgba(0, 0, 0, 0.02);
+  --selected: #F7F6F3;
+
+  --border:       #EAEAEA;
+  --border-hover: rgba(0, 0, 0, 0.12);
+
+  --text-primary: #2F3437;
+  --text-muted:   #787774;
+  --text-faint:   #B4B4B0;
+  --text-vfaint:  #D8D8D4;
+
+  --selection-bar: #2F3437;
+
+  --accent:        #2F7F78;
+  --accent-muted:  #1F5F59;
+  --accent-subtle: rgba(47, 127, 120, 0.10);
+  --accent-pastel: #BED9D7;
+  --accent-on:     #FFFFFF;
+
+  /* Light pill palette — desaturated pastels */
+  --pill-1-bg: #EDF3EC;  --pill-1-fg: #346538;
+  --pill-2-bg: #FBF3DB;  --pill-2-fg: #956400;
+  --pill-3-bg: #E1F3FE;  --pill-3-fg: #1F6C9F;
+  --pill-4-bg: #F3E5FB;  --pill-4-fg: #7C4FA0;
+  --pill-5-bg: #FDEBEC;  --pill-5-fg: #9F2F2D;
+  --pill-6-bg: #ECF4ED;  --pill-6-fg: #4A7A4A;
+  --pill-local-bg: #F7F6F3; --pill-local-fg: #787774;
+
+  --success: #16A34A;
+  --warning: #CA8A04;
+  --error:   #9F2F2D;
+  --info:    #2563EB;
+  --highlight: rgba(255, 193, 7, 0.4);
+
+  color-scheme: light;
+}
+
+/* ─── Base Reset ─── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-primary);
+  background-color: transparent !important;
+
+  font-feature-settings: 'kern' 1, 'liga' 1;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+body {
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  background-color: transparent;
+}
+
+#root {
+  height: 100vh;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background-color: transparent;
+}
+
+input,
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button {
+  cursor: pointer;
+}
+
+code {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbar — minimal */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* ─── Retention slider (plan 01-07 SettingsPane) ───
+   Focus-RING semantics per UI-SPEC §Color Glow-semantics:
+   4px spread, zero blur — NOT the §2.5 flow-glow. */
+.retention-slider input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: transparent;
+  outline: none;
+}
+.retention-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--surface-2);
+  border-radius: 2px;
+}
+.retention-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--bg);
+  margin-top: -5px; /* center on 4px track */
+  box-shadow: 0 1px 2.377px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+.retention-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(237, 230, 214, 0.15),
+              0 1px 2.377px rgba(0, 0, 0, 0.28);
+}
+html.light .retention-slider input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(47, 51, 55, 0.10),
+              0 1px 2.377px rgba(0, 0, 0, 0.28);
+}
+
+/* ConfirmDialog light-mode shadow override (dark mode uses DESIGN.md §6 Level 5 inline) */
+html.light .confirm-dialog {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* ─── Key-cap badge (ClipCard) — theme-aware ─── */
+:root {
+  --kbd-bg:     rgba(237, 230, 214, 0.04);
+  --kbd-color:  #9C9486;
+  --kbd-border: rgba(237, 230, 214, 0.08);
+}
+html.light {
+  --kbd-bg:     #F7F6F3;
+  --kbd-color:  #787774;
+  --kbd-border: #EAEAEA;
+}
+
+/* ─── Offline pulse dot + Auth spinner ─── */
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .offline-pulse-dot { animation: none !important; }
+}
+
+/* ─── Dialog shadow (theme-aware) ─── */
+:root {
+  --dialog-shadow: 0 8px 48px rgba(10, 8, 5, 0.48);
+}
+html.light {
+  --dialog-shadow: 0 8px 32px rgba(0, 0, 0, 0.10);
+}
+
+/* ─── Loading skeleton shimmer ─── */
+@keyframes shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-strip { animation: none !important; }
+}
+
+/* ─── Interaction states ─── */
+
+/* Clip list rows */
+.clip-row {
+  transition: background 80ms ease;
+}
+.clip-row:hover {
+  background: var(--hover);
+}
+
+/* Primary (filled) buttons */
+.btn-primary {
+  transition: opacity 120ms ease, transform 100ms ease;
+}
+.btn-primary:hover {
+  opacity: 0.85;
+}
+.btn-primary:active {
+  transform: scale(0.97);
+  opacity: 0.75;
+}
+
+/* Ghost / outline buttons */
+.btn-ghost {
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease, transform 100ms ease;
+}
+.btn-ghost:hover {
+  background: var(--hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+/* Rail icon-nav buttons */
+.rail-btn:hover {
+  background: var(--hover) !important;
+  color: var(--text-muted) !important;
+}
+.rail-btn:active {
+  transform: scale(0.9);
+}
+
+/* Small icon buttons (search bar) */
+.icon-btn:hover {
+  color: var(--text-muted) !important;
+  background: var(--hover);
+}
+
+/* Devices panel action buttons */
+.devices-btn {
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+.devices-btn:hover {
+  background: var(--hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Destructive revoke button */
+.revoke-btn {
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.revoke-btn:hover {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--error) 40%, transparent) !important;
+}
+
+/* "Pair another machine" dashed row */
+.pair-row {
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.pair-row:hover {
+  background: var(--hover) !important;
+  border-color: var(--border-hover) !important;
+}
+
+/* ─── Skeleton shimmer (applied via className) ─── */
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 20%,
+    rgba(237, 230, 214, 0.06) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+html.light .skeleton-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 80%
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer::after { animation: none !important; }
+}

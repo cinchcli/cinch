@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Remove pre-installed Rust shims
+        # macos-latest ships rustup-init binaries at /usr/local/bin/cargo
+        # (Intel) and /opt/homebrew/bin/cargo (Apple Silicon) that proxy to
+        # rustup-init when called as `cargo`. dtolnay's toolchain at
+        # ~/.cargo/bin is occasionally ordered behind those on PATH —
+        # breaking `cargo fmt` with "unexpected argument 'fmt'" because the
+        # rustup-init shim doesn't accept subcommands. Removing the shims
+        # so only the dtolnay-installed toolchain remains reachable.
+        run: |
+          for d in /usr/local/bin /opt/homebrew/bin; do
+            if [ -d "$d" ]; then
+              sudo rm -f \
+                "$d/cargo" "$d/cargo-fmt" "$d/cargo-clippy" \
+                "$d/rustc" "$d/rustdoc" "$d/rustup" \
+                "$d/rust-gdb" "$d/rust-lldb"
+            fi
+          done
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: rustfmt,clippy
+
+      - name: Ensure ~/.cargo/bin is on PATH
+        # dtolnay's action only appends $CARGO_HOME/bin to $GITHUB_PATH
+        # when it has to install rustup itself (the `command -v rustup`
+        # branch). When macos-latest already has rustup at ~/.cargo/bin,
+        # dtolnay skips that echo — and subsequent steps end up without
+        # cargo on PATH, failing `cargo fmt` / `cargo check` with
+        # exit code 127. Force the entry unconditionally.
+        run: |
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          ls -la "$HOME/.cargo/bin" || true
+          command -v cargo || true
+          command -v rustup || true
+
+      - name: Install protobuf compiler
+        run: brew install protobuf
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version parity (Cargo.toml / tauri.conf.json / package.json)
+        run: bash scripts/check-version-parity.sh
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Test
+        run: pnpm test
+
+      - name: Cargo fmt
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      # Cargo clippy disabled until pre-existing style nits get cleaned
+      # up in a follow-up PR (e.g. `map_or(true, ...)` → `is_none_or`).
+      # The previous reason ("can't fetch private cinchcli/relay") went
+      # away with Phase 4 — all deps now resolve via crates.io.
+      # TODO(infra): re-enable once the desktop tree is clippy-clean.
+      #
+      # - name: Cargo clippy
+      #   run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings

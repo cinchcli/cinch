@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+
+jobs:
+  build-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Version parity (manifests vs tag)
+        # Hard gate: aborts before the Tauri build kicks off so a misaligned
+        # tag never produces broken release assets (see desktop-v0.1.{8,9}
+        # post-mortem in CLAUDE.md).
+        run: bash scripts/check-version-parity.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Assert macOS-only desktop target
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" != "macOS" ]]; then
+            echo "::error::desktop Tauri build must run on macos-latest. Got: $RUNNER_OS"
+            exit 1
+          fi
+          TARGET='${{ matrix.target }}'
+          if [[ "$TARGET" != "aarch64-apple-darwin" ]]; then
+            echo "::error::desktop Tauri build must target aarch64-apple-darwin. Got: $TARGET"
+            exit 1
+          fi
+          echo "macOS target assertion passed: $TARGET on $RUNNER_OS"
+
+      - name: Install protobuf compiler
+        run: brew install protobuf
+
+      # All cross-repo deps now resolve via crates.io (`cinchcli-core`)
+      # and Cargo.lock — no sibling checkouts needed.
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+          save-if: true
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import Apple certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          rm certificate.p12
+
+      - name: Verify Apple notarization credentials
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if ! xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json; then
+            echo "::error::Notarization credentials invalid — check APPLE_ID, APPLE_PASSWORD (must be app-specific), APPLE_TEAM_ID"
+            exit 1
+          fi
+          echo "Notarization credentials verified"
+
+      - name: Build Tauri app
+        timeout-minutes: 60
+        uses: tauri-apps/tauri-action@51a9f1156b33df106d827c3a78f8f894946c5faa # action-v0.5.25 (node20, avoids node24 top-level-await crash in v0.6.x)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CINCH_TELEMETRY_KEY: ${{ secrets.CINCH_TELEMETRY_KEY }}
+          CINCH_TELEMETRY_URL: ${{ secrets.CINCH_TELEMETRY_URL }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Cinch Desktop v${{ steps.ver.outputs.version }}'
+          releaseBody: 'See the assets below to download the Cinch desktop app.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }} --skip-stapling
+
+  update-cask:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: cinchcli/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Checkout desktop (for script)
+        uses: actions/checkout@v4
+        with:
+          path: desktop
+
+      - name: Extract version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for release assets
+        run: sleep 30
+
+      - name: Update cask
+        run: bash desktop/scripts/update-cask.sh "${{ steps.ver.outputs.version }}" "$PWD/tap"
+
+      - name: Commit and push
+        working-directory: tap
+        run: |
+          git config user.name  "cinchcli Bot"
+          git config user.email "hi@cinchcli.com"
+          git add Casks/cinch-desktop.rb
+          git commit -m "chore: bump cinch-desktop to ${{ steps.ver.outputs.version }}"
+          git push

@@ -1,0 +1,20 @@
+pre-commit:
+  parallel: true
+  commands:
+    cargo-fmt:
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml --all
+    typecheck:
+      run: npx tsc --noEmit
+    frontend-test:
+      run: npm test
+    version-parity:
+      # Only triggers when a manifest is staged — keeps the hook silent on
+      # day-to-day edits. Catches the desktop-v0.1.{8,9} drift class early.
+      glob: "{src-tauri/Cargo.toml,src-tauri/tauri.conf.json,package.json}"
+      run: bash scripts/check-version-parity.sh
+
+pre-push:
+  parallel: false
+  commands:
+    cargo-check:
+      run: cargo check --manifest-path src-tauri/Cargo.toml

@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cinch · desktop redesign preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────
+   Tokens (mirrored from desktop/src/App.css)
+   with the proposed readability tweaks
+   ───────────────────────────────────────── */
+:root {
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+  --font-serif: 'Newsreader', 'Lyon Text', Georgia, serif;
+
+  /* dark theme — cream-tinted */
+  --bg:           #16140F;
+  --surface:      #1E1A12;
+  --surface-2:    rgba(237, 230, 214, 0.05);
+  --surface-3:    rgba(237, 230, 214, 0.08);
+  --hover:        rgba(237, 230, 214, 0.04);
+  --selected:     rgba(237, 230, 214, 0.07);
+  --border:       rgba(237, 230, 214, 0.08);
+  --border-hover: rgba(237, 230, 214, 0.14);
+
+  --text-primary: #EDE6D6;
+  --text-muted:   #A8A092;   /* bumped from #9C9486 for AA on dark */
+  --text-faint:   #6F6759;
+  --text-vfaint:  #3F3B33;
+
+  --accent:        #4FB3A9;
+  --accent-muted:  #3E928A;
+  --accent-pastel: #BED9D7;
+  --accent-on:     #16140F;
+
+  --pill-1-bg: rgba(190, 217, 215, 0.10); --pill-1-fg: #BED9D7;
+  --pill-2-bg: rgba(232, 185, 140, 0.10); --pill-2-fg: #E8B98C;
+  --pill-3-bg: rgba(180, 200, 230, 0.10); --pill-3-fg: #B4C8E6;
+  --pill-4-bg: rgba(190, 220, 180, 0.10); --pill-4-fg: #BEDCB4;
+
+  --kbd-bg:     rgba(237, 230, 214, 0.04);
+  --kbd-color:  #A8A092;
+  --kbd-border: rgba(237, 230, 214, 0.08);
+
+  --selection-bar: #EDE6D6;
+
+  color-scheme: dark;
+}
+html.light {
+  --bg:         #FBFBFA;
+  --surface:    #FFFFFF;
+  --surface-2:  #F7F6F3;
+  --surface-3:  #EFEDE7;
+  --hover:      rgba(0,0,0,0.025);
+  --selected:   #F1EEE7;
+  --border:       #E8E5DE;
+  --border-hover: rgba(0,0,0,0.14);
+  --text-primary: #2F3437;
+  --text-muted:   #6E6A63;
+  --text-faint:   #A39E94;
+  --text-vfaint:  #D8D5CC;
+  --accent:       #2F7F78;
+  --accent-muted: #1F5F59;
+  --accent-pastel:#BED9D7;
+  --accent-on:    #FFFFFF;
+  --pill-1-bg: #ECF3F2;  --pill-1-fg: #2F6F68;
+  --pill-2-bg: #FAF1DF;  --pill-2-fg: #8A5A12;
+  --pill-3-bg: #E5EEF8;  --pill-3-fg: #2A5C8A;
+  --pill-4-bg: #ECF3E8;  --pill-4-fg: #4A7A4A;
+  --kbd-bg:     #F4F2EC;
+  --kbd-color:  #6E6A63;
+  --kbd-border: #E8E5DE;
+  --selection-bar: #2F3437;
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  font-feature-settings: 'kern' 1, 'liga' 1, 'cv11' 1, 'ss01' 1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  background:
+    radial-gradient(60vw 50vh at 18% -10%, rgba(79, 179, 169, 0.08), transparent 60%),
+    radial-gradient(50vw 40vh at 100% 110%, rgba(232, 185, 140, 0.05), transparent 55%),
+    var(--bg);
+  transition: background 240ms ease, color 240ms ease;
+}
+html.light body {
+  background:
+    radial-gradient(60vw 50vh at 18% -10%, rgba(47, 127, 120, 0.06), transparent 60%),
+    radial-gradient(50vw 40vh at 100% 110%, rgba(202, 138, 4, 0.04), transparent 55%),
+    var(--bg);
+}
+
+/* page-level grain overlay — fixed so it never re-paints during scroll */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.45 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* ─────────────────────────────────────────
+   Top bar (page chrome — not the app)
+   ───────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+.topbar .brand {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.topbar .brand strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  margin-right: 6px;
+}
+.topbar .controls {
+  display: flex;
+  gap: 6px;
+}
+.btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, transform 120ms ease, background 160ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.btn:active { transform: translateY(1px); }
+.btn[aria-pressed="true"] {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.btn .dotmark {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  display: inline-block;
+}
+
+/* ─────────────────────────────────────────
+   Stage + Frame (the macOS-window mock)
+   ───────────────────────────────────────── */
+.stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px 24px;
+}
+
+.frame {
+  width: min(1040px, 100%);
+  aspect-ratio: 1040 / 700;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 30px 60px -20px rgba(0,0,0,0.55),
+    0 10px 24px -8px rgba(0,0,0,0.4);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+html.light .frame {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 24px 48px -18px rgba(0,0,0,0.18),
+    0 6px 16px -6px rgba(0,0,0,0.10);
+}
+
+.titlebar {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.dots { display: flex; gap: 7px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; }
+.dot--red    { background: #ED6A5E; }
+.dot--amber  { background: #F4BF50; }
+.dot--green  { background: #61C455; }
+.window-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  letter-spacing: -0.005em;
+}
+
+/* ─────────────────────────────────────────
+   App grid
+   ───────────────────────────────────────── */
+.app {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-height: 0;
+}
+
+.searchbar {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.searchbar .icon { color: var(--text-faint); display: flex; }
+.searchbar input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+}
+.searchbar input::placeholder { color: var(--text-faint); }
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  color: var(--kbd-color);
+  line-height: 1.4;
+}
+.searchbar .icon-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  color: var(--text-faint);
+  background: transparent;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.searchbar .icon-btn:hover { color: var(--text-primary); border-color: var(--border); }
+
+.body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 56px 320px 1fr;
+  min-height: 0;
+}
+
+/* ───── Rail ───── */
+.rail {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+  gap: 4px;
+}
+.rail-btn {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all 160ms ease;
+  position: relative;
+}
+.rail-btn:hover { color: var(--text-primary); background: var(--hover); }
+.rail-btn.active {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+.rail-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 8px; bottom: 8px;
+  width: 2px;
+  background: var(--selection-bar);
+  border-radius: 2px;
+}
+.rail .spacer { flex: 1; }
+
+/* ───── ClipList ───── */
+.cliplist {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+.cliplist::-webkit-scrollbar,
+.clipdetail::-webkit-scrollbar { width: 5px; }
+.cliplist::-webkit-scrollbar-thumb,
+.clipdetail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* L3 — section header */
+.section-h {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 16px 16px 8px;
+}
+.cliprow {
+  position: relative;
+  padding: 9px 14px 11px 18px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid transparent;
+}
+.cliprow:hover { background: var(--hover); }
+.cliprow.selected { background: var(--selected); }
+.cliprow.selected::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  background: var(--selection-bar);
+  border-radius: 2px;
+}
+.cliprow .preview {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.cliprow .preview.code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.cliprow .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0;
+}
+.cliprow .meta .dotsep { color: var(--text-vfaint); }
+.cliprow .meta .bytes { font-family: var(--font-mono); font-size: 10.5px; }
+
+/* source pill */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px 2px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.5;
+}
+.pill--1 { background: var(--pill-1-bg); color: var(--pill-1-fg); }
+.pill--2 { background: var(--pill-2-bg); color: var(--pill-2-fg); }
+.pill--3 { background: var(--pill-3-bg); color: var(--pill-3-fg); }
+.pill--4 { background: var(--pill-4-bg); color: var(--pill-4-fg); }
+.pill .pill-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.85; }
+
+/* ───── ClipDetail ───── */
+.clipdetail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.detail-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.detail-h .lhs {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.detail-h .lhs .dotsep { color: var(--text-vfaint); }
+.detail-h .lhs .bytes { font-family: var(--font-mono); }
+.detail-h .actions { display: flex; gap: 4px; }
+.icon-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.icon-btn:hover { color: var(--text-primary); border-color: var(--border); background: var(--hover); }
+.icon-btn:active { transform: translateY(1px); }
+
+.detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 28px;
+}
+
+/* prose readout — the actual reading surface */
+.prose {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+  max-width: 68ch;
+}
+.prose p + p { margin-top: 12px; }
+
+/* code readout */
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.code-block .tok-key  { color: #C7AF7B; }
+.code-block .tok-fn   { color: #BED9D7; }
+.code-block .tok-str  { color: #E8B98C; }
+.code-block .tok-mute { color: var(--text-faint); }
+.code-block .tok-num  { color: #DCB4E6; }
+
+/* status bar */
+.statusbar {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0;
+}
+.statusbar .lhs, .statusbar .rhs { display: flex; align-items: center; gap: 12px; }
+.statusbar .hint { display: inline-flex; align-items: center; gap: 5px; }
+
+/* dot — online/offline indicator */
+.statusdot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 179, 169, 0.18);
+}
+
+/* ─────────────────────────────────────────
+   Display headings (used in auth/empty/section banners)
+   The crucial difference between "current" and "proposed":
+   .legacy → Newsreader serif at light weight
+   default → Geist semibold + tight tracking
+   ───────────────────────────────────────── */
+.display {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+.display--lg {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+}
+body.legacy .display,
+body.legacy .display--lg {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* L3 sections in the proposed mode use uppercase tracked sans;
+   in legacy they remain serif lowercase. */
+body.legacy .section-h {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--text-muted);
+  padding: 18px 16px 6px;
+}
+
+/* ─────────────────────────────────────────
+   Footer notes
+   ───────────────────────────────────────── */
+.notes {
+  padding: 18px 28px 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.04));
+}
+.note {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+}
+.note h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.note p {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  letter-spacing: -0.005em;
+}
+.note p code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--text-primary);
+}
+
+@media (max-width: 920px) {
+  .body { grid-template-columns: 56px 280px 1fr; }
+  .clipdetail { display: none; } /* preview only */
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <strong>cinch</strong> · desktop redesign preview
+  </div>
+  <div class="controls">
+    <button class="btn" id="compare" aria-pressed="false">
+      <span class="dotmark"></span>
+      Compare current
+    </button>
+    <button class="btn" id="theme">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      Toggle theme
+    </button>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="frame">
+    <div class="titlebar">
+      <div class="dots">
+        <span class="dot dot--red"></span>
+        <span class="dot dot--amber"></span>
+        <span class="dot dot--green"></span>
+      </div>
+      <span class="window-title">cinch</span>
+    </div>
+
+    <div class="app">
+
+      <!-- Search bar -->
+      <div class="searchbar">
+        <span class="icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </span>
+        <input type="text" placeholder="Search clips…  try from:studio-mbp" />
+        <span class="kbd">⌘F</span>
+        <button class="icon-btn" title="Theme">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="body">
+
+        <!-- Rail -->
+        <nav class="rail" aria-label="primary">
+          <button class="rail-btn active" title="Inbox">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          </button>
+          <button class="rail-btn" title="Pinned">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76V6h6v4.76a2 2 0 0 0 .59 1.42l2 2A2 2 0 0 1 16.17 17H7.83a2 2 0 0 1-1.42-3.42l2-2A2 2 0 0 0 9 10.76z"/></svg>
+          </button>
+          <button class="rail-btn" title="Machines">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </button>
+          <div class="spacer"></div>
+          <button class="rail-btn" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.18.65.46.84.83.19.36.27.78.24 1.18A2 2 0 0 1 21 13h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </nav>
+
+        <!-- ClipList -->
+        <section class="cliplist" aria-label="clip list">
+
+          <div class="section-h">Today</div>
+
+          <div class="cliprow selected">
+            <div class="preview code">export function useMagneticHover(strength = 0.35) {
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);</div>
+            <div class="meta">
+              <span class="pill pill--1"><span class="pill-dot"></span>studio-mbp</span>
+              <span>4m ago</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">412 B</span>
+            </div>
+          </div>
+
+          <div class="cliprow">
+            <div class="preview">https://github.com/cinchcli/relay/pull/284 — replace ad-hoc WSMessage envelope with proto-typed Clip</div>
+            <div class="meta">
+              <span class="pill pill--2"><span class="pill-dot"></span>thinkpad-x1</span>
+              <span>22m ago</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">86 B</span>
+            </div>
+          </div>
+
+          <div class="cliprow">
+            <div class="preview">The relay should refuse the push when the device key drift exceeds 90 seconds — the receiving device can't decrypt anything older than that anyway.</div>
+            <div class="meta">
+              <span class="pill pill--1"><span class="pill-dot"></span>studio-mbp</span>
+              <span>1h ago</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">198 B</span>
+            </div>
+          </div>
+
+          <div class="section-h">Yesterday</div>
+
+          <div class="cliprow">
+            <div class="preview code">docker compose -f relay/docker-compose.yml up -d --build</div>
+            <div class="meta">
+              <span class="pill pill--3"><span class="pill-dot"></span>rack-prod-2</span>
+              <span>1d</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">62 B</span>
+            </div>
+          </div>
+
+          <div class="cliprow">
+            <div class="preview code">import { useMotionValue, useTransform } from "motion/react";</div>
+            <div class="meta">
+              <span class="pill pill--1"><span class="pill-dot"></span>studio-mbp</span>
+              <span>1d</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">61 B</span>
+            </div>
+          </div>
+
+          <div class="cliprow">
+            <div class="preview">Saw a demo of the new dynamic island widget on the iPad — basically a pill that morphs based on context. Worth stealing the easing curve.</div>
+            <div class="meta">
+              <span class="pill pill--4"><span class="pill-dot"></span>ipad-couch</span>
+              <span>1d</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">156 B</span>
+            </div>
+          </div>
+
+          <div class="section-h">This week</div>
+
+          <div class="cliprow">
+            <div class="preview">Wire schema is the source of truth — both Go and Rust read from <code style="font-family:var(--font-mono);font-size:11.5px;">relay/proto/cinch/v1/</code>. Don't hand-edit generated files.</div>
+            <div class="meta">
+              <span class="pill pill--1"><span class="pill-dot"></span>studio-mbp</span>
+              <span>3d</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">214 B</span>
+            </div>
+          </div>
+
+          <div class="cliprow">
+            <div class="preview code">pgrep -fa relay | awk '{print $1}'</div>
+            <div class="meta">
+              <span class="pill pill--3"><span class="pill-dot"></span>rack-prod-2</span>
+              <span>4d</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">35 B</span>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ClipDetail -->
+        <section class="clipdetail" aria-label="clip detail">
+          <div class="detail-h">
+            <div class="lhs">
+              <span class="pill pill--1"><span class="pill-dot"></span>studio-mbp</span>
+              <span>4 min ago</span>
+              <span class="dotsep">·</span>
+              <span class="bytes">412 B</span>
+              <span class="dotsep">·</span>
+              <span>typescript</span>
+            </div>
+            <div class="actions">
+              <button class="icon-btn" title="Copy (↵)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button class="icon-btn" title="Pin (⌘P)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76V6h6v4.76a2 2 0 0 0 .59 1.42l2 2A2 2 0 0 1 16.17 17H7.83a2 2 0 0 1-1.42-3.42l2-2A2 2 0 0 0 9 10.76z"/></svg>
+              </button>
+              <button class="icon-btn" title="Delete (⌘⌫)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="detail-body">
+            <pre class="code-block"><span class="tok-key">export function</span> <span class="tok-fn">useMagneticHover</span>(strength = <span class="tok-num">0.35</span>) {
+  <span class="tok-key">const</span> x = <span class="tok-fn">useMotionValue</span>(<span class="tok-num">0</span>);
+  <span class="tok-key">const</span> y = <span class="tok-fn">useMotionValue</span>(<span class="tok-num">0</span>);
+
+  <span class="tok-key">const</span> <span class="tok-fn">handleMouseMove</span> = (e: React.MouseEvent&lt;HTMLElement&gt;) =&gt; {
+    <span class="tok-key">const</span> rect = e.currentTarget.<span class="tok-fn">getBoundingClientRect</span>();
+    <span class="tok-key">const</span> cx = rect.left + rect.width / <span class="tok-num">2</span>;
+    <span class="tok-key">const</span> cy = rect.top + rect.height / <span class="tok-num">2</span>;
+    x.<span class="tok-fn">set</span>((e.clientX - cx) * strength);
+    y.<span class="tok-fn">set</span>((e.clientY - cy) * strength);
+  };
+
+  <span class="tok-key">const</span> <span class="tok-fn">reset</span> = () =&gt; { x.<span class="tok-fn">set</span>(<span class="tok-num">0</span>); y.<span class="tok-fn">set</span>(<span class="tok-num">0</span>); };
+
+  <span class="tok-key">return</span> { x, y, onMouseMove: handleMouseMove, onMouseLeave: reset };
+}
+</pre>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0 18px;">
+
+            <div class="prose">
+              <p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-faint);margin-bottom:10px;">Prose readout (for text clips)</p>
+              <p>Toggle <em>Compare current</em> in the top-right to swap this section into <span style="font-family:var(--font-serif);">Newsreader</span>. The serif feels editorial in isolation but loses its job once it has to share space with mono code blocks, source pills, and dense metadata — the visual rhythm fights itself.</p>
+              <p>The proposed direction collapses everything to one family (Geist) and lets <strong>weight</strong> and <strong>tracking</strong> do the hierarchy work. Body sits at 14.5 / 1.65 with a 68ch measure — actually comfortable for reading captured paragraphs.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Status bar -->
+      <div class="statusbar">
+        <div class="lhs">
+          <span class="statusdot"></span>
+          <span>247 clips</span>
+          <span style="color:var(--text-vfaint);">·</span>
+          <span>3 of 4 machines online</span>
+        </div>
+        <div class="rhs">
+          <span class="hint"><span class="kbd">↵</span> copy</span>
+          <span class="hint"><span class="kbd">⌘⌫</span> delete</span>
+          <span class="hint"><span class="kbd">?</span> shortcuts</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="notes">
+  <div class="note">
+    <h4>What changes</h4>
+    <p>Newsreader serif removed from all 12 callsites. Headlines built from Geist <code>600</code> + tight tracking instead of font-family contrast.</p>
+  </div>
+  <div class="note">
+    <h4>Body readability</h4>
+    <p>Reading surfaces (ClipDetail prose, Settings copy) move to <code>14.5px / 1.65 / 68ch</code>. Code stays at <code>13px / 1.6</code> in Geist Mono.</p>
+  </div>
+  <div class="note">
+    <h4>Color</h4>
+    <p>Cream-tinted dark stays. <code>--text-muted</code> bumped <code>#9C9486 → #A8A092</code> for AA contrast on dark.</p>
+  </div>
+  <div class="note">
+    <h4>Accent</h4>
+    <p>Porcelain teal preserved — only used for offline pulse and focus rings. No new chrome accents added.</p>
+  </div>
+</footer>
+
+<script>
+  const compareBtn = document.getElementById('compare');
+  const themeBtn = document.getElementById('theme');
+
+  compareBtn.addEventListener('click', () => {
+    const on = document.body.classList.toggle('legacy');
+    compareBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    compareBtn.querySelector('span:last-child') ?? compareBtn;
+    compareBtn.lastChild.textContent = on ? ' Show proposed' : ' Compare current';
+  });
+
+  themeBtn.addEventListener('click', () => {
+    const html = document.documentElement;
+    if (html.classList.contains('dark')) {
+      html.classList.remove('dark');
+      html.classList.add('light');
+    } else {
+      html.classList.remove('light');
+      html.classList.add('dark');
+    }
+  });
+
+  // ClipList row click → swap selected
+  document.querySelectorAll('.cliprow').forEach((row) => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.cliprow.selected').forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+    });
+  });
+</script>
+
+</body>
+</html>
