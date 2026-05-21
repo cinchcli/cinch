@@ -142,12 +142,40 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          # Generate an ephemeral keychain password — value doesn't matter
+          # as long as it's consistent across the security calls below.
+          KEYCHAIN_PWD=$(openssl rand -hex 16)
+          echo "::add-mask::$KEYCHAIN_PWD"
           echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
-          security create-keychain -p "" build.keychain
+          security create-keychain -p "$KEYCHAIN_PWD" build.keychain
           security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PWD" build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          # `codesign:` in the partition list ACL is load-bearing: without it
+          # codesign blocks on a GUI keychain-access prompt that never resolves
+          # on a headless runner. See desktop-release.yml (legacy) for the
+          # exact incantation we're matching.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PWD" build.keychain
+          # Keep the keychain unlocked for the full build (default re-locks
+          # after a few minutes; a long Tauri build can outrun that).
+          security set-keychain-settings -lut 21600 build.keychain
+          rm /tmp/cert.p12
+      - name: Verify Apple notarization credentials
+        timeout-minutes: 2
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if ! xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --output-format json >/dev/null; then
+            echo "::error::Notarization credentials invalid — check APPLE_ID, APPLE_PASSWORD (must be app-specific), APPLE_TEAM_ID"
+            exit 1
+          fi
+          echo "Notarization credentials verified"
       - name: Build desktop bundle (embedded CLI)
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -156,6 +184,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CINCH_TELEMETRY_KEY: ${{ secrets.CINCH_TELEMETRY_KEY }}
+          CINCH_TELEMETRY_URL: ${{ secrets.CINCH_TELEMETRY_URL }}
         run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
       - name: Notarize
         env:

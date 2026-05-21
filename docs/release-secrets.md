@@ -18,6 +18,8 @@ to operate. Set via `gh secret set <NAME> -R cinchcli/cinch` or the GitHub UI
 | `APPLE_ID` | `publish.yml` (notarize step) | Apple ID email used for `xcrun notarytool submit` | Rotate when changing account ownership |
 | `APPLE_PASSWORD` | `publish.yml` | **App-specific password** from `appleid.apple.com -> Sign-In and Security -> App-Specific Passwords` (NOT the Apple ID login password) | Rotate if revoked or compromised |
 | `APPLE_TEAM_ID` | `publish.yml` | 10-character Team ID from `developer.apple.com -> Membership` | Set once per developer team |
+| `CINCH_TELEMETRY_KEY` | `publish.yml` (build-desktop-macos) | PostHog project key compiled into the desktop binary via `option_env!` for anonymous usage stats; optional — desktop builds successfully without it (telemetry just stays off) | Rotate if compromised |
+| `CINCH_TELEMETRY_URL` | `publish.yml` (build-desktop-macos) | PostHog ingest URL paired with `CINCH_TELEMETRY_KEY`; same `option_env!` build-time gate | Rotate with the key |
 
 ## Regenerating the minisign keypair
 
