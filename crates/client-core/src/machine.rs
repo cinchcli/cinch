@@ -149,6 +149,14 @@ fn raw_machine_source() -> Option<String> {
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::Mutex;
+
+    // Serializes the four SSH_* env-mutation tests below. `std::env::set_var`
+    // is process-global and not thread-safe, so without this lock the tests
+    // race against each other under cargo's default parallel runner — one
+    // test's `remove_var` can land between another's `set_var` and its
+    // assertion, producing intermittent failures.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn hash_is_16_hex_chars() {
@@ -164,6 +172,7 @@ mod tests {
     }
 
     fn with_env<F: FnOnce()>(vars: &[(&str, Option<&str>)], f: F) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev: Vec<_> = vars
             .iter()
             .map(|(k, _)| (k.to_string(), env::var(k).ok()))
