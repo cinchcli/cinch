@@ -532,3 +532,151 @@ fn format_bytes(n: i64) -> String {
         format!("{} B", n)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use client_core::store::StoreError;
+    use client_core::sync::IngestError;
+
+    fn args_with(token: Option<&str>, relay: Option<&str>) -> Args {
+        Args {
+            label: None,
+            silent: false,
+            force_type: None,
+            text: false,
+            token: token.map(String::from),
+            relay: relay.map(String::from),
+            to: None,
+        }
+    }
+
+    // --- force_is_image -----------------------------------------------------
+
+    #[test]
+    fn force_is_image_matches_canonical_image() {
+        assert!(force_is_image("image"));
+    }
+
+    #[test]
+    fn force_is_image_matches_legacy_mime_subtypes() {
+        // Pre-2026-05 callers passed `--type image/png`; that path must
+        // keep working so existing scripts don't break.
+        assert!(force_is_image("image/png"));
+        assert!(force_is_image("image/jpeg"));
+        assert!(force_is_image("image/webp"));
+    }
+
+    #[test]
+    fn force_is_image_rejects_non_image() {
+        assert!(!force_is_image("text"));
+        assert!(!force_is_image("text/plain"));
+        assert!(!force_is_image(""));
+        assert!(!force_is_image("IMAGE")); // case-sensitive on purpose
+    }
+
+    // --- detect_content_type ------------------------------------------------
+
+    #[test]
+    fn detect_content_type_recognizes_png() {
+        let png = b"\x89PNG\r\n\x1a\nIHDR\x00";
+        assert!(matches!(detect_content_type(png), ContentType::Image));
+    }
+
+    #[test]
+    fn detect_content_type_recognizes_jpeg() {
+        let jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF";
+        assert!(matches!(detect_content_type(jpeg), ContentType::Image));
+    }
+
+    #[test]
+    fn detect_content_type_recognizes_gif87a_and_gif89a() {
+        assert!(matches!(detect_content_type(b"GIF87a"), ContentType::Image));
+        assert!(matches!(detect_content_type(b"GIF89a"), ContentType::Image));
+    }
+
+    #[test]
+    fn detect_content_type_recognizes_webp() {
+        // RIFF<size>WEBP — the `WEBP` marker at bytes 8..12 is load-bearing.
+        let webp = b"RIFF\x24\x00\x00\x00WEBPVP8 ";
+        assert!(matches!(detect_content_type(webp), ContentType::Image));
+    }
+
+    #[test]
+    fn detect_content_type_text_fallback() {
+        assert!(matches!(detect_content_type(b"hello"), ContentType::Text));
+        assert!(matches!(detect_content_type(b""), ContentType::Text));
+        // RIFF without the WEBP marker (e.g. AVI) must NOT be classified as image.
+        assert!(matches!(
+            detect_content_type(b"RIFF\0\0\0\0AVI LIST"),
+            ContentType::Text
+        ));
+    }
+
+    // --- format_bytes -------------------------------------------------------
+
+    #[test]
+    fn format_bytes_buckets() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        // Boundary: exactly 1 KiB crosses into KB formatting.
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+        // Boundary: exactly 1 MiB crosses into MB formatting.
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    // --- map_ingest_error ---------------------------------------------------
+
+    #[test]
+    fn map_ingest_error_no_key_signals_encryption_required() {
+        let exit = map_ingest_error(IngestError::NoEncryptionKey);
+        assert_eq!(exit.code, ENCRYPTION_REQUIRED);
+    }
+
+    #[test]
+    fn map_ingest_error_crypto_keeps_underlying_message() {
+        let exit = map_ingest_error(IngestError::Crypto("bad nonce".into()));
+        assert_eq!(exit.code, ENCRYPTION_REQUIRED);
+        // The underlying message must surface — silently swallowing it
+        // would make encryption bugs impossible to triage from `cinch push`.
+        assert!(
+            exit.message.contains("bad nonce"),
+            "expected message to surface underlying error, got: {}",
+            exit.message
+        );
+    }
+
+    #[test]
+    fn map_ingest_error_store_returns_generic_with_message() {
+        let exit = map_ingest_error(IngestError::Store(StoreError::Migration(
+            "disk full".into(),
+        )));
+        assert_eq!(exit.code, GENERIC_ERROR);
+        assert!(
+            exit.message.contains("disk full"),
+            "expected message to surface store error, got: {}",
+            exit.message
+        );
+    }
+
+    // --- resolve_config -----------------------------------------------------
+
+    #[test]
+    fn resolve_config_with_both_flags_short_circuits_disk() {
+        // When --token AND --relay are both passed, resolve_config returns
+        // without touching ~/.cinch/config.json. Verify the early-return
+        // path AND that the relay URL's trailing slash is stripped (the
+        // relay's path matcher is strict about double slashes).
+        let args = args_with(Some("tok-xyz"), Some("https://relay.example/"));
+        let cfg = resolve_config(&args).expect("args short-circuit succeeds");
+        assert_eq!(cfg.token, "tok-xyz");
+        assert_eq!(cfg.relay_url, "https://relay.example");
+        // The args-only branch uses Config::default() for everything else,
+        // so user_id stays empty — `require_key` will then fail cleanly
+        // with AUTH_FAILURE downstream.
+        assert!(cfg.user_id.is_empty());
+    }
+}

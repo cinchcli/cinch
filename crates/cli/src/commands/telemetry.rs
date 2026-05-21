@@ -74,3 +74,55 @@ fn yesno(b: bool) -> &'static str {
         "no"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    // Wrap Args in a parser shell so we can drive subcommand parsing the
+    // same way clap does at runtime (`cinch telemetry status` etc.) without
+    // going through the top-level CLI.
+    #[derive(Debug, Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    #[test]
+    fn yesno_returns_yes_for_true_and_no_for_false() {
+        assert_eq!(yesno(true), "yes");
+        assert_eq!(yesno(false), "no");
+    }
+
+    #[test]
+    fn parses_status_subcommand() {
+        let cli = TestCli::try_parse_from(["test", "status"]).expect("status parses");
+        assert!(matches!(cli.args.cmd, Cmd::Status));
+    }
+
+    #[test]
+    fn parses_on_subcommand() {
+        let cli = TestCli::try_parse_from(["test", "on"]).expect("on parses");
+        assert!(matches!(cli.args.cmd, Cmd::On));
+    }
+
+    #[test]
+    fn parses_off_subcommand() {
+        let cli = TestCli::try_parse_from(["test", "off"]).expect("off parses");
+        assert!(matches!(cli.args.cmd, Cmd::Off));
+    }
+
+    #[test]
+    fn rejects_unknown_subcommand() {
+        // Guard against a future rename silently changing the public CLI:
+        // `cinch telemetry enable` (or any other word) must NOT parse — it
+        // has to fail loudly so users see the help text.
+        let err = TestCli::try_parse_from(["test", "enable"]).expect_err("unknown rejects");
+        let rendered = format!("{}", err);
+        assert!(
+            rendered.contains("unrecognized") || rendered.contains("invalid"),
+            "expected clap to reject unknown subcommand; got: {rendered}"
+        );
+    }
+}

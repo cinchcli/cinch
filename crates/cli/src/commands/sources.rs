@@ -46,3 +46,53 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Debug, Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    #[test]
+    fn default_format_is_text() {
+        // No flags → human-readable table output. The default literal lives
+        // in the `default_value = "text"` attribute, so this test pins it.
+        let cli = TestCli::try_parse_from(["test"]).expect("bare invocation parses");
+        assert_eq!(cli.args.format, "text");
+        assert!(!cli.args.names);
+    }
+
+    #[test]
+    fn names_flag_sets_names_true() {
+        let cli = TestCli::try_parse_from(["test", "--names"]).expect("--names parses");
+        assert!(cli.args.names);
+        // `--names` does NOT touch the format field — the `--names` branch
+        // in run() short-circuits before the format match, so both can be
+        // set together without conflict.
+        assert_eq!(cli.args.format, "text");
+    }
+
+    #[test]
+    fn format_json_parses() {
+        let cli =
+            TestCli::try_parse_from(["test", "--format", "json"]).expect("--format json parses");
+        assert_eq!(cli.args.format, "json");
+        assert!(!cli.args.names);
+    }
+
+    #[test]
+    fn format_accepts_arbitrary_strings_clap_side() {
+        // clap doesn't validate against an enum here — `run()` does the
+        // "is it json?" check at runtime, falling through to the text
+        // table for anything else. Pin that lenient-parsing contract so a
+        // future "tighten to enum" change is a deliberate decision.
+        let cli = TestCli::try_parse_from(["test", "--format", "yaml"])
+            .expect("clap accepts unknown format strings");
+        assert_eq!(cli.args.format, "yaml");
+    }
+}
