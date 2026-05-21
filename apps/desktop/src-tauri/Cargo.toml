@@ -53,6 +53,11 @@ base64 = "0.22"
 specta-typescript = "0.0.11"
 specta = { version = "2.0.0-rc.24", features = ["derive"] }
 tauri-specta = { version = "2.0.0-rc.24", features = ["derive", "typescript"] }
+cinch-cli = { path = "../../../crates/cli", optional = true }
+
+[features]
+default = ["builtin-cli"]
+builtin-cli = ["dep:cinch-cli"]
 
 [dev-dependencies]
 wiremock = "0.6"

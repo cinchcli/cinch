@@ -707,6 +707,7 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "chrono",
+ "cinch-cli",
  "cinchcli-core",
  "dirs 6.0.0",
  "env_logger",
