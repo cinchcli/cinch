@@ -572,4 +572,92 @@ mod tests {
             PullArgsHarness::try_parse_from(["--exclude-self", "--from", "desktop"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
+
+    #[test]
+    fn args_id_with_exclude_self_is_rejected() {
+        let err = PullArgsHarness::try_parse_from(["--id", "abc", "--exclude-self"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn args_watch_with_exclude_self_is_rejected() {
+        let err = PullArgsHarness::try_parse_from(["--watch", "--exclude-self"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn args_watch_with_from_is_allowed() {
+        let harness =
+            PullArgsHarness::try_parse_from(["--watch", "--from", "desktop"]).expect("parse ok");
+        assert!(harness.args.watch);
+        assert_eq!(harness.args.from.as_deref(), Some("desktop"));
+    }
+
+    #[test]
+    fn content_type_maps_canonical_strings() {
+        assert!(matches!(content_type("text"), Some(ContentType::Text)));
+        assert!(matches!(content_type("url"), Some(ContentType::Url)));
+        assert!(matches!(content_type("code"), Some(ContentType::Code)));
+        assert!(matches!(content_type("image"), Some(ContentType::Image)));
+    }
+
+    #[test]
+    fn content_type_rejects_unknown_strings() {
+        // Mime styles and case variants must not slip through — wire is strict.
+        assert!(content_type("").is_none());
+        assert!(content_type("Text").is_none());
+        assert!(content_type("TEXT").is_none());
+        assert!(content_type("text/plain").is_none());
+        assert!(content_type("image/png").is_none());
+        assert!(content_type("json").is_none());
+    }
+
+    #[test]
+    fn format_bytes_under_kilobyte_is_raw_bytes() {
+        assert_eq!(format_bytes(0), "0 bytes");
+        assert_eq!(format_bytes(1), "1 bytes");
+        assert_eq!(format_bytes(1023), "1023 bytes");
+    }
+
+    #[test]
+    fn format_bytes_kilobyte_range() {
+        assert_eq!(format_bytes(1024), "1.0KB");
+        assert_eq!(format_bytes(1536), "1.5KB");
+        assert_eq!(format_bytes(1024 * 1024 - 1), "1024.0KB");
+    }
+
+    #[test]
+    fn format_bytes_megabyte_range() {
+        assert_eq!(format_bytes(1024 * 1024), "1.0MB");
+        assert_eq!(format_bytes(1024 * 1024 * 5 / 2), "2.5MB");
+        assert_eq!(format_bytes(1024 * 1024 * 100), "100.0MB");
+    }
+
+    #[test]
+    fn retry_gate_first_take_succeeds() {
+        let mut gate = RetryGate::new();
+        assert!(gate.try_take());
+    }
+
+    #[test]
+    fn retry_gate_second_take_within_debounce_is_blocked() {
+        let mut gate = RetryGate::new();
+        assert!(gate.try_take());
+        // The debounce is 60s in production; back-to-back calls must be blocked.
+        assert!(!gate.try_take());
+        assert!(!gate.try_take());
+    }
+
+    #[test]
+    fn retry_gate_zero_debounce_always_allows() {
+        // Construct manually to verify the elapsed-vs-debounce comparison
+        // honors a sub-resolution window. Anything shorter than the time
+        // between two consecutive `Instant::now()` calls must pass.
+        let mut gate = RetryGate {
+            last: None,
+            debounce: Duration::from_nanos(0),
+        };
+        assert!(gate.try_take());
+        assert!(gate.try_take());
+    }
 }
