@@ -1,0 +1,78 @@
+name: Sync proto to relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/client-core/proto/cinch/v1/**.proto'
+
+jobs:
+  open-relay-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cinch monorepo
+        uses: actions/checkout@v4
+        with:
+          path: cinch
+      - name: Checkout relay
+        uses: actions/checkout@v4
+        with:
+          repository: cinchcli/relay
+          token: ${{ secrets.RELAY_SYNC_TOKEN }}
+          path: relay
+      - uses: bufbuild/buf-setup-action@v1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Sync proto and regenerate
+        run: |
+          cd relay
+          UPSTREAM=../cinch ./scripts/sync-proto-from-monorepo.sh
+      - name: Verify drift resolved
+        run: |
+          cd relay
+          UPSTREAM=../cinch ./scripts/verify-proto.sh
+      - name: Compile relay against new proto
+        run: |
+          cd relay
+          go build ./...
+      - name: Configure git
+        run: |
+          cd relay
+          git config user.name 'cinch-proto-sync[bot]'
+          git config user.email 'cinch-proto-sync@users.noreply.github.com'
+      - name: Detect changes
+        id: changes
+        run: |
+          cd relay
+          if git diff --quiet; then
+            echo "no_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create PR
+        if: steps.changes.outputs.no_changes == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.RELAY_SYNC_TOKEN }}
+        run: |
+          cd relay
+          SHA=$(cd ../cinch && git rev-parse --short HEAD)
+          MSG=$(cd ../cinch && git log -1 --pretty=%s)
+          BRANCH="proto-sync/${SHA}"
+          git checkout -b "$BRANCH"
+          git add proto/ internal/cinchv1/
+          git commit -m "chore: sync proto from cinch monorepo @ ${SHA}
+
+          Upstream commit: ${MSG}
+          See https://github.com/cinchcli/cinch/commit/${SHA}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: sync proto from cinch monorepo @ ${SHA}" \
+            --body "Auto-generated PR. Proto changes from cinch monorepo commit ${SHA}.
+
+          Upstream commit message: \`${MSG}\`
+
+          See https://github.com/cinchcli/cinch/commit/${SHA}" \
+            --base main \
+            --head "$BRANCH" \
+            --repo cinchcli/relay
