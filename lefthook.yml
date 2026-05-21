@@ -12,3 +12,9 @@ pre-commit:
     buf-lint:
       glob: "**/*.proto"
       run: buf lint
+
+pre-push:
+  parallel: false
+  commands:
+    cargo-test:
+      run: cargo test --workspace
