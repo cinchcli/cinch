@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Updates Formula/cinch.rb in cinchcli/homebrew-tap with the new version and CLI tarball SHAs.
 #
-# Usage: ./scripts/update-homebrew-formula.sh <version> <aarch64-tar.gz> <x86_64-tar.gz> <linux-arm64-tar.gz> <linux-x86_64-tar.gz>
+# Usage: ./scripts/update-homebrew-formula.sh <version> <darwin-aarch64-tar.gz> <linux-arm64-tar.gz> <linux-x86_64-tar.gz>
 #
-# The Formula currently carries 3 platform-specific SHAs:
+# The Formula carries 3 platform-specific SHAs:
 #   - macOS arm64 (only)
 #   - Linux arm64
 #   - Linux x86_64
@@ -15,13 +15,10 @@ set -euo pipefail
 
 VERSION="${1:?version required}"
 DARWIN_AARCH64="${2:?darwin-arm64 tarball required}"
-DARWIN_X86_64="${3:?darwin-x86_64 tarball required (unused; pass empty for API stability)}"
-LINUX_ARM64="${4:?linux-arm64 tarball required}"
-LINUX_X86_64="${5:?linux-x86_64 tarball required}"
+LINUX_ARM64="${3:?linux-arm64 tarball required}"
+LINUX_X86_64="${4:?linux-x86_64 tarball required}"
 
 : "${HOMEBREW_TAP_TOKEN:?HOMEBREW_TAP_TOKEN env var required}"
-
-# darwin_x86_64 is required by argument count but unused (Formula odie's on Intel macs)
 
 shasum_file() {
   if command -v shasum >/dev/null 2>&1; then

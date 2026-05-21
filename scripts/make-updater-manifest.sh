@@ -5,11 +5,14 @@
 #
 # Required env vars (paths to signature files; tarball/installer paths are derived):
 #   MACOS_AARCH64_SIG          path to .app.tar.gz.sig (minisign signature contents)
-#   MACOS_X86_64_SIG           path to .app.tar.gz.sig (Intel)
 #   WINDOWS_X86_64_SIG         path to .msi.sig (or .exe.sig depending on bundle type)
 #
 # The signatures must be the COMPLETE minisign sig file contents (text). Tauri's
 # updater verifies the signature line against the embedded pubkey.
+#
+# Intel Mac is intentionally not shipped (Cask requires arm64; Formula odie's on
+# Intel macs). If support is ever added, set MACOS_X86_64_SIG and extend
+# manifest.platforms below.
 
 set -euo pipefail
 
@@ -19,10 +22,9 @@ OUT="${3:?output path required}"
 NOTES_FILE="${4:?notes file required}"
 
 : "${MACOS_AARCH64_SIG:?MACOS_AARCH64_SIG env var required}"
-: "${MACOS_X86_64_SIG:?MACOS_X86_64_SIG env var required}"
 : "${WINDOWS_X86_64_SIG:?WINDOWS_X86_64_SIG env var required}"
 
-for f in "$MACOS_AARCH64_SIG" "$MACOS_X86_64_SIG" "$WINDOWS_X86_64_SIG" "$NOTES_FILE"; do
+for f in "$MACOS_AARCH64_SIG" "$WINDOWS_X86_64_SIG" "$NOTES_FILE"; do
   if [ ! -f "$f" ]; then
     echo "missing file: $f" >&2
     exit 1
@@ -34,14 +36,14 @@ URL_BASE="https://github.com/cinchcli/cinch/releases/download/${CHANNEL}/${VERSI
 
 # Pipe everything into python3 so JSON escaping is handled correctly.
 python3 - "$VERSION" "$PUB_DATE" "$URL_BASE" \
-  "$MACOS_AARCH64_SIG" "$MACOS_X86_64_SIG" "$WINDOWS_X86_64_SIG" \
+  "$MACOS_AARCH64_SIG" "$WINDOWS_X86_64_SIG" \
   "$NOTES_FILE" "$OUT" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 (version, pub_date, url_base,
- sig_macos_arm, sig_macos_x86, sig_win,
+ sig_macos_arm, sig_win,
  notes_file, out_path) = sys.argv[1:]
 
 manifest = {
@@ -52,10 +54,6 @@ manifest = {
         "darwin-aarch64": {
             "signature": Path(sig_macos_arm).read_text().strip(),
             "url": f"{url_base}/Cinch_{version}_aarch64.app.tar.gz",
-        },
-        "darwin-x86_64": {
-            "signature": Path(sig_macos_x86).read_text().strip(),
-            "url": f"{url_base}/Cinch_{version}_x64.app.tar.gz",
         },
         "windows-x86_64": {
             "signature": Path(sig_win).read_text().strip(),
