@@ -61,7 +61,7 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/cinchcli/desktop/releases/latest/download/latest.json"
+        "https://github.com/cinchcli/cinch/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRjBDMzAyOEMzMTJCRTE2NQpSV1JsNFNzeGpBTEQ4RzVJMms3Q1VHd3JRRmhFZWxzRXFGVllCRUhpanJPVEFaSzF0VHhtUnh4RQo="
     }
