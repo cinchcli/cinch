@@ -234,8 +234,11 @@ jobs:
           fi
           cat release-notes.md
       - name: Build updater manifest
+        # Tauri 2 names the updater bundle just `<productName>.app.tar.gz`
+        # (no version, no arch); we only ship a single aarch64 desktop so
+        # there's no ambiguity inside one release.
         env:
-          MACOS_AARCH64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_aarch64.app.tar.gz.sig
+          MACOS_AARCH64_SIG: dist/Cinch.app.tar.gz.sig
         run: ./scripts/make-updater-manifest.sh "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" dist/latest.json release-notes.md
       - name: Bump and commit versions
         run: |

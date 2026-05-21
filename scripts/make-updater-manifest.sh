@@ -53,7 +53,10 @@ manifest = {
     "platforms": {
         "darwin-aarch64": {
             "signature": Path(sig_macos_arm).read_text().strip(),
-            "url": f"{url_base}/Cinch_{version}_aarch64.app.tar.gz",
+            # Tauri 2 emits the updater bundle as plain `<productName>.app.tar.gz`
+            # with no version or arch suffix. Each release tag scopes the URL,
+            # so the unversioned filename is unambiguous.
+            "url": f"{url_base}/Cinch.app.tar.gz",
         },
     },
 }
