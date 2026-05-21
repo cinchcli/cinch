@@ -210,3 +210,74 @@ cinch auth login --headless --relay "$RELAY_URL"
 
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The remote bootstrap script is the on-the-wire contract between
+    // `cinch pair` and a freshly-installed remote — the local desktop
+    // SSHes the script in and reads the device-code marker off stdout, so
+    // any drift in the script shape (missing chmod, install command, or
+    // login invocation) silently breaks the pair-via-SSH flow. These
+    // tests pin the load-bearing lines without locking in every whitespace.
+
+    #[test]
+    fn build_remote_script_embeds_relay_url() {
+        let s = build_remote_script("https://relay.example", false);
+        assert!(
+            s.contains("RELAY_URL='https://relay.example'"),
+            "relay URL must be exported for downstream commands; got:\n{s}"
+        );
+    }
+
+    #[test]
+    fn build_remote_script_default_includes_curl_installer() {
+        let s = build_remote_script("https://relay.example", false);
+        assert!(
+            s.contains("curl -fsSL https://cinchcli.com/install.sh"),
+            "default path must pipe install.sh through curl; got:\n{s}"
+        );
+        assert!(
+            s.contains("Error: cinch installation failed."),
+            "default path must guard against install.sh exit-0 with no binary; got:\n{s}"
+        );
+    }
+
+    #[test]
+    fn build_remote_script_skip_install_omits_curl_and_guards_missing_binary() {
+        let s = build_remote_script("https://relay.example", true);
+        assert!(
+            !s.contains("install.sh"),
+            "--skip-install must NOT pipe install.sh; got:\n{s}"
+        );
+        assert!(
+            s.contains("Error: cinch not found. Remove --skip-install"),
+            "--skip-install must fail loudly when cinch is missing; got:\n{s}"
+        );
+    }
+
+    #[test]
+    fn build_remote_script_always_writes_config_and_logs_in_headless() {
+        for skip in [false, true] {
+            let s = build_remote_script("https://relay.example", skip);
+            assert!(
+                s.contains(r#"chmod 600 "$CINCH_CONFIG""#),
+                "config must be chmod 600 (token storage); skip_install={skip}\n{s}"
+            );
+            assert!(
+                s.contains(r#"cinch auth login --headless --relay "$RELAY_URL""#),
+                "must invoke headless login with the relay URL; skip_install={skip}\n{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_remote_script_starts_with_strict_sh_shebang() {
+        // `set -e` is load-bearing: any failure in the install or login
+        // pipeline must abort the script so the local side sees a
+        // non-zero exit on SSH disconnect.
+        let s = build_remote_script("https://relay.example", false);
+        assert!(s.starts_with("#!/bin/sh\nset -e\n"), "got:\n{s}");
+    }
+}
