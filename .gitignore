@@ -1,0 +1,33 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Node / pnpm
+node_modules/
+apps/desktop/dist/
+apps/desktop/preview/
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Logs and editors
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Environment / secrets
+.env
+.env.local
+*.secret
+
+# Build outputs
+dist/
+build/
+
+# Test artifacts
+coverage/
