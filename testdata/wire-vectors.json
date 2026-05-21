@@ -1,0 +1,239 @@
+{
+  "_doc": "Shared wire vectors for cinch.v1 messages. Both Rust (cinch/crates/client-core/tests/wire_vectors.rs) and Go (relay/internal/gen/cinch/v1/wire_vectors_test.go) round-trip every named vector through their generated types and assert byte-equal output modulo JSON object key order. Vectors reflect the canonical wire shape the relay emits today (Go encoding/json with `,omitempty`); the Rust prost-build pipeline injects matching skip_serializing_if predicates so both sides produce identical output. Note: Device vectors must populate every field with a non-default value because Device skips the predicate injection (tauri-specta validation constraint, see proto-cinch/build.rs). Exception: ClipDeletedEvent and ServerEvent vectors are Go-only; event_stream.proto is excluded from the proto-cinch Rust crate (tauri-specta compatibility, see proto-cinch/build.rs).",
+  "Clip": {
+    "minimal": {
+      "clip_id": "01HABC0000000000000000000",
+      "user_id": "user_42",
+      "content": "hello",
+      "content_type": "text",
+      "source": "remote:laptop",
+      "created_at": "2026-04-30T12:34:56Z"
+    },
+    "full_text": {
+      "clip_id": "01HXYZ0000000000000000000",
+      "user_id": "user_42",
+      "content": "complete sample",
+      "content_type": "code",
+      "source": "remote:dev-host",
+      "label": "snippet",
+      "byte_size": 15,
+      "created_at": "2026-04-30T12:34:56Z",
+      "encrypted": true
+    },
+    "image_with_media": {
+      "clip_id": "01HIMG0000000000000000000",
+      "user_id": "user_42",
+      "content_type": "image",
+      "source": "remote:phone",
+      "byte_size": 10240,
+      "media_path": "media/01HIMG.png",
+      "created_at": "2026-04-30T12:34:56Z"
+    },
+    "encrypted_real": {
+      "clip_id": "vec-encrypted-real",
+      "user_id": "u1",
+      "content": "AAAAAAAAAAAAAAAApsIsUSKLkI9_Yv_Opqkvq-85v02T",
+      "content_type": "text",
+      "source": "test",
+      "byte_size": 5,
+      "encrypted": true,
+      "created_at": "2026-05-07T00:00:00Z"
+    },
+    "pinned_with_note": {
+      "clip_id": "01HPIN0000000000000000000",
+      "user_id": "user_42",
+      "content": "important snippet",
+      "content_type": "text",
+      "source": "remote:laptop",
+      "created_at": "2026-05-12T10:00:00Z",
+      "is_pinned": true,
+      "pin_note": "remember this"
+    }
+  },
+  "PushClipRequest": {
+    "minimal": {
+      "content": "hi",
+      "source": "remote:host",
+      "byte_size": 2
+    },
+    "encrypted_with_target": {
+      "content": "ciphertext_blob",
+      "content_type": "image",
+      "label": "logo",
+      "source": "remote:host",
+      "byte_size": 1234,
+      "encrypted": true,
+      "target_device_id": "01HDEV0000000000000000000"
+    },
+    "with_client_created_at_and_idempotency_key": {
+      "content": "offline-synced-clip",
+      "content_type": "text",
+      "source": "remote:laptop",
+      "byte_size": 19,
+      "client_created_at": "2026-05-20T08:30:00Z",
+      "idempotency_key": "01HXXX0000000000000000000"
+    }
+  },
+  "PushClipResponse": {
+    "ok": {
+      "clip_id": "01HABC0000000000000000000",
+      "byte_size": 42
+    }
+  },
+  "DeviceCodeStartResponse": {
+    "ok": {
+      "device_code": "ABCDEF",
+      "user_code": "WXYZ-1234",
+      "verification_uri": "https://api.cinchcli.com/auth/device",
+      "expires_in": 600,
+      "interval": 5
+    }
+  },
+  "DeviceCodePollResponse": {
+    "pending": {
+      "status": "pending"
+    },
+    "complete": {
+      "status": "complete",
+      "token": "tok_01H",
+      "user_id": "user_42",
+      "device_id": "dev_01H"
+    },
+    "complete_with_display_name": {
+      "status": "complete",
+      "token": "tok_xyz",
+      "user_id": "01HZ000000000000000000USER",
+      "device_id": "01HZ000000000000000000DEV0",
+      "email": "alice@example.com",
+      "identity_provider": "github",
+      "display_name": "Alice Example"
+    }
+  },
+  "LoginRequest": {
+    "minimal": {
+      "hostname": "my-macbook"
+    },
+    "with_invite": {
+      "hostname": "my-macbook",
+      "invite_code": "cinch_inv_aaaabbbbccccddddeeeeffffgggghhhhiiii",
+      "display_name": "han"
+    }
+  },
+  "LoginResponse": {
+    "ok": {
+      "token": "tok_01H",
+      "user_id": "user_42",
+      "device_id": "dev_01H"
+    }
+  },
+  "ErrorResponse": {
+    "minimal": {
+      "error": "auth_failed"
+    },
+    "with_fix": {
+      "error": "auth_failed",
+      "message": "Invalid device token",
+      "fix": "Run cinch auth login"
+    }
+  },
+  "Device": {
+    "full": {
+      "id": "dev_01H",
+      "hostname": "macbook-pro",
+      "source_key": "remote:macbook-pro",
+      "clip_count": 7,
+      "paired_at": "2026-04-30T10:00:00Z",
+      "last_push_at": "2026-04-30T12:34:56Z",
+      "online": true,
+      "nickname": "main",
+      "public_key": "abc123base64",
+      "public_key_fingerprint": "deadbeef",
+      "machine_id": "23856754c515bc5a",
+      "client_version": "0.1.7",
+      "client_type": "desktop",
+      "client_version_at": "2026-04-30T12:34:56Z"
+    },
+    "with_version_reported": {
+      "id": "dev_01HX9V1ABCDEF",
+      "hostname": "alice-vm",
+      "source_key": "remote:alice-vm",
+      "clip_count": 1,
+      "paired_at": "2026-04-01T12:00:00Z",
+      "last_push_at": "2026-05-18T09:15:30Z",
+      "online": true,
+      "nickname": "Linux VM",
+      "public_key": "vmpubkey",
+      "public_key_fingerprint": "vmfingerprint",
+      "machine_id": "vm-machine-id",
+      "client_version": "0.1.8",
+      "client_type": "cli",
+      "client_version_at": "2026-05-18T09:15:30Z"
+    }
+  },
+  "ListClipsRequest": {
+    "empty": {},
+    "with_since_and_limit": {
+      "since": "2026-05-04T10:00:00Z",
+      "limit": 25
+    }
+  },
+  "ListClipsResponse": {
+    "empty": {},
+    "mixed": {
+      "clips": [
+        {
+          "clip_id": "01J0Q0000000text000000000",
+          "user_id": "user_42",
+          "content": "hello world\n",
+          "content_type": "text",
+          "source": "remote:desktop-abc",
+          "byte_size": 12,
+          "created_at": "2026-05-13T08:14:22Z"
+        },
+        {
+          "clip_id": "01J0Q0000000image00000000",
+          "user_id": "user_42",
+          "content_type": "image",
+          "source": "remote:phone-xyz",
+          "byte_size": 1257840,
+          "media_path": "media/01J0Q0000000image.png",
+          "created_at": "2026-05-13T08:13:01Z"
+        }
+      ]
+    }
+  },
+  "ClipDeletedEvent": {
+    "basic": {
+      "clip_id": "01HABC0000000000000000000"
+    }
+  },
+  "ServerEvent": {
+    "clip_deleted": {
+      "Event": {
+        "ClipDeleted": {
+          "clip_id": "01HABC0000000000000000000"
+        }
+      }
+    }
+  },
+  "WSMessage": {
+    "device_code_pending": {
+      "action": "device_code_pending",
+      "hostname": "dev-box-3",
+      "user_code": "ABCD-1234",
+      "requested_at": 1747171200,
+      "source_region": "us-west"
+    }
+  },
+  "SetDisplayNameRequest": {
+    "happy": {
+      "display_name": "Alice Example"
+    }
+  },
+  "SetDisplayNameResponse": {
+    "happy": {
+      "ok": true,
+      "display_name": "Alice Example"
+    }
+  }
+}
