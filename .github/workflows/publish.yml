@@ -80,10 +80,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: cli-${{ matrix.target }}
+      # Linux CLI is built with cargo-zigbuild pinned to glibc 2.17 so the
+      # binary runs on RHEL 7+/Oracle Linux 7+/Debian 8+. The runner's own
+      # glibc (2.39 on ubuntu-24.04) would otherwise leak into DT_VERNEED
+      # and break execution on common server distros — e.g. Oracle Linux
+      # 9.7 (glibc 2.34) hits `GLIBC_2.39 not found` from a stock build.
+      - name: Install Zig (Linux)
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: Install cargo-zigbuild (Linux)
+        if: runner.os == 'Linux'
+        run: cargo install --locked cargo-zigbuild
       - name: Bump versions
         shell: bash
         run: ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
-      - name: Build CLI
+      - name: Build CLI (Linux — zigbuild pinned to glibc 2.17)
+        if: runner.os == 'Linux'
+        run: cargo zigbuild -p cinch-cli --release --target ${{ matrix.target }}.2.17
+      - name: Build CLI (macOS / Windows)
+        if: runner.os != 'Linux'
         run: cargo build -p cinch-cli --release --target ${{ matrix.target }}
       - name: Package as tarball (unix)
         if: matrix.target != 'x86_64-pc-windows-msvc'
