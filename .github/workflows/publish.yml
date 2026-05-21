@@ -18,8 +18,10 @@ on:
         description: 'Build but do not publish'
         type: boolean
         default: false
-  schedule:
-    - cron: '0 1 * * *'  # 01:00 UTC daily — nightly only
+  # No `schedule:` trigger — nightlies are off. The infrastructure
+  # (channel=nightly option, next-version.sh nightly path) is left in place
+  # so manual nightlies via workflow_dispatch still work if needed; just
+  # re-add `schedule: [cron: '0 1 * * *']` to bring back automatic ones.
 
 jobs:
   prepare:
