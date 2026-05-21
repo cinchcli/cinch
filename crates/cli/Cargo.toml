@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "Pipe remote output to your local clipboard. Instantly."
 
+[lib]
+name = "cinch_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cinch"
 path = "src/main.rs"
