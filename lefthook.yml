@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    rust-fmt:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+    version-parity:
+      run: ./scripts/check-version-parity.sh
+    ts-typecheck:
+      glob: "apps/desktop/**/*.{ts,tsx}"
+      run: cd apps/desktop && pnpm exec tsc --noEmit
+    buf-lint:
+      glob: "**/*.proto"
+      run: buf lint
