@@ -1,0 +1,287 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release channel'
+        type: choice
+        options: [release, nightly]
+        default: release
+        required: true
+      bump:
+        description: 'Version bump (release channel only)'
+        type: choice
+        options: [patch, minor, major, none]
+        default: patch
+      dry_run:
+        description: 'Build but do not publish'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 1 * * *'  # 01:00 UTC daily — nightly only
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      channel: ${{ steps.compute.outputs.channel }}
+      dry_run: ${{ steps.compute.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: compute
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            CHANNEL="nightly"
+            DRY=false
+          else
+            CHANNEL="${{ inputs.channel }}"
+            DRY="${{ inputs.dry_run }}"
+          fi
+          VERSION=$(./scripts/next-version.sh "$CHANNEL" "${{ inputs.bump || 'patch' }}")
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY" >> "$GITHUB_OUTPUT"
+          echo "Will build $CHANNEL/$VERSION (dry_run=$DRY)"
+
+  build-cli:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-apple-darwin
+            runner: macos-13
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-${{ matrix.target }}
+      - name: Bump versions
+        shell: bash
+        run: ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
+      - name: Build CLI
+        run: cargo build -p cinch-cli --release --target ${{ matrix.target }}
+      - name: Package as tarball (unix)
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf cinch-cli-${{ matrix.target }}.tar.gz cinch
+          mkdir -p ../../../dist-cli
+          mv cinch-cli-${{ matrix.target }}.tar.gz ../../../dist-cli/
+      - name: Package as zip (windows)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path cinch.exe -DestinationPath cinch-cli-${{ matrix.target }}.zip
+          New-Item -ItemType Directory -Force -Path ../../../dist-cli
+          Move-Item cinch-cli-${{ matrix.target }}.zip ../../../dist-cli/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: dist-cli/
+
+  build-desktop-macos:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            arch_name: aarch64
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            arch_name: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.target }}
+      - name: Install frontend deps
+        run: cd apps/desktop && pnpm install --frozen-lockfile
+      - name: Bump versions
+        run: ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
+      - name: Set up Apple cert
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+      - name: Build desktop bundle (embedded CLI)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG=apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Cinch_${{ needs.prepare.outputs.version }}_${{ matrix.arch_name }}.dmg
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-${{ matrix.target }}
+          path: |
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.sig
+
+  build-desktop-windows:
+    needs: [prepare, build-cli]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-x86_64-pc-windows-msvc
+          path: cli-staging/
+      - name: Stage CLI for externalBin
+        shell: pwsh
+        run: |
+          Expand-Archive cli-staging/cinch-cli-x86_64-pc-windows-msvc.zip -DestinationPath staging/
+          New-Item -ItemType Directory -Force -Path apps/desktop/src-tauri/binaries
+          Copy-Item staging/cinch.exe apps/desktop/src-tauri/binaries/cinch-x86_64-pc-windows-msvc.exe
+      - name: Install frontend deps
+        run: cd apps/desktop && pnpm install --frozen-lockfile
+      - name: Bump versions
+        shell: bash
+        run: ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
+      - name: Build desktop bundle (MSI + NSIS)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cd apps/desktop && pnpm tauri build --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-x86_64
+          path: |
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.sig
+
+  publish:
+    needs: [prepare, build-cli, build-desktop-macos, build-desktop-windows]
+    if: needs.prepare.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      - name: Flatten artifacts
+        run: |
+          mkdir -p dist
+          find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.zip" \) -exec cp {} dist/ \;
+          ls dist/
+      - name: Generate release notes
+        run: |
+          PREV_TAG=$(git tag --list '${{ needs.prepare.outputs.channel }}/*' | sort -V | tail -n1)
+          if [ -z "$PREV_TAG" ]; then
+            git log --pretty=format:"- %s" > release-notes.md
+          else
+            git log "$PREV_TAG"..HEAD --pretty=format:"- %s" > release-notes.md
+          fi
+          cat release-notes.md
+      - name: Build updater manifest
+        env:
+          MACOS_AARCH64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_aarch64.app.tar.gz.sig
+          MACOS_X86_64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_x64.app.tar.gz.sig
+          WINDOWS_X86_64_SIG: dist/Cinch_${{ needs.prepare.outputs.version }}_x64-setup.exe.sig
+        run: ./scripts/make-updater-manifest.sh "${{ needs.prepare.outputs.version }}" "${{ needs.prepare.outputs.channel }}" dist/latest.json release-notes.md
+      - name: Bump and commit versions
+        run: |
+          ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
+          git config user.name 'cinch-release[bot]'
+          git config user.email 'cinch-release@users.noreply.github.com'
+          git add crates apps
+          git commit -m "release: ${{ needs.prepare.outputs.channel }}/${{ needs.prepare.outputs.version }}" || echo "no changes"
+          git push origin HEAD:main
+      - name: Tag release
+        run: |
+          TAG="${{ needs.prepare.outputs.channel }}/${{ needs.prepare.outputs.version }}"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.prepare.outputs.channel }}/${{ needs.prepare.outputs.version }}"
+          IS_PRERELEASE=$([ "${{ needs.prepare.outputs.channel }}" = "nightly" ] && echo "--prerelease" || echo "")
+          gh release create "$TAG" \
+            --title "Cinch ${{ needs.prepare.outputs.version }}" \
+            --notes-file release-notes.md \
+            $IS_PRERELEASE \
+            dist/*
+      - name: Update Homebrew Cask (release channel only)
+        if: needs.prepare.outputs.channel == 'release'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: ./scripts/update-homebrew-cask.sh "${{ needs.prepare.outputs.version }}" dist/Cinch_${{ needs.prepare.outputs.version }}_aarch64.dmg
+      - name: Update Homebrew Formula (release channel only)
+        if: needs.prepare.outputs.channel == 'release'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          ./scripts/update-homebrew-formula.sh \
+            "${{ needs.prepare.outputs.version }}" \
+            dist/cinch-cli-aarch64-apple-darwin.tar.gz \
+            dist/cinch-cli-x86_64-apple-darwin.tar.gz \
+            dist/cinch-cli-aarch64-unknown-linux-gnu.tar.gz \
+            dist/cinch-cli-x86_64-unknown-linux-gnu.tar.gz
