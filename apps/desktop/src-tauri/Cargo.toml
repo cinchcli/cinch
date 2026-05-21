@@ -12,10 +12,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-# Phase 1: desktop is macOS-only; no target-specific deps (D-11).
-# If a future milestone restores Windows/Linux desktop builds, add a
-# target-scoped dependencies table at the bottom of this file — do NOT
-# branch inside the Rust source with `#[cfg(not(target_os = "macos"))]`.
+# Desktop builds for macOS + Windows. Platform-specific deps live in the
+# target-scoped tables at the bottom of this file. Source code that
+# touches them is gated with `#[cfg(target_os = "...")]`.
 [dependencies]
 client-core = { package = "cinchcli-core", path = "../../../crates/client-core", features = ["specta"] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
@@ -39,7 +38,6 @@ chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 env_logger = "0.11"
 dirs = "6"
-objc = "0.2"
 sha2 = "0.11"
 ulid = "1"
 uuid = { version = "1", features = ["v7"] }
@@ -58,6 +56,9 @@ cinch-cli = { path = "../../../crates/cli", optional = true }
 [features]
 default = ["builtin-cli"]
 builtin-cli = ["dep:cinch-cli"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
 
 [dev-dependencies]
 wiremock = "0.6"
