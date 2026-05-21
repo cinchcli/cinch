@@ -123,6 +123,50 @@ Run it manually with `bash scripts/check-version-parity.sh` for parity
 or `bash scripts/check-version-parity.sh 0.1.10` to also assert the
 tag value.
 
+## CLI Embedding (macOS / Windows)
+
+The Cinch desktop binary embeds the `cinch` CLI behind the `builtin-cli`
+Cargo feature (on by default; see `src-tauri/Cargo.toml`). At runtime,
+`src-tauri/src/main.rs` inspects `argv[0]`'s basename: if it matches
+`cinch` (or `cinch.exe` on Windows), the binary dispatches to
+`cinch_cli::run()` via `std::process::exit`; otherwise it launches Tauri
+via `cinch_desktop_lib::run()`.
+
+### macOS: Cask `target:` rename, no in-bundle symlink
+
+Homebrew Cask exposes the CLI to users with:
+
+```ruby
+binary "#{appdir}/Cinch.app/Contents/MacOS/Cinch", target: "cinch"
+```
+
+This creates `/opt/homebrew/bin/cinch` → `Cinch.app/Contents/MacOS/Cinch`
+at install time. The case difference is load-bearing: double-clicking
+the .app invokes `Cinch` (capital, argv[0] → Tauri); running `cinch`
+from PATH invokes the same binary with argv[0] == `"cinch"` (CLI
+dispatch). Same file, same inode, two routes.
+
+Do NOT add a `cinch` symlink **inside** `Cinch.app/Contents/MacOS/`.
+macOS APFS is case-insensitive by default, so `Cinch` and `cinch`
+collide inside the bundle — `ln -sf Cinch cinch` deletes the real
+binary and leaves a self-referencing symlink. The Cask-managed symlink
+at `/opt/homebrew/bin/cinch` lives on a separate filesystem path and
+avoids the collision entirely.
+
+This also means the Phase 4 publish pipeline does NOT need any
+post-`tauri build` symlink step before code signing / notarization —
+the bundle ships with just one binary (`Cinch`), and Homebrew Cask
+performs the linking at install time. The Tauri updater replaces the
+.app contents in place, and the Cask-managed symlink continues to
+resolve correctly afterwards (it points at a path, not an inode).
+
+### Windows: separate `cinch.exe` via `externalBin`
+
+On Windows we don't share one binary. Tauri's `externalBin` config
+bundles a separately-built `cinch.exe` next to the desktop installer,
+and the MSI puts it on PATH. See
+`apps/desktop/scripts/prepare-cli-binary.mjs` (lands in Phase 3 Task 6).
+
 ## Files Never to Commit
 
 `.design-research/` and `docs/` (both root-level) hold internal product strategy: personas, journey maps, north-star vision, dashboard specs. They are gitignored. Do not move them out of ignore status; if they need to live in version control, put them in a private repo instead.
