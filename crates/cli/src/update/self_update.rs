@@ -6,16 +6,17 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// Maps `(os, arch)` → the release asset filename, matching the names
-/// produced by `.github/workflows/release.yml`.
+/// produced by `.github/workflows/publish.yml`'s `build-cli` matrix
+/// (`cinch-cli-<rust-triple>.{tar.gz,zip}`).
 pub fn asset_name() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("cinch_Darwin_arm64.tar.gz")
+        Some("cinch-cli-aarch64-apple-darwin.tar.gz")
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some("cinch_Linux_x86_64.tar.gz")
+        Some("cinch-cli-x86_64-unknown-linux-gnu.tar.gz")
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-        Some("cinch_Linux_arm64.tar.gz")
+        Some("cinch-cli-aarch64-unknown-linux-gnu.tar.gz")
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Some("cinch_Windows_x86_64.zip")
+        Some("cinch-cli-x86_64-pc-windows-msvc.zip")
     } else {
         None
     }

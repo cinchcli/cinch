@@ -91,16 +91,28 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           tar -czf cinch-cli-${{ matrix.target }}.tar.gz cinch
+          # `cinch self-update` fetches `<asset>.sha256` next to the asset
+          # and verifies the download. shasum on macOS, sha256sum on Linux.
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 cinch-cli-${{ matrix.target }}.tar.gz > cinch-cli-${{ matrix.target }}.tar.gz.sha256
+          else
+            sha256sum cinch-cli-${{ matrix.target }}.tar.gz > cinch-cli-${{ matrix.target }}.tar.gz.sha256
+          fi
           mkdir -p ../../../dist-cli
           mv cinch-cli-${{ matrix.target }}.tar.gz ../../../dist-cli/
+          mv cinch-cli-${{ matrix.target }}.tar.gz.sha256 ../../../dist-cli/
       - name: Package as zip (windows)
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
           Compress-Archive -Path cinch.exe -DestinationPath cinch-cli-${{ matrix.target }}.zip
+          $hash = (Get-FileHash -Algorithm SHA256 cinch-cli-${{ matrix.target }}.zip).Hash.ToLower()
+          # Match Unix `shasum -a 256` output format: "<hex>  <filename>"
+          "$hash  cinch-cli-${{ matrix.target }}.zip" | Out-File -Encoding ASCII cinch-cli-${{ matrix.target }}.zip.sha256
           New-Item -ItemType Directory -Force -Path ../../../dist-cli
           Move-Item cinch-cli-${{ matrix.target }}.zip ../../../dist-cli/
+          Move-Item cinch-cli-${{ matrix.target }}.zip.sha256 ../../../dist-cli/
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
@@ -224,8 +236,24 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p dist
-          find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.zip" \) -exec cp {} dist/ \;
+          # `.sha256` is required for `cinch self-update` to verify the
+          # download against the expected checksum.
+          find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.zip" -o -name "*.sha256" \) -exec cp {} dist/ \;
           ls dist/
+      - name: Write version.json
+        # Consumed by `cinch self-update` (crates/cli/src/update/manifest.rs)
+        # to learn the latest version + publish time without parsing the
+        # Tauri updater manifest. Kept separate so the schemas can drift
+        # independently.
+        run: |
+          python3 - "${{ needs.prepare.outputs.version }}" dist/version.json <<'PY'
+          import json, sys, time
+          version, out = sys.argv[1:]
+          with open(out, "w") as f:
+              json.dump({"version": version, "published_at": int(time.time())}, f, indent=2)
+              f.write("\n")
+          PY
+          cat dist/version.json
       - name: Generate release notes
         run: |
           ./scripts/generate-release-notes.sh \
