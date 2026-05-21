@@ -45,17 +45,24 @@ p.write_text(json.dumps(data, indent=2) + "\n")
 print("Updated pubkey in", p)
 EOF
 
+PRIV_B64=$(base64 < "$PRIV" | tr -d '\n')
+
 echo ""
 echo "================================================================"
-echo "  TAURI_SIGNING_PRIVATE_KEY (save this — it will not be shown again):"
+echo "  TAURI_SIGNING_PRIVATE_KEY (base64-encoded — save this; it will"
+echo "  not be shown again). Tauri 2's bundler requires this exact"
+echo "  base64 form. Pasting the raw .key file contents (with the"
+echo "  'untrusted comment:' header) makes the build fail at sign time"
+echo "  with 'failed to decode base64 secret key'."
 echo "================================================================"
-cat "$PRIV"
+echo "$PRIV_B64"
 echo "================================================================"
 echo ""
 echo "Public key (now in tauri.conf.json):"
 echo "$PUB_B64"
 echo ""
 echo "Next steps:"
-echo "  1. Save the private key content above to .secrets.env (see verify-secrets.sh)"
-echo "  2. Save the password you just typed to .secrets.env as TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+echo "  1. Upload via:"
+echo "     echo '<the base64 string above>' | gh secret set TAURI_SIGNING_PRIVATE_KEY -R cinchcli/cinch"
+echo "  2. Save the password you just typed as TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
 echo "  3. Commit the updated tauri.conf.json (the pubkey change is safe to publish)"
