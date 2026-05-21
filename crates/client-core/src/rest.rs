@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 pub use crate::proto::cinch::v1::{
     DeviceCodeCompleteRequest, DeviceCodeDenyRequest, DeviceCodePollResponse,
     DeviceCodeStartRequest as DeviceCodeRequest, DeviceCodeStartResponse as DeviceCodeResponse,
-    ErrorResponse, KeyBundleGetResponse as KeyBundleResponse, KeyBundlePutRequest,
-    PushClipRequest as PushRequest, PushClipResponse as PushResponse,
-    RegisterDevicePublicKeyRequest, RevokeDeviceRequest as DeviceRevokeRequest,
+    ErrorResponse, GetMeRequest, GetMeResponse, KeyBundleGetResponse as KeyBundleResponse,
+    KeyBundlePutRequest, Plan, PushClipRequest as PushRequest, PushClipResponse as PushResponse,
+    RegisterDevicePublicKeyRequest, RevokeDeviceRequest as DeviceRevokeRequest, Usage,
 };
 
 /// Content classification — wire values are lowercase strings (`"text"`,
