@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "crates/client-core",
-    # crates/cli and apps/desktop/src-tauri added in later tasks
+    "crates/cli",
+    # apps/desktop/src-tauri added in later task
 ]
 
 [workspace.package]
