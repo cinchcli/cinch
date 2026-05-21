@@ -15,6 +15,11 @@ pub struct PollSnapshot {
     pub app_identity: Option<String>,
 }
 
+// Variants are constructed only inside `backend::macos`; on Linux/Windows the
+// enum is referenced solely by match arms and type signatures, so suppress the
+// dead-code lint there (cinch-desktop's runtime is macOS-only — see
+// `backend::platform_default`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub enum PollContent {
     Text(String),
@@ -29,6 +34,7 @@ pub enum PollContent {
     Unsupported,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub enum ClipboardError {
     /// Content exceeded the maximum allowed size. Preserved as an expansion

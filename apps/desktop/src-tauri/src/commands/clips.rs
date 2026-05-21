@@ -755,6 +755,10 @@ pub fn get_ws_status(ws_status: State<'_, Arc<WsStatus>>) -> String {
 /// Cinch window. On non-macOS platforms this simply hides the window.
 #[tauri::command]
 #[specta::specta]
+// `previous_pid` is only read inside the `#[cfg(target_os = "macos")]` block
+// below; on Linux/Windows the param exists purely to keep the Tauri command
+// signature stable, so suppress the unused-var lint there.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 pub fn focus_previous_app(
     app: tauri::AppHandle,
     previous_pid: State<'_, crate::PreviousAppPid>,
