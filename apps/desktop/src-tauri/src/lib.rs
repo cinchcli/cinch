@@ -1005,28 +1005,29 @@ fn activate_self() {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn configure_macos_window(app: &tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        use objc::runtime::{Object, YES};
-        use objc::{msg_send, sel, sel_impl};
+    use objc::runtime::{Object, YES};
+    use objc::{msg_send, sel, sel_impl};
 
-        let Some(window) = app.get_webview_window("main") else {
-            return;
-        };
-        let Ok(ns_window_ptr) = window.ns_window() else {
-            return;
-        };
-        unsafe {
-            let ns_window = ns_window_ptr as *mut Object;
-            // Allow AX-based moves (fixes Rectangle "Move to Next/Prev Display")
-            let _: () = msg_send![ns_window, setMovable: YES];
-            // NSWindowCollectionBehaviorManaged=4, NSWindowCollectionBehaviorParticipatesInCycle=32
-            let behavior: u64 = (1 << 2) | (1 << 5);
-            let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
-        }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(ns_window_ptr) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns_window = ns_window_ptr as *mut Object;
+        // Allow AX-based moves (fixes Rectangle "Move to Next/Prev Display")
+        let _: () = msg_send![ns_window, setMovable: YES];
+        // NSWindowCollectionBehaviorManaged=4, NSWindowCollectionBehaviorParticipatesInCycle=32
+        let behavior: u64 = (1 << 2) | (1 << 5);
+        let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
     }
 }
+
+#[cfg(not(target_os = "macos"))]
+fn configure_macos_window(_app: &tauri::AppHandle) {}
 
 fn register_global_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
