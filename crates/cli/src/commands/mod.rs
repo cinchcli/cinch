@@ -9,6 +9,7 @@ pub mod nickname;
 pub mod pair;
 pub mod pin;
 pub mod pinned;
+pub mod plan;
 pub mod pull;
 pub mod push;
 pub mod retention;

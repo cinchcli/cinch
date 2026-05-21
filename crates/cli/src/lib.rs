@@ -55,6 +55,8 @@ enum Cmd {
     Pin(commands::pin::Args),
     /// List pinned clips.
     Pinned(commands::pinned::Args),
+    /// Show your plan tier and current usage (devices, retention cap).
+    Plan(commands::plan::Args),
     /// Unpin a clip by ID prefix.
     Unpin(commands::unpin::Args),
     /// Set or clear a device's nickname.
@@ -177,6 +179,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Search(_) => "search",
         Cmd::Pin(_) => "pin",
         Cmd::Pinned(_) => "pinned",
+        Cmd::Plan(_) => "plan",
         Cmd::Unpin(_) => "unpin",
         Cmd::Nickname(_) => "nickname",
         Cmd::Sources(_) => "sources",
@@ -240,6 +243,7 @@ pub fn run() -> i32 {
             Cmd::Search(args) => commands::search::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
             Cmd::Pinned(args) => commands::pinned::run(args).await,
+            Cmd::Plan(args) => commands::plan::run(args).await,
             Cmd::Unpin(args) => commands::unpin::run(args).await,
             Cmd::Nickname(args) => commands::nickname::run(args).await,
             Cmd::Sources(args) => commands::sources::run(args).await,

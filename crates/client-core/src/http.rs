@@ -19,8 +19,9 @@ use reqwest::{header::HeaderMap, multipart, Client, StatusCode};
 use crate::protocol::{Clip, DeviceInfo};
 use crate::rest::{
     DeviceCodeCompleteRequest, DeviceCodeDenyRequest, DeviceCodePollResponse, DeviceCodeRequest,
-    DeviceCodeResponse, DeviceRevokeRequest, ErrorResponse, KeyBundlePutRequest, KeyBundleResponse,
-    PushRequest, PushResponse, RegisterDevicePublicKeyRequest,
+    DeviceCodeResponse, DeviceRevokeRequest, ErrorResponse, GetMeRequest, GetMeResponse,
+    KeyBundlePutRequest, KeyBundleResponse, PushRequest, PushResponse,
+    RegisterDevicePublicKeyRequest,
 };
 use crate::version::ClientInfo;
 
@@ -909,6 +910,23 @@ impl RestClient {
             .send_with_retry(|| self.client.get(&url).bearer_auth(&self.token).build())
             .await?;
         decode_json_response::<Vec<DeviceInfo>>(resp).await
+    }
+
+    /// `POST /cinch.v1.MeService/GetMe` (Connect-RPC unary, JSON encoding)
+    /// — fetch the caller's plan tier + active usage. Read-only; plan
+    /// changes go through ops, not the API.
+    pub async fn get_me(&self) -> Result<GetMeResponse, HttpError> {
+        let url = format!("{}/cinch.v1.MeService/GetMe", self.base_url);
+        let body = GetMeRequest {};
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HttpError::Network(e.to_string()))?;
+        decode_json_response::<GetMeResponse>(resp).await
     }
 
     async fn send_with_retry<F>(&self, build: F) -> Result<reqwest::Response, HttpError>

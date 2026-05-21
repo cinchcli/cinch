@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "cinch/v1/auth.proto",
         "cinch/v1/clips.proto",
         "cinch/v1/devices.proto",
+        "cinch/v1/me.proto",
     ];
 
     for f in &proto_files {
@@ -122,6 +123,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // values for every field.
         ".cinch.v1.SetNicknameRequest.device_id",
         ".cinch.v1.SetNicknameRequest.nickname",
+        // me.proto — plan_name is a free-form string and may legitimately
+        // be empty on the wire when no caps row exists (relay falls back to
+        // "free" but we still omit zero-value strings for Go parity).
+        ".cinch.v1.GetMeResponse.plan_name",
     ];
     for path in &string_fields {
         config.field_attribute(path, skip_str);
@@ -131,6 +136,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         ".cinch.v1.ListClipsRequest.limit",
         ".cinch.v1.SetRetentionRequest.remote_retention_days",
         // Device.clip_count omitted — see Device note above.
+        // me.proto — Plan caps and Usage counters. Zero means "unlimited" /
+        // "unset" semantically, and the Go server emits omitempty for these,
+        // so we mirror that to keep wire-byte parity.
+        ".cinch.v1.Plan.device_limit",
+        ".cinch.v1.Plan.retention_days",
+        ".cinch.v1.Plan.rate_limit",
+        ".cinch.v1.Usage.active_devices",
     ];
     for path in &i32_fields {
         config.field_attribute(path, skip_i32);
@@ -207,6 +219,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Device is server-emitted and only deserialized on the Rust side.
         // GetLatestClipResponse.clip is a message, prost emits Option<Clip>
         ".cinch.v1.GetLatestClipResponse.clip",
+        // me.proto — nested message fields are Option<Plan> / Option<Usage>;
+        // skip when absent so the JSON matches Go's omitempty.
+        ".cinch.v1.GetMeResponse.plan",
+        ".cinch.v1.GetMeResponse.usage",
     ];
     for path in &optional_fields {
         config.field_attribute(path, skip_opt);
