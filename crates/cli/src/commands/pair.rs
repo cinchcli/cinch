@@ -14,6 +14,9 @@ use std::process::Stdio;
 
 use client_core::auth::{load_config, parse_device_code_marker};
 use client_core::http::{HttpError, RestClient};
+use client_core::pair_script::{
+    sh_single_quote, FIND_SUPPORTED_CINCH_BLOCK, INSTALL_BLOCK, SKIP_INSTALL_BLOCK,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
 
@@ -153,34 +156,22 @@ async fn approve_remote_login(
 fn build_remote_script(relay_url: &str, skip_install: bool) -> String {
     let mut s = String::new();
     s.push_str("#!/bin/sh\nset -e\n\n");
-    s.push_str(&format!("RELAY_URL='{}'\n\n", relay_url));
+    // POSIX-safe quoting — a relay URL containing a `'` (rare but legal
+    // for custom relays) used to break the script before this was
+    // hoisted into `client_core::pair_script::sh_single_quote`.
+    s.push_str(&format!("RELAY_URL={}\n\n", sh_single_quote(relay_url)));
 
-    if !skip_install {
-        s.push_str(
-            r#"echo "Installing cinch..."
-SUDO=""
-if [ "$(id -u)" -ne 0 ]; then
-  if command -v sudo >/dev/null 2>&1; then
-    SUDO="sudo"
-  fi
-fi
-curl -fsSL https://cinchcli.com/install.sh | $SUDO sh -s cinch
-if ! command -v cinch >/dev/null 2>&1; then
-  echo "Error: cinch installation failed." >&2
-  exit 1
-fi
-echo ""
-"#,
-        );
+    if skip_install {
+        s.push_str(SKIP_INSTALL_BLOCK);
     } else {
-        s.push_str(
-            r#"if ! command -v cinch >/dev/null 2>&1; then
-  echo "Error: cinch not found. Remove --skip-install or install manually." >&2
-  exit 1
-fi
-"#,
-        );
+        s.push_str(INSTALL_BLOCK);
     }
+
+    // Validate that the cinch binary on the remote actually supports the
+    // `--headless` device-code flow before driving it. Without this the
+    // CLI used to invoke a stale (pre-monorepo, Go-era) cinch and fail
+    // with a confusing "unknown flag" error.
+    s.push_str(FIND_SUPPORTED_CINCH_BLOCK);
 
     s.push_str(
         r#"# Write relay URL to config (preserves other fields when possible)
@@ -204,7 +195,7 @@ fi
 chmod 600 "$CINCH_CONFIG"
 
 echo "Authenticating with relay at $RELAY_URL..."
-cinch auth login --headless --relay "$RELAY_URL"
+"$CINCH_BIN" auth login --headless --relay "$RELAY_URL"
 "#,
     );
 
@@ -258,16 +249,20 @@ mod tests {
     }
 
     #[test]
-    fn build_remote_script_always_writes_config_and_logs_in_headless() {
+    fn build_remote_script_always_writes_config_and_logs_via_validated_cinch_bin() {
         for skip in [false, true] {
             let s = build_remote_script("https://relay.example", skip);
             assert!(
                 s.contains(r#"chmod 600 "$CINCH_CONFIG""#),
                 "config must be chmod 600 (token storage); skip_install={skip}\n{s}"
             );
+            // The login MUST go through $CINCH_BIN (set by
+            // FIND_SUPPORTED_CINCH_BLOCK), not bare `cinch` — otherwise
+            // a stale Go-era cinch on PATH would handle the call and
+            // fail the device-code flow with a confusing error.
             assert!(
-                s.contains(r#"cinch auth login --headless --relay "$RELAY_URL""#),
-                "must invoke headless login with the relay URL; skip_install={skip}\n{s}"
+                s.contains(r#""$CINCH_BIN" auth login --headless --relay "$RELAY_URL""#),
+                "must invoke headless login via $CINCH_BIN; skip_install={skip}\n{s}"
             );
         }
     }
@@ -279,5 +274,36 @@ mod tests {
         // non-zero exit on SSH disconnect.
         let s = build_remote_script("https://relay.example", false);
         assert!(s.starts_with("#!/bin/sh\nset -e\n"), "got:\n{s}");
+    }
+
+    #[test]
+    fn build_remote_script_safely_quotes_relay_url_with_single_quote() {
+        // Pre-refactor the CLI emitted `RELAY_URL='https://x/'foo''` for a
+        // URL like `https://x/'foo'`, which made the shell parse `foo` as
+        // a bare word and break the script. The shared `sh_single_quote`
+        // produces the POSIX-canonical `'…'\''…'` form instead.
+        let s = build_remote_script("https://x/'foo'", false);
+        assert!(
+            s.contains(r"RELAY_URL='https://x/'\''foo'\'''"),
+            "expected POSIX-safe quoted relay URL; got:\n{s}"
+        );
+    }
+
+    #[test]
+    fn build_remote_script_includes_find_supported_cinch() {
+        // The block guards against a stale cinch on the remote's PATH
+        // that doesn't support `--headless`. Pin its presence so a
+        // future refactor doesn't silently drop it.
+        for skip in [false, true] {
+            let s = build_remote_script("https://relay.example", skip);
+            assert!(
+                s.contains("find_supported_cinch()"),
+                "must define find_supported_cinch shell helper; skip_install={skip}\n{s}"
+            );
+            assert!(
+                s.contains(r#"CINCH_BIN="$(find_supported_cinch)""#),
+                "must capture validated binary into $CINCH_BIN; skip_install={skip}\n{s}"
+            );
+        }
     }
 }

@@ -17,6 +17,7 @@ pub mod crypto;
 pub mod http;
 pub mod key_exchange;
 pub mod machine;
+pub mod pair_script;
 pub mod protocol;
 pub mod recovery;
 pub mod rest;
