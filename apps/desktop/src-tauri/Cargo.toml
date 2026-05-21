@@ -1,6 +1,6 @@
 [package]
 name = "cinch-desktop"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cinch Desktop — Multi-server clipboard dashboard"
 authors = ["jinmu"]
 edition = "2021"
