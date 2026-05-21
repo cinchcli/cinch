@@ -1,0 +1,30 @@
+Cinch Commercial License — Inquiry Notice
+
+Copyright (C) 2026 Jinmu Go. All rights reserved.
+
+This file is NOT itself a commercial license grant. It describes how to
+obtain one. No rights are granted by the mere presence of this file.
+
+Cinch (the `cinch` CLI binary in this repository) is dual-licensed:
+
+  1. GNU Affero General Public License v3.0 (AGPL-3.0) — default.
+     See LICENSE. Free for personal use, open-source projects, and
+     self-hosted deployments that comply with AGPL terms (including
+     the network-use source-disclosure requirement of section 13).
+
+  2. Commercial License — negotiated separately, in writing.
+     Required for use cases that cannot comply with AGPL-3.0.
+
+A commercial license is typically required when:
+
+  - Embedding Cinch in a proprietary or closed-source product
+  - Operating a SaaS / hosted deployment without disclosing source
+    to users interacting over the network
+  - Removing or modifying the AGPL network-use obligations
+  - An organization requires a commercial support agreement,
+    indemnification, or a warranty not provided by AGPL-3.0
+
+To obtain a commercial license, contact: jingmuio@gmail.com
+
+Until a signed commercial agreement is in place, all use of Cinch is
+governed exclusively by the AGPL-3.0 terms in LICENSE.
