@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/client-core",
+    # crates/cli and apps/desktop/src-tauri added in later tasks
+]
+
+[workspace.package]
+edition = "2021"
+authors = ["jinmu"]
+license = "AGPL-3.0-only OR LicenseRef-cinchcli-commercial"
+repository = "https://github.com/cinchcli/cinch"
+homepage = "https://cinchcli.com"
+
+[workspace.dependencies]
+# Merged from cinch-core, cinch/main, and desktop/main workspace dependencies
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls", "stream"], default-features = false }
+url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+dirs = "6"
+sha2 = "0.11"
+ulid = "1"
+aes-gcm = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hkdf = "0.13"
+base64 = "0.22"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+hostname = "0.4"
+keyring = "3"
+arboard = "3"
+inquire = "0.7"
+indicatif = "0.18"
+open = "5"
+prost = "0.13"
+prost-types = "0.13"
+rusqlite = { version = "0.32", features = ["bundled"] }
+bip39 = "2"
+semver = "1"
+uuid = { version = "1", features = ["v7"] }
+specta = { version = "2.0.0-rc.24", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
