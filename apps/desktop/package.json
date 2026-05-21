@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "node scripts/tauri-dev.mjs",
+    "tauri:build": "node scripts/prepare-cli-binary.mjs && tauri build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
