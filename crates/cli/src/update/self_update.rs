@@ -59,6 +59,8 @@ pub enum SelfUpdateError {
     UnsupportedTarget,
     NotWritable(PathBuf),
     NotPermitted(String),
+    /// Binary is managed by a package manager; refuse to clobber unless --force.
+    ManagedInstall(InstallSource),
     Fetch(String),
     ShaMismatch,
     Extract(String),
@@ -70,7 +72,16 @@ impl std::fmt::Display for SelfUpdateError {
         match self {
             Self::UnsupportedTarget => write!(f, "no release asset for this target"),
             Self::NotWritable(p) => write!(f, "no write access to {}", p.display()),
-            Self::NotPermitted(hint) => write!(f, "{}", hint),
+            Self::NotPermitted(s) => write!(f, "{}", s),
+            Self::ManagedInstall(src) => {
+                let kind = match src {
+                    InstallSource::Homebrew => "Homebrew",
+                    InstallSource::Apt { .. } => "apt",
+                    InstallSource::Rpm { .. } => "rpm",
+                    InstallSource::Unknown => "a package manager",
+                };
+                write!(f, "cinch was installed via {}; {}", kind, hint(src))
+            }
             Self::Fetch(s) => write!(f, "fetch failed: {}", s),
             Self::ShaMismatch => write!(f, "SHA-256 mismatch — download corrupt"),
             Self::Extract(s) => write!(f, "extract failed: {}", s),
@@ -80,6 +91,26 @@ impl std::fmt::Display for SelfUpdateError {
 }
 
 impl std::error::Error for SelfUpdateError {}
+
+/// Result of the pre-flight check that decides whether self-update may proceed,
+/// given the detected install source and the user's `--force` choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelfUpdateGate {
+    Proceed,
+    ProceedWithWarning(InstallSource),
+    Refuse(InstallSource),
+}
+
+/// Pure decision: unmanaged → proceed; managed without force → refuse;
+/// managed with force → proceed but warn the caller so it can surface
+/// the consequence (clobbering a package-managed symlink) to the user.
+pub fn gate(source: &InstallSource, force: bool) -> SelfUpdateGate {
+    match (source, force) {
+        (InstallSource::Unknown, _) => SelfUpdateGate::Proceed,
+        (managed, true) => SelfUpdateGate::ProceedWithWarning(managed.clone()),
+        (managed, false) => SelfUpdateGate::Refuse(managed.clone()),
+    }
+}
 
 use crate::update::manifest::{fetch_latest, FetchError};
 use crate::update::source::{detect, hint, InstallSource, RealDetector};
@@ -96,8 +127,21 @@ pub async fn run(opts: RunOptions) -> Result<(), SelfUpdateError> {
         .map_err(|e| SelfUpdateError::NotPermitted(format!("cannot resolve current exe: {}", e)))?;
     let source = detect(&exe, &RealDetector);
 
-    if !opts.force && !matches!(source, InstallSource::Unknown) {
-        return Err(SelfUpdateError::NotPermitted(hint(&source).to_string()));
+    match gate(&source, opts.force) {
+        SelfUpdateGate::Proceed => {}
+        SelfUpdateGate::Refuse(src) => return Err(SelfUpdateError::ManagedInstall(src)),
+        SelfUpdateGate::ProceedWithWarning(src) => {
+            eprintln!(
+                "warning: cinch was installed via {}; --force will replace the package-managed binary.",
+                match src {
+                    InstallSource::Homebrew => "Homebrew",
+                    InstallSource::Apt { .. } => "apt",
+                    InstallSource::Rpm { .. } => "rpm",
+                    InstallSource::Unknown => "a package manager",
+                },
+            );
+            eprintln!("         The package manager will see an unmanaged file on its next sync.");
+        }
     }
 
     let manifest = fetch_latest().await.map_err(|e| match e {
@@ -345,5 +389,76 @@ mod tests {
         let dir = tempdir().unwrap();
         let bad = dir.path().join("does-not-exist");
         assert!(!can_write_to(&bad));
+    }
+
+    #[test]
+    fn gate_proceeds_when_source_is_unknown_without_force() {
+        assert_eq!(
+            gate(&InstallSource::Unknown, false),
+            SelfUpdateGate::Proceed
+        );
+    }
+
+    #[test]
+    fn gate_proceeds_when_source_is_unknown_with_force() {
+        assert_eq!(gate(&InstallSource::Unknown, true), SelfUpdateGate::Proceed);
+    }
+
+    #[test]
+    fn gate_refuses_homebrew_without_force() {
+        assert_eq!(
+            gate(&InstallSource::Homebrew, false),
+            SelfUpdateGate::Refuse(InstallSource::Homebrew),
+        );
+    }
+
+    #[test]
+    fn gate_refuses_apt_without_force() {
+        let apt = InstallSource::Apt {
+            pkg: "cinch".into(),
+        };
+        assert_eq!(gate(&apt, false), SelfUpdateGate::Refuse(apt));
+    }
+
+    #[test]
+    fn gate_refuses_rpm_without_force() {
+        let rpm = InstallSource::Rpm {
+            pkg: "cinch-0.5.0-1.x86_64".into(),
+        };
+        assert_eq!(gate(&rpm, false), SelfUpdateGate::Refuse(rpm));
+    }
+
+    #[test]
+    fn gate_warns_when_homebrew_with_force() {
+        assert_eq!(
+            gate(&InstallSource::Homebrew, true),
+            SelfUpdateGate::ProceedWithWarning(InstallSource::Homebrew),
+        );
+    }
+
+    #[test]
+    fn gate_warns_when_apt_with_force() {
+        let apt = InstallSource::Apt {
+            pkg: "cinch".into(),
+        };
+        assert_eq!(gate(&apt, true), SelfUpdateGate::ProceedWithWarning(apt),);
+    }
+
+    #[test]
+    fn managed_install_error_display_includes_source_and_hint_for_homebrew() {
+        let err = SelfUpdateError::ManagedInstall(InstallSource::Homebrew);
+        let s = err.to_string();
+        assert!(s.contains("Homebrew"), "missing source kind: {}", s);
+        assert!(s.contains("brew upgrade cinch"), "missing hint: {}", s);
+    }
+
+    #[test]
+    fn managed_install_error_display_for_apt() {
+        let err = SelfUpdateError::ManagedInstall(InstallSource::Apt {
+            pkg: "cinch".into(),
+        });
+        let s = err.to_string();
+        assert!(s.contains("apt"), "missing source kind: {}", s);
+        assert!(s.contains("apt install"), "missing hint: {}", s);
     }
 }
