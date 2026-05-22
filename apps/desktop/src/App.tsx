@@ -35,6 +35,7 @@ import { ClipDetail } from './components/ClipDetail';
 import { StatusBar } from './components/StatusBar';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
+import { GettingStartedCard } from './components/GettingStartedCard';
 import { dialogStyles } from './components/dialogPrimitives';
 import { IconCopy, IconTrash } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -656,6 +657,19 @@ function App() {
             deviceNicknames={nicknameBySource}
             tagColors={tagColors}
             listRef={clipListRef}
+          />
+        ) : clips.length === 0 && devices.length <= 1 ? (
+          <GettingStartedCard
+            onCopySnippet={(text) => {
+              void unwrap(commands.copyClipToClipboard(text));
+              showToast('Copied to clipboard', 'copy');
+            }}
+            onOpenDevices={() => {
+              setActivePanel('devices');
+              setSelectedClip(null);
+              setSelectedSource(null);
+              setActiveFilter('all');
+            }}
           />
         ) : (
           <>
