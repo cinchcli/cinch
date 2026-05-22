@@ -1,3 +1,4 @@
+pub mod auto_paste;
 pub(crate) mod backend;
 pub mod monitor;
 pub mod service;
