@@ -151,7 +151,7 @@ decide whether to render the card's contents, and once externally
 implicitly via the natural-graduation condition. Keeping both keeps
 `App.tsx`'s JSX free of localStorage reads. Acceptable.
 
-### CLI — first-run welcome + push/pull guard
+### CLI — first-run welcome + pull guard
 
 #### Bare `cinch` (no args)
 

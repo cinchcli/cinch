@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a desktop `GettingStartedCard` empty state and a CLI first-run welcome plus `push`/`pull` auth guard so first-time Cinch users get a clear next action.
+**Goal:** Add a desktop `GettingStartedCard` empty state and a CLI first-run welcome plus a `pull` auth guard so first-time Cinch users get a clear next action.
 
 **Architecture:** Two surfaces, no shared code path. Desktop: new React component rendered conditionally from `App.tsx` when authenticated, zero clips, ≤1 device, not dismissed. CLI: new `auth_state.rs` module shared between `lib.rs::run()` (bare-invocation welcome) and the command guard in `pull.rs`. `push.rs` is intentionally NOT guarded because it supports `--token` and `CINCH_TOKEN` as stateless auth sources — its existing empty-token branch already emits the identical `AUTH_FAILURE` + `Run: cinch auth login` error. Auth state is the natural trigger for both surfaces — no marker file.
 
