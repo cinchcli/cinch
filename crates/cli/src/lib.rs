@@ -8,6 +8,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
+mod auth_state;
 mod client_info;
 mod commands;
 mod desktop_handoff;
