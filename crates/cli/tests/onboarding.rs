@@ -46,3 +46,27 @@ fn cinch_help_does_not_print_welcome() {
         combined
     );
 }
+
+#[test]
+fn push_without_auth_returns_auth_failure_exit_code() {
+    let tmp_home = tempfile::tempdir().expect("tempdir");
+    let output = Command::new(cinch_binary())
+        .arg("push")
+        .env("HOME", tmp_home.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run cinch push");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2 (AUTH_FAILURE), got {:?}",
+        output.status.code()
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cinch auth login"),
+        "missing hint in stderr: {}",
+        stderr
+    );
+}

@@ -60,6 +60,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
+    crate::auth_state::ensure_authenticated()?;
     let cfg = resolve_config(&args)?;
 
     let mut data = Vec::new();
