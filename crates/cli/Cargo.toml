@@ -41,5 +41,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 futures-util = { workspace = true }
 uuid = { version = "1", features = ["v7"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+
 [dev-dependencies]
 wiremock = "0.6"

@@ -508,7 +508,7 @@ fn copy_text_to_clipboard(text: &str) {
     }
 }
 
-fn write_image(clip: &Clip, bytes: Vec<u8>, _copy: bool, from: &str) -> Result<(), ExitError> {
+fn write_image(clip: &Clip, bytes: Vec<u8>, copy: bool, from: &str) -> Result<(), ExitError> {
     let stdout = std::io::stdout();
     if stdout.is_terminal() {
         eprintln!(
@@ -517,10 +517,29 @@ fn write_image(clip: &Clip, bytes: Vec<u8>, _copy: bool, from: &str) -> Result<(
             format_bytes(clip.byte_size),
             clip.source
         );
-        // Image-to-clipboard write needs PNG → RGBA decode for arboard, which
-        // is desktop's territory. Phase 4 keeps `--copy` as a TTY hint only,
-        // matching Go's stubbed behavior.
-        eprintln!("  Use --copy via desktop, or pipe to a file:");
+        if copy {
+            #[cfg(target_os = "macos")]
+            {
+                match crate::macos_pasteboard::write_png(&bytes) {
+                    Ok(()) => eprintln!("  Copied image to clipboard."),
+                    Err(e) => eprintln!("  Warning: clipboard write failed: {}", e),
+                }
+                return Ok(());
+            }
+            // Non-macOS: arboard's image API requires PNG → RGBA decode, which
+            // pulls in the `image` crate. Until we want that footprint, point
+            // the user at the pipe-to-file workaround.
+            #[cfg(not(target_os = "macos"))]
+            {
+                eprintln!("  --copy for images is only supported on macOS.");
+                eprintln!(
+                    "  Pipe to a file instead: cinch pull --from {} > image.png",
+                    from
+                );
+                return Ok(());
+            }
+        }
+        eprintln!("  Use --copy, or pipe to a file:");
         eprintln!("  cinch pull --from {} > image.png", from);
         return Ok(());
     }

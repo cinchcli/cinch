@@ -14,6 +14,8 @@ mod desktop_handoff;
 mod exit;
 mod fmt;
 mod key_state;
+#[cfg(target_os = "macos")]
+mod macos_pasteboard;
 mod runtime;
 mod telemetry;
 mod update;

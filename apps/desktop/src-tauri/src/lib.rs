@@ -303,6 +303,9 @@ pub fn run() {
             {
                 let app_for_consumer = handle.clone();
                 let mut rx = clip_notif_rx;
+                let clipboard_for_paste = clipboard_service.clone();
+                let store_for_paste: crate::SharedStore =
+                    app.state::<crate::SharedStore>().inner().clone();
                 tauri::async_runtime::spawn(async move {
                     while let Some(clip) = rx.recv().await {
                         let payload = clipboard::monitor::clip_received_stub(
@@ -312,6 +315,17 @@ pub fn run() {
                             &clip.content_type,
                         );
                         let _ = crate::events::RemoteClipReceived(payload).emit(&app_for_consumer);
+
+                        // Sync image clips into the local OS pasteboard so the
+                        // user can paste into any app without clicking Copy in
+                        // the in-app history UI. Text/code/url stay manual so
+                        // browsing history does not stomp the local clipboard.
+                        crate::clipboard::auto_paste::paste_incoming_image(
+                            &clipboard_for_paste,
+                            &store_for_paste,
+                            &clip.clip_id,
+                            &clip.content_type,
+                        );
                     }
                 });
             }
