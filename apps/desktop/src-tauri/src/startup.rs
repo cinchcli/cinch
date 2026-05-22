@@ -76,9 +76,12 @@ pub(crate) fn build_initial_writer_and_pusher(
         let _ = initial_cb_tx.send(clip.clone());
     });
 
-    // T2: backlog flush on every WS (re)connect. The callback
-    // fires on initial connect AND after every reconnect, so
-    // any clips queued while offline get flushed.
+    // Reconnect catch-up: runs on initial connect AND every reconnect.
+    // Flush drains anything captured locally while offline (outbound),
+    // backfill pulls any clip the relay broadcast while this device
+    // wasn't subscribed (inbound) — the relay does NOT replay missed
+    // events on resubscribe, so without backfill here a `cinch push`
+    // landing during a WS hiccup stays invisible until next launch.
     let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
         let store_cb = shared_store.clone();
         let rest_cb = rest_arc.clone();
@@ -86,18 +89,23 @@ pub(crate) fn build_initial_writer_and_pusher(
             let store = store_cb.clone();
             let rest = rest_cb.clone();
             tauri::async_runtime::spawn(async move {
-                match client_core::sync::flush_once(&store, &rest, key).await {
-                    Ok(report) => {
-                        if report.flushed > 0 || report.dropped > 0 {
-                            log::info!(
-                                "desktop reconnect flush: flushed={} dropped={} remaining={}",
-                                report.flushed,
-                                report.dropped,
-                                report.remaining,
-                            );
-                        }
-                    }
+                let report = client_core::sync::reconnect_catchup(&store, &rest, key).await;
+                match &report.flush {
+                    Ok(r) if r.flushed > 0 || r.dropped > 0 => log::info!(
+                        "desktop reconnect flush: flushed={} dropped={} remaining={}",
+                        r.flushed,
+                        r.dropped,
+                        r.remaining,
+                    ),
+                    Ok(_) => {}
                     Err(e) => log::debug!("desktop reconnect flush failed: {}", e),
+                }
+                match &report.backfill {
+                    Ok(n) if *n > 0 => {
+                        log::info!("desktop reconnect backfill: inserted={}", n)
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
                 }
             });
         }))

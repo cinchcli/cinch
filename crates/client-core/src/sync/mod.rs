@@ -6,6 +6,7 @@ pub mod local_pusher;
 pub mod lockfile;
 pub mod map;
 pub mod reader;
+pub mod reconnect;
 pub mod writer;
 
 pub use backlog_flusher::{
@@ -15,4 +16,5 @@ pub use backlog_flusher::{
 pub use local_pusher::{IngestError, LocalPusher, PushOutcome};
 pub use lockfile::{LockKind, Lockfile};
 pub use reader::{backfill_once, BackfillBudget, BackfillError};
+pub use reconnect::{reconnect_catchup, ReconnectCatchupReport};
 pub use writer::{OnConnectedCallback, OnNewClipCallback, Writer};

@@ -38,6 +38,7 @@ async fn writer_starts_and_stops() {
         token,
         encryption_key: None,
         client_info: None,
+        media_fetcher: None,
     };
 
     let lock_path =
@@ -101,12 +102,14 @@ async fn second_writer_cannot_acquire_held_lock() {
         token: token.clone(),
         encryption_key: None,
         client_info: None,
+        media_fetcher: None,
     };
     let ws_cfg2 = WsConfig {
         relay_url: url,
         token,
         encryption_key: None,
         client_info: None,
+        media_fetcher: None,
     };
 
     let lock_path =

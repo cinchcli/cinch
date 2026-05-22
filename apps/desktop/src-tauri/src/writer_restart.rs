@@ -118,7 +118,11 @@ pub(crate) async fn restart_writer(
         let _ = cb_tx.send(clip.clone());
     });
 
-    // T2: backlog flush on every WS (re)connect for the rebuilt Writer.
+    // Reconnect catch-up for the rebuilt Writer. Same shape as the
+    // initial-startup callback in startup.rs: flush_once handles outbound,
+    // backfill_once handles inbound. The inbound leg is essential because
+    // the relay does not replay events that arrived while this device was
+    // unsubscribed — backfill is the only path to recover those clips.
     let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
         let store_cb = store.clone();
         let rest_cb = rest_arc.clone();
@@ -126,18 +130,23 @@ pub(crate) async fn restart_writer(
             let store = store_cb.clone();
             let rest = rest_cb.clone();
             tauri::async_runtime::spawn(async move {
-                match client_core::sync::flush_once(&store, &rest, key).await {
-                    Ok(report) => {
-                        if report.flushed > 0 || report.dropped > 0 {
-                            log::info!(
-                                "desktop reconnect flush: flushed={} dropped={} remaining={}",
-                                report.flushed,
-                                report.dropped,
-                                report.remaining,
-                            );
-                        }
-                    }
+                let report = client_core::sync::reconnect_catchup(&store, &rest, key).await;
+                match &report.flush {
+                    Ok(r) if r.flushed > 0 || r.dropped > 0 => log::info!(
+                        "desktop reconnect flush: flushed={} dropped={} remaining={}",
+                        r.flushed,
+                        r.dropped,
+                        r.remaining,
+                    ),
+                    Ok(_) => {}
                     Err(e) => log::debug!("desktop reconnect flush failed: {}", e),
+                }
+                match &report.backfill {
+                    Ok(n) if *n > 0 => {
+                        log::info!("desktop reconnect backfill: inserted={}", n)
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
                 }
             });
         }))
