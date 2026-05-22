@@ -8,6 +8,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
+mod auth_state;
 mod client_info;
 mod commands;
 mod desktop_handoff;
@@ -195,10 +196,27 @@ fn command_name(cmd: &Cmd) -> &'static str {
     }
 }
 
+fn print_first_run_welcome() {
+    eprintln!("Welcome to Cinch — pipe clipboard between machines.");
+    eprintln!();
+    eprintln!("Get started:");
+    eprintln!("  cinch auth login           Sign in via browser");
+    eprintln!("  echo \"hello\" | cinch push  Send your clipboard");
+    eprintln!("  cinch pull                 Receive the latest clip");
+    eprintln!();
+    eprintln!("Docs: https://cinchcli.com/docs/");
+    eprintln!();
+}
+
 /// Library entrypoint. Returns the process exit code: `0` on success,
 /// the `ExitError::code` on failure. The standalone `cinch` binary and
 /// the desktop binary (when invoked as `cinch`) both call this.
 pub fn run() -> i32 {
+    if std::env::args().len() == 1 && !auth_state::is_authenticated() {
+        print_first_run_welcome();
+        // Fall through — clap's `arg_required_else_help = true` will
+        // print the usage block and exit with code 2.
+    }
     let cli = Cli::parse();
 
     if let Cmd::Completion { shell } = cli.cmd {

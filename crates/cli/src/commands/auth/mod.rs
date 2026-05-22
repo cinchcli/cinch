@@ -114,7 +114,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
 }
 
 #[cfg(test)]
-pub(super) mod test_helpers {
+pub(crate) mod test_helpers {
     /// Serializes tests that mutate the HOME environment variable.
     /// `std::env::set_var` is process-wide; concurrent tests can stomp each
     /// other's HOME → config-file path → loaded credentials. Acquire this lock

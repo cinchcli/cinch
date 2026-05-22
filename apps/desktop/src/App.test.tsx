@@ -243,4 +243,19 @@ describe('App', () => {
         expect(invoke).not.toHaveBeenCalledWith('copy_clip_to_clipboard', { content: 'clip to pin' });
         expect(invoke).not.toHaveBeenCalledWith('focus_previous_app');
     });
+
+    it('renders GettingStartedCard when authenticated, inbox empty, and only self device', async () => {
+        // localStorage may be sticky from a previous test — ensure the card isn't pre-dismissed.
+        localStorage.removeItem('cinchGettingStartedDismissed');
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('getting-started-card')).toBeInTheDocument();
+        });
+    });
 });

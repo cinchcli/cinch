@@ -78,6 +78,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
+    crate::auth_state::ensure_authenticated()?;
     let cfg = load_config().map_err(|e| {
         ExitError::new(
             AUTH_FAILURE,

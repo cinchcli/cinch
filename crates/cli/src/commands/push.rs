@@ -60,6 +60,11 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
+    // Note: no `ensure_authenticated()` guard here. `resolve_config` below
+    // overlays `--token` and `CINCH_TOKEN` on top of disk state and then
+    // emits the same `AUTH_FAILURE` + `Run: cinch auth login` error when
+    // every source is empty, so adding the guard would override the
+    // documented stateless-push path (CI / containers without `~/.cinch`).
     let cfg = resolve_config(&args)?;
 
     let mut data = Vec::new();
