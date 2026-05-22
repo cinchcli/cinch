@@ -208,12 +208,12 @@ async fn handle_ws_event(
                 );
                 return;
             }
-            // Use plaintext bytes for the content so binary clips (which have
-            // base64 in clip.content after re-encoding) are stored as raw bytes.
-            // The map function accepts clip.content as a String — for text clips
-            // plaintext == clip.content.as_bytes(), so the lossy conversion is
-            // a no-op.  For binary clips the store already accepts the base64
-            // form (same as the REST path).
+            // `clip_wire_to_stored` is the single boundary that converts the
+            // wire `Clip.content` String into store bytes. For binary clips
+            // (image/*, or anything with `media_path`) it base64-decodes back
+            // to raw bytes; for text clips it stores UTF-8 bytes. The store
+            // therefore always holds raw plaintext, which is what `media.rs`
+            // (`cinch://media/...`) and FTS5 search expect.
             match map::clip_wire_to_stored(&clip) {
                 Ok(Some(stored)) => {
                     let inserted = match queries::insert_clip(store, &stored) {
