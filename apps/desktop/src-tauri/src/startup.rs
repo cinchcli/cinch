@@ -38,12 +38,6 @@ pub(crate) fn build_initial_writer_and_pusher(
     }
 
     let enc_key = client_core::credstore::read_encryption_key(&config.user_id);
-    let ws_cfg = client_core::ws::WsConfig {
-        relay_url: config.relay_url.clone(),
-        token: config.token.clone(),
-        encryption_key: enc_key,
-        client_info: Some(build_client_info()),
-    };
     let rest_client = match client_core::http::RestClient::new(
         config.relay_url.clone(),
         config.token.clone(),
@@ -62,6 +56,15 @@ pub(crate) fn build_initial_writer_and_pusher(
     };
 
     let rest_arc = Arc::new(rest_client);
+    // ws::run uses this REST client to GET /clips/{id}/media for media-routed
+    // image clips (D-routing). Cloned because the Writer also owns rest_arc.
+    let ws_cfg = client_core::ws::WsConfig {
+        relay_url: config.relay_url.clone(),
+        token: config.token.clone(),
+        encryption_key: enc_key,
+        client_info: Some(build_client_info()),
+        media_fetcher: Some((*rest_arc).clone()),
+    };
     let pusher =
         client_core::sync::LocalPusher::new(shared_store.clone(), rest_arc.clone(), enc_key);
     let store_for_writer = shared_store.clone();

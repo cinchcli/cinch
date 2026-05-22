@@ -38,13 +38,6 @@ pub(crate) async fn restart_writer(
     };
 
     let enc_key = client_core::credstore::read_encryption_key(&user_id);
-    let ws_cfg = client_core::ws::WsConfig {
-        relay_url: relay_url.to_string(),
-        token: token.to_string(),
-        encryption_key: enc_key,
-        client_info: Some(build_client_info()),
-    };
-
     let rest = client_core::http::RestClient::new(
         relay_url.to_string(),
         token.to_string(),
@@ -52,6 +45,16 @@ pub(crate) async fn restart_writer(
     )
     .map_err(|e| e.to_string())?;
     let rest_arc = Arc::new(rest);
+
+    // ws::run uses this REST client to GET /clips/{id}/media for media-routed
+    // image clips (D-routing).
+    let ws_cfg = client_core::ws::WsConfig {
+        relay_url: relay_url.to_string(),
+        token: token.to_string(),
+        encryption_key: enc_key,
+        client_info: Some(build_client_info()),
+        media_fetcher: Some((*rest_arc).clone()),
+    };
 
     let store: SharedStore = app.state::<SharedStore>().inner().clone();
     let lock_path = client_core::store::lock_path()

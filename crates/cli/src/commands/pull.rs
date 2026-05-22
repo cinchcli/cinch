@@ -220,6 +220,10 @@ async fn watch_stream(
         token: cfg.token.clone(),
         encryption_key: key,
         client_info: Some(crate::client_info::for_cli()),
+        // ws::run uses the same RestClient to GET /clips/{id}/media for
+        // media-routed clips (D-routing). Cheap to clone (reqwest::Client
+        // is Arc-backed internally).
+        media_fetcher: Some(client.clone()),
     };
     let handle = tokio::spawn(ws::run(cfg_ws, tx));
 
