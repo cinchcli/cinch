@@ -4,7 +4,7 @@
 
 **Goal:** Add a desktop `GettingStartedCard` empty state and a CLI first-run welcome plus `push`/`pull` auth guard so first-time Cinch users get a clear next action.
 
-**Architecture:** Two surfaces, no shared code path. Desktop: new React component rendered conditionally from `App.tsx` when authenticated, zero clips, ≤1 device, not dismissed. CLI: new `auth_state.rs` module shared between `lib.rs::run()` (bare-invocation welcome) and command guards in `push.rs` / `pull.rs`. Auth state is the natural trigger for both — no marker file.
+**Architecture:** Two surfaces, no shared code path. Desktop: new React component rendered conditionally from `App.tsx` when authenticated, zero clips, ≤1 device, not dismissed. CLI: new `auth_state.rs` module shared between `lib.rs::run()` (bare-invocation welcome) and the command guard in `pull.rs`. `push.rs` is intentionally NOT guarded because it supports `--token` and `CINCH_TOKEN` as stateless auth sources — its existing empty-token branch already emits the identical `AUTH_FAILURE` + `Run: cinch auth login` error. Auth state is the natural trigger for both surfaces — no marker file.
 
 **Tech Stack:** React + TypeScript (vitest), Rust (clap, tokio), `client_core::auth::load_multi_config`.
 
@@ -35,8 +35,8 @@ apps/desktop/src/App.test.tsx                               (modified, +1 test)
 
 crates/cli/src/auth_state.rs                                (new, ~40 lines)
 crates/cli/src/lib.rs                                       (modified, ~15 line diff)
-crates/cli/src/commands/push.rs                             (modified, +1 line)
 crates/cli/src/commands/pull.rs                             (modified, +1 line)
+crates/cli/src/commands/push.rs                             (not modified — see Task 3, Step 3 note on the CINCH_TOKEN regression)
 
 docs/superpowers/specs/2026-05-22-onboarding-flow-design.md  (already committed)
 docs/superpowers/plans/2026-05-22-onboarding-flow.md         (this file)
@@ -424,15 +424,11 @@ cargo test -p cinch-cli auth_state
 ```
 Expected: all four tests PASS (`empty_multi_config_is_unauthenticated`, `profile_with_blank_token_is_unauthenticated`, `profile_with_token_is_authenticated`, `ensure_authenticated_errors_when_no_token`).
 
-- [ ] **Step 3: Wire the guard into `push.rs`**
+- [ ] **Step 3: Wire the guard into `pull.rs` only**
 
-Open `crates/cli/src/commands/push.rs`. Find `pub async fn run(args: Args) -> Result<(), ExitError> {` at line 62. Insert as the very first statement:
+Wire the guard into `pull.rs` only. `push.rs`'s `resolve_config` already returns the same `AUTH_FAILURE` + `Run: cinch auth login` after considering `--token` and `CINCH_TOKEN`, so adding the guard there would override the documented stateless-push path (CI / containers that have no `~/.cinch/config.json` and pass auth via env / flag).
 
-```rust
-pub async fn run(args: Args) -> Result<(), ExitError> {
-    crate::auth_state::ensure_authenticated()?;
-    // … existing body unchanged
-```
+(Originally this step also patched `push.rs`. That edit was reverted after review caught the `CINCH_TOKEN` regression; the existing check at `push.rs:376` already produces the same error format for the truly-no-token case.)
 
 - [ ] **Step 4: Wire the guard into `pull.rs`**
 
@@ -451,19 +447,31 @@ cargo build -p cinch-cli
 HOME=$(mktemp -d) ./target/debug/cinch push <<<"hello" 2>&1
 echo "exit=$?"
 ```
-Expected stderr:
+Expected stderr (from push's existing empty-token check at `push.rs:376`, not from the removed guard):
 ```
-✗ Not signed in on this machine.
+✗ No auth token configured.
   Run: cinch auth login
 ```
 Expected exit code: `2`.
 
-Same for pull:
+And critically — the `CINCH_TOKEN` path stays alive:
+```bash
+HOME=$(mktemp -d) CINCH_TOKEN=fake ./target/debug/cinch push <<<"hello" 2>&1
+echo "exit=$?"
+```
+Expected: NOT exit 2 from a missing-auth gate. Either a network error against the relay, or an `AUTH_FAILURE` further downstream (token rejected by the relay), but not the bare "Not signed in on this machine." short-circuit.
+
+For pull (which has no `--token` / `CINCH_TOKEN` path, so it keeps the guard):
 ```bash
 HOME=$(mktemp -d) ./target/debug/cinch pull 2>&1
 echo "exit=$?"
 ```
-Same expected output and exit code `2`.
+Expected:
+```
+✗ Not signed in on this machine.
+  Run: cinch auth login
+```
+Exit code `2`.
 
 - [ ] **Step 6: Add integration test for the push guard**
 
@@ -507,9 +515,11 @@ Expected: all PASS. If pre-existing tests in `commands/push.rs` or `commands/pul
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/cli/src/auth_state.rs crates/cli/src/commands/push.rs crates/cli/src/commands/pull.rs crates/cli/tests/onboarding.rs
-git commit -m "feat(cli): guard push/pull with ensure_authenticated"
+git add crates/cli/src/auth_state.rs crates/cli/src/commands/pull.rs crates/cli/tests/onboarding.rs
+git commit -m "feat(cli): guard pull with ensure_authenticated"
 ```
+
+(The integration test `push_without_auth_returns_auth_failure_exit_code` still passes because `push.rs`'s pre-existing empty-token branch returns the same exit code and hint.)
 
 ---
 

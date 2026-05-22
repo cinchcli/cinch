@@ -194,12 +194,20 @@ characters. The trailing blank line separates it from clap's help.
 
 #### `cinch push` / `cinch pull` while unauthenticated
 
-`crates/cli/src/commands/push.rs` and `pull.rs` each gain a guard at
-the very top of their `run()` function:
+`crates/cli/src/commands/pull.rs` gains a guard at the very top of its
+`run()` function:
 
 ```rust
 ensure_authenticated()?;
 ```
+
+**Why push doesn't get the guard.** `push` supports `--token` and
+`CINCH_TOKEN` as stateless auth sources. The existing `resolve_config`
+returns the same `AUTH_FAILURE` + `Run: cinch auth login` error after
+considering all three sources (disk, flag, env), so the new guard would
+be redundant and would break the documented env-var path used by CI and
+container deployments that have no `~/.cinch/config.json`. `pull` has
+no such env-var path, so it gets the guard.
 
 `ensure_authenticated()` lives in `crates/cli/src/commands/mod.rs`:
 
@@ -325,8 +333,8 @@ apps/desktop/src/App.tsx                                    (modified)
 apps/desktop/src/App.test.tsx                               (modified, +1-2 cases)
 crates/cli/src/lib.rs                                       (modified, ~10 lines)
 crates/cli/src/commands/mod.rs                              (modified, helper)
-crates/cli/src/commands/push.rs                             (modified, +1 line)
 crates/cli/src/commands/pull.rs                             (modified, +1 line)
+crates/cli/src/commands/push.rs                             (intentionally NOT modified — preserves CINCH_TOKEN env path)
 crates/cli/src/exit.rs                                      (modified, +1 const)
 crates/cli/tests/onboarding.rs                              (new, optional)
 ```

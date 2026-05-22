@@ -89,6 +89,12 @@ mod tests {
 
     #[test]
     fn ensure_authenticated_errors_when_no_token() {
+        // `std::env::set_var` is process-wide. Serialize with the same
+        // HOME_LOCK used by auth::{login,approve,set_name} tests so we
+        // don't race with them when cargo runs tests in parallel.
+        use crate::commands::auth::test_helpers::HOME_LOCK;
+        let _home_guard = HOME_LOCK.lock().unwrap();
+
         // Force is_authenticated() to return false by pointing HOME at a
         // tempdir with no .cinch/ subdirectory.
         let tmp = tempfile::tempdir().expect("tempdir");
