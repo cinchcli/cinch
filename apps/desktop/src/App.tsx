@@ -333,6 +333,15 @@ function App() {
     return () => { unsubBlur.then((f) => f()); };
   }, []);
 
+  const handleSaveImage = useCallback(async (clip: LocalClip) => {
+    try {
+      const path = await unwrap(commands.saveImageToFile(clip.id));
+      if (path) console.info('[save-image] wrote', path);
+    } catch (e) {
+      console.error('[save-image] failed', e);
+    }
+  }, []);
+
   const copyClip = useCallback((clip: LocalClip) => {
     if (clip.content_type === 'image') {
       unwrap(commands.copyImageToClipboard(clip.id));
@@ -654,7 +663,7 @@ function App() {
             onPin={(c) => setPinNoteDialog({ clip: c })}
             onUnpin={handleUnpin}
             onDelete={(c) => handleDelete(c.id)}
-            onSaveImage={(_c) => { /* TODO T5: wire to handleSaveImage */ }}
+            onSaveImage={handleSaveImage}
             query={debouncedQuery}
             deviceNicknames={nicknameBySource}
             tagColors={tagColors}
@@ -684,7 +693,7 @@ function App() {
               onCopy={copyClip}
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
-              onSaveImage={(_c) => { /* TODO T5: wire to handleSaveImage */ }}
+              onSaveImage={handleSaveImage}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
