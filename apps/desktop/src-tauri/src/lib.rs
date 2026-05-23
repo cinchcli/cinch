@@ -66,6 +66,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::mark_clip_copied,
             commands::clips::copy_clip_to_clipboard,
             commands::clips::copy_image_to_clipboard,
+            commands::clips::save_image_to_file,
             commands::clips::focus_previous_app,
             commands::clips::list_devices,
             commands::clips::set_device_nickname,

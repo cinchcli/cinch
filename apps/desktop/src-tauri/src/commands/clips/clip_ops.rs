@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 
 use super::{
     image_bytes_for, resolve_active_creds, source_row_to_info, stored_to_local, LocalClip,
@@ -186,6 +187,57 @@ pub fn copy_image_to_clipboard(
     clipboard
         .write_image_png_bytes(&bytes)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn save_image_to_file(
+    app: tauri::AppHandle,
+    store: State<'_, crate::SharedStore>,
+    clip_id: String,
+) -> Result<Option<String>, String> {
+    // Reject non-image clips defensively: image_bytes_for already enforces
+    // this via normalize_content_type, but failing fast with a clear message
+    // is better than relying on that helper's exact error string.
+    let row = queries::get_clip(&store, &clip_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("clip {} not found", clip_id))?;
+    if super::normalize_content_type(row.content_type.clone()) != "image" {
+        return Err(format!("clip {} is not an image", clip_id));
+    }
+    let bytes = image_bytes_for(store.inner(), &clip_id)?;
+    let ext = detect_image_ext(&bytes);
+    // created_at in client-core is milliseconds; convert to seconds for the filename helper.
+    let default_name = default_image_filename(row.created_at / 1000, ext);
+
+    // tauri-plugin-dialog's blocking save dialog must not run on the
+    // tokio executor thread; spawn_blocking moves it to the blocking pool.
+    let chosen = tokio::task::spawn_blocking({
+        let app = app.clone();
+        let default_name = default_name.clone();
+        let ext_owned = ext.to_string();
+        move || {
+            app.dialog()
+                .file()
+                .add_filter("Image", &[ext_owned.as_str()])
+                .set_file_name(&default_name)
+                .blocking_save_file()
+        }
+    })
+    .await
+    .map_err(|e| format!("dialog task panicked: {e}"))?;
+
+    let Some(path) = chosen else {
+        return Ok(None);
+    };
+
+    // tauri-plugin-dialog returns a `FilePath` enum; turn it into a real
+    // PathBuf via `into_path()` (Path variant) and write the bytes.
+    let path_buf = path
+        .into_path()
+        .map_err(|e| format!("dialog returned non-filesystem path: {e}"))?;
+    std::fs::write(&path_buf, &bytes).map_err(|e| format!("write failed: {e}"))?;
+    Ok(Some(path_buf.to_string_lossy().into_owned()))
 }
 
 // ---------------------------------------------------------------------------
