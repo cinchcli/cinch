@@ -175,9 +175,12 @@ fn print_first_run_welcome() {
     eprintln!("Welcome to Cinch — pipe clipboard between machines.");
     eprintln!();
     eprintln!("Get started:");
-    eprintln!("  cinch auth login           Sign in via browser");
-    eprintln!("  echo \"hello\" | cinch push  Send your clipboard");
-    eprintln!("  cinch pull                 Receive the latest clip");
+    eprintln!("  cinch auth login              Sign in via browser");
+    eprintln!("  echo \"hello\" | cinch push     Send your clipboard");
+    eprintln!("  cinch pull                    Receive the latest clip");
+    eprintln!();
+    eprintln!("Setting up a remote machine? From your laptop, run:");
+    eprintln!("  cinch pair user@host");
     eprintln!();
     eprintln!("Docs: https://cinchcli.com/docs/");
     eprintln!();

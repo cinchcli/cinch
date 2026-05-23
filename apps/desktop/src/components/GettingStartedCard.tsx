@@ -3,13 +3,14 @@ import { C } from '../design';
 
 const STORAGE_KEY = 'cinchGettingStartedDismissed';
 const SNIPPET = 'echo "hello cinch" | cinch push';
+const SSH_SNIPPET = 'cinch pair user@host';
+const CASK_INSTALL = 'brew install --cask cinchcli/tap/cinchcli';
 
 interface GettingStartedCardProps {
   onCopySnippet: (text: string) => void;
-  onOpenDevices: () => void;
 }
 
-export function GettingStartedCard({ onCopySnippet, onOpenDevices }: GettingStartedCardProps) {
+export function GettingStartedCard({ onCopySnippet }: GettingStartedCardProps) {
   const [dismissed, setDismissed] = useState<boolean>(
     () => localStorage.getItem(STORAGE_KEY) === '1',
   );
@@ -110,28 +111,49 @@ export function GettingStartedCard({ onCopySnippet, onOpenDevices }: GettingStar
         </div>
 
         <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
-          <div style={{ marginBottom: 4 }}>
-            Add another device:{' '}
-            <button
-              onClick={onOpenDevices}
+          <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>Add another device:</div>
+
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: C.t3, marginBottom: 4 }}>Server (SSH):</div>
+            <div
               style={{
-                background: 'transparent',
-                border: 'none',
-                color: C.accent,
-                cursor: 'pointer',
-                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: C.bg,
+                border: `1px solid ${C.border}`,
+                borderRadius: 4,
+                padding: '8px 10px',
+                fontFamily: 'var(--font-mono)',
                 fontSize: 12,
-                textDecoration: 'underline',
+                color: C.t1,
               }}
             >
-              Add machine
-            </button>{' '}
-            via SSH (⌘3 → Devices panel).
+              <code style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {SSH_SNIPPET}
+              </code>
+              <button
+                onClick={() => onCopySnippet(SSH_SNIPPET)}
+                aria-label="Copy"
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 3,
+                  color: C.t2,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  padding: '2px 8px',
+                }}
+              >
+                Copy
+              </button>
+            </div>
           </div>
+
           <div>
-            Or install the CLI on another machine:{' '}
+            <div style={{ fontSize: 11, color: C.t3, marginBottom: 4 }}>Another Mac:</div>
             <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: C.t1 }}>
-              brew install cinchcli/tap/cinch
+              {CASK_INSTALL}
             </code>
           </div>
         </div>

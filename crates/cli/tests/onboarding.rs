@@ -26,6 +26,10 @@ fn bare_cinch_unauthenticated_prints_welcome() {
         "missing first-command hint:\n{}",
         stderr
     );
+    assert!(
+        stderr.contains("cinch pair"),
+        "welcome should mention cinch pair (Mac→SSH setup hint); got:\n{stderr}"
+    );
 }
 
 #[test]
