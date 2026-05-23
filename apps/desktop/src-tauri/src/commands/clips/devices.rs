@@ -1,7 +1,9 @@
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_specta::Event;
 
 use super::resolve_active_creds;
 use super::DeviceCacheHandle;
+use crate::events::DevicesChanged;
 use crate::protocol::{DeviceInfo, MultiConfigHandle};
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ pub async fn list_devices(
 #[tauri::command]
 #[specta::specta]
 pub async fn set_device_nickname(
+    app: AppHandle,
     mc: State<'_, MultiConfigHandle>,
     cache: State<'_, DeviceCacheHandle>,
     device_id: String,
@@ -51,12 +54,14 @@ pub async fn set_device_nickname(
         .await
         .map_err(|e| format!("set_device_nickname: {}", e))?;
     cache.invalidate();
+    DevicesChanged.emit(&app).ok();
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn revoke_device(
+    app: AppHandle,
     mc: State<'_, MultiConfigHandle>,
     cache: State<'_, DeviceCacheHandle>,
     device_id: String,
@@ -69,5 +74,6 @@ pub async fn revoke_device(
         .await
         .map_err(|e| format!("revoke_device: {}", e))?;
     cache.invalidate();
+    DevicesChanged.emit(&app).ok();
     Ok(())
 }

@@ -182,6 +182,7 @@ export const events = {
 	clipPinned: makeEvent<ClipPinned>("clip-pinned"),
 	clipReceived: makeEvent<ClipReceived>("clip-received"),
 	deviceCodePending: makeEvent<DeviceCodePending>("device-code-pending"),
+	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	imageDownloadComplete: makeEvent<ImageDownloadComplete>("image-download-complete"),
 	imageDownloadFailed: makeEvent<ImageDownloadFailed>("image-download-failed"),
 	latestVersionsUpdated: makeEvent<LatestVersionsUpdated>("latest-versions-updated"),
@@ -296,6 +297,15 @@ export type Device = {
  *  approval. The React layer uses this event to surface the approval UI.
  */
 export type DeviceCodePending = PendingDeviceCode;
+
+/**
+ *  Fired when the relay-side device set may have changed: after a successful
+ *  rename/revoke/sign_out/pair_with_token/pair_via_ssh from this device, and
+ *  on every WS (re)connect (other devices may have paired/revoked while this
+ *  desktop was offline). React listens once and re-fetches `list_devices`,
+ *  replacing the legacy 5-second polling in `DevicesPanel`.
+ */
+export type DevicesChanged = null;
 
 export type ImageDownloadComplete = string;
 

@@ -100,6 +100,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             events::AuthStateChanged,
             events::WsStatus,
+            events::DevicesChanged,
             events::ClipReceived,
             events::RemoteClipReceived,
             events::ClipDeleted,
