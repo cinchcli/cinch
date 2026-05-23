@@ -28,6 +28,7 @@ pub(crate) fn build_initial_writer_and_pusher(
     is_configured: bool,
     shared_store: &SharedStore,
     clip_notif_tx: tokio::sync::mpsc::UnboundedSender<client_core::protocol::Clip>,
+    devices_changed_tx: tokio::sync::mpsc::UnboundedSender<()>,
 ) -> (WriterHandle, LocalPusherHandle) {
     if !(is_configured && !config.token.is_empty() && !config.relay_url.is_empty()) {
         // Pre-login: construct a LocalPusher with no key so captures queue
@@ -85,6 +86,7 @@ pub(crate) fn build_initial_writer_and_pusher(
     let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
         let store_cb = shared_store.clone();
         let rest_cb = rest_arc.clone();
+        let devices_tx = devices_changed_tx.clone();
         Some(Arc::new(move || {
             let store = store_cb.clone();
             let rest = rest_cb.clone();
@@ -108,6 +110,9 @@ pub(crate) fn build_initial_writer_and_pusher(
                     Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
                 }
             });
+            // Signal the consumer in lib.rs setup() to emit DevicesChanged.
+            // Other devices may have paired/revoked while we were offline.
+            let _ = devices_tx.send(());
         }))
     } else {
         None

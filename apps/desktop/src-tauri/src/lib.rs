@@ -35,6 +35,7 @@ use commands::clips::{DeviceCache, DeviceCacheHandle};
 use protocol::MultiConfigHandle;
 
 pub(crate) use app_state::ClipNotifierTx;
+pub(crate) use app_state::DevicesChangedTx;
 pub use app_state::{
     build_client_info, LocalPusherHandle, PreviousAppPid, SharedStore, WriterHandle,
 };
@@ -195,12 +196,15 @@ pub fn run() {
     let (clip_notif_tx, clip_notif_rx) =
         tokio::sync::mpsc::unbounded_channel::<client_core::protocol::Clip>();
 
+    let (devices_changed_tx, devices_changed_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+
     let (writer_handle, local_pusher_handle): (WriterHandle, LocalPusherHandle) =
         startup::build_initial_writer_and_pusher(
             &config,
             is_configured,
             &shared_store,
             clip_notif_tx.clone(),
+            devices_changed_tx.clone(),
         );
 
     let multi_config_handle: MultiConfigHandle = Arc::new(Mutex::new(multi_config));
@@ -282,6 +286,7 @@ pub fn run() {
         .manage(shared_store)
         .manage(writer_handle)
         .manage(ClipNotifierTx(clip_notif_tx.clone()))
+        .manage(DevicesChangedTx(devices_changed_tx.clone()))
         .manage(local_pusher_handle.clone())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -330,6 +335,22 @@ pub fn run() {
                             &clip.clip_id,
                             &clip.content_type,
                         );
+                    }
+                });
+            }
+
+            // Consumer for the WS-connect → DevicesChanged path. Each `()` on
+            // the channel becomes one DevicesChanged event. The mutation
+            // commands emit DevicesChanged directly via their AppHandle, so
+            // this consumer covers only the WS-side producer.
+            {
+                let app_for_devices = handle.clone();
+                let mut rx = devices_changed_rx;
+                tauri::async_runtime::spawn(async move {
+                    while let Some(()) = rx.recv().await {
+                        if let Err(e) = crate::events::DevicesChanged.emit(&app_for_devices) {
+                            log::warn!("DevicesChanged emit failed: {}", e);
+                        }
                     }
                 });
             }

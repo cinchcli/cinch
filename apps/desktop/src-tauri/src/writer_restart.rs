@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use tauri::Manager;
 
-use crate::app_state::{build_client_info, ClipNotifierTx, LocalPusherHandle, WriterHandle};
+use crate::app_state::{
+    build_client_info, ClipNotifierTx, DevicesChangedTx, LocalPusherHandle, WriterHandle,
+};
 use crate::sync_status;
 use crate::SharedStore;
 
@@ -123,6 +125,7 @@ pub(crate) async fn restart_writer(
     // backfill_once handles inbound. The inbound leg is essential because
     // the relay does not replay events that arrived while this device was
     // unsubscribed — backfill is the only path to recover those clips.
+    let devices_tx = app.state::<DevicesChangedTx>().inner().0.clone();
     let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
         let store_cb = store.clone();
         let rest_cb = rest_arc.clone();
@@ -149,6 +152,9 @@ pub(crate) async fn restart_writer(
                     Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
                 }
             });
+            // Signal the consumer in lib.rs setup() to emit DevicesChanged.
+            // Other devices may have paired/revoked while we were offline.
+            let _ = devices_tx.send(());
         }))
     } else {
         None
