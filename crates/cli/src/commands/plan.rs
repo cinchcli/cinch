@@ -1,6 +1,6 @@
-//! `cinch plan` — show the caller's plan tier + active usage.
+//! `cinch account plan` — show the caller's plan tier + active usage.
 //!
-//! Read-only: there is no `cinch plan set`. Plan changes flow through ops
+//! Read-only: there is no `cinch account plan set`. Plan changes flow through ops
 //! (operator runbook in Phase 5 docs); this command just renders whatever
 //! `MeService.GetMe` reports.
 

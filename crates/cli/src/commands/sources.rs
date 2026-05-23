@@ -1,4 +1,4 @@
-//! `cinch sources` — distinct source machines that have ever pushed clips.
+//! `cinch device sources` — distinct source machines that have ever pushed clips.
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 

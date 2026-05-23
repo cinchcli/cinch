@@ -58,7 +58,7 @@ pub(super) async fn run_approve(
                 ExitError::new(
                     AUTH_FAILURE,
                     "Your account has reached its paired-device limit.",
-                    "Run `cinch devices` to see your current devices, then `cinch revoke <id>` to free a slot. Or upgrade at https://cinchcli.com/pricing.",
+                    "Run `cinch device list` to see your current devices, then `cinch device revoke <id>` to free a slot. Or upgrade at https://cinchcli.com/pricing.",
                 )
             }
             other => ExitError::new(
@@ -129,8 +129,8 @@ mod tests {
             err.message
         );
         assert!(
-            err.fix.contains("cinch devices") && err.fix.contains("cinch revoke"),
-            "expected recovery hint pointing at devices+revoke, got: {}",
+            err.fix.contains("cinch device list") && err.fix.contains("cinch device revoke"),
+            "expected recovery hint pointing at device list+revoke, got: {}",
             err.fix
         );
         assert!(

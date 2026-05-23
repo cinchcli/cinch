@@ -33,7 +33,7 @@ pub(crate) struct ClipNotifierTx(
 /// Builds the `ClientInfo` block that identifies this desktop binary to
 /// `cinch-core`'s REST + WS clients. Cinch-core attaches it as HTTP
 /// headers and as the WS `client_hello` payload, so the relay can
-/// persist the per-device version row used by `cinch devices` and the
+/// persist the per-device version row used by `cinch device list` and the
 /// desktop's version badges.
 pub fn build_client_info() -> client_core::version::ClientInfo {
     client_core::version::ClientInfo {

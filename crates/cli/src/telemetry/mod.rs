@@ -6,7 +6,7 @@
 //! no-op — `is_enabled()` returns false and every entry point short-circuits.
 //!
 //! Runtime opt-out: `TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, the file
-//! `~/.cinch/telemetry_opt_out`, or `cinch telemetry off`.
+//! `~/.cinch/telemetry_opt_out`, or `cinch account telemetry off`.
 //!
 //! See `cinchcli.com/telemetry` for the exhaustive list of what is and
 //! isn't collected.
@@ -102,7 +102,7 @@ pub async fn flush(timeout: Duration) {
     let _ = tokio::time::timeout(timeout, backend.flush()).await;
 }
 
-/// Snapshot of the current telemetry state for `cinch telemetry status`.
+/// Snapshot of the current telemetry state for `cinch account telemetry status`.
 pub fn status() -> Status {
     Status {
         compiled_in: TELEMETRY_KEY.is_some() && TELEMETRY_URL.is_some(),
@@ -122,7 +122,7 @@ fn print_first_run_notice() {
     eprintln!(
         "cinch sends anonymous usage stats to help improve the tool. \
          No PII, no clipboard contents. \
-         Opt out: TELEMETRY_DISABLED=1 or `cinch telemetry off`. \
+         Opt out: TELEMETRY_DISABLED=1 or `cinch account telemetry off`. \
          Details: https://cinchcli.com/telemetry"
     );
 }

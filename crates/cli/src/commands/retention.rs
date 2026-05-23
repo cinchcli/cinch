@@ -1,5 +1,5 @@
-//! `cinch retention [--device <id|self>] [--days N]` — view or set the
-//! per-device remote retention (in days). Writes are limited to the
+//! `cinch device retention [--device <id|self>] [--days N]` — view or set
+//! the per-device remote retention (in days). Writes are limited to the
 //! currently-authenticated device (the relay REST endpoint is
 //! `/devices/self/retention`).
 
@@ -52,7 +52,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
                 return Err(ExitError::new(
                     GENERIC_ERROR,
                     "writing retention for another device is not supported over REST",
-                    "Pair into that device and run: cinch retention --device self --days N",
+                    "Pair into that device and run: cinch device retention --device self --days N",
                 ));
             }
             ctx.client

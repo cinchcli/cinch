@@ -1,4 +1,4 @@
-//! `cinch telemetry` — view or change anonymous usage telemetry state.
+//! `cinch account telemetry` — view or change anonymous usage telemetry state.
 
 use crate::exit::{ExitError, GENERIC_ERROR};
 use crate::telemetry;
@@ -81,7 +81,7 @@ mod tests {
     use clap::Parser;
 
     // Wrap Args in a parser shell so we can drive subcommand parsing the
-    // same way clap does at runtime (`cinch telemetry status` etc.) without
+    // same way clap does at runtime (`cinch account telemetry status` etc.) without
     // going through the top-level CLI.
     #[derive(Debug, Parser)]
     struct TestCli {
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn rejects_unknown_subcommand() {
         // Guard against a future rename silently changing the public CLI:
-        // `cinch telemetry enable` (or any other word) must NOT parse — it
+        // `cinch account telemetry enable` (or any other word) must NOT parse — it
         // has to fail loudly so users see the help text.
         let err = TestCli::try_parse_from(["test", "enable"]).expect_err("unknown rejects");
         let rendered = format!("{}", err);

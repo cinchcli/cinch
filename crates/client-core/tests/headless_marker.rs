@@ -1,6 +1,6 @@
 //! Integration test for the headless device-code marker format.
 //!
-//! Simulates the `cinch pair` stdout-reading flow: mixed log lines interspersed
+//! Simulates the `cinch device pair` stdout-reading flow: mixed log lines interspersed
 //! with the <<CINCH-DEVICE-CODE>> marker, verifying that only the marker line
 //! triggers `parse_device_code_marker` and the payload round-trips cleanly.
 

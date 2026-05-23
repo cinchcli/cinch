@@ -1,5 +1,5 @@
-//! `cinch nickname <device-id-prefix> <name>` / `--clear` — set or unset a
-//! device's nickname.
+//! `cinch device nickname <device-id-prefix> <name>` / `--clear` — set or
+//! unset a device's nickname.
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 
@@ -19,7 +19,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         return Err(ExitError::new(
             GENERIC_ERROR,
             "provide a name or --clear",
-            "Usage: cinch nickname <device-id-prefix> <name>",
+            "Usage: cinch device nickname <device-id-prefix> <name>",
         ));
     }
 
@@ -53,7 +53,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     } else {
         println!("renamed {device_id} → {new_nickname}");
     }
-    eprintln!("(refresh with `cinch devices` to see the change locally)");
+    eprintln!("(refresh with `cinch device list` to see the change locally)");
     Ok(())
 }
 

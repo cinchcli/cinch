@@ -1,10 +1,18 @@
-//! `cinch device set-name <name>` — set the current device's display name
-//! (nickname). Mirrors the desktop's Customize → Name field; the value
-//! appears as the colored pill in the desktop Devices panel and in
-//! `cinch devices` output.
+//! `cinch device` — manage paired devices on this account.
 //!
+//! Subcommands:
+//! - `cinch device list`                       — list paired devices (and source-only rows).
+//! - `cinch device pair <ssh-target>`          — set up cinch on a remote machine via SSH.
+//! - `cinch device set-name <name>`            — rename the active device (this machine).
+//! - `cinch device nickname <id-prefix> <name>` — rename another paired device.
+//! - `cinch device retention [...]`            — view or set per-device retention.
+//! - `cinch device revoke <id-prefix>`         — revoke a paired device's token.
+//! - `cinch device sources`                    — list distinct source machines that have pushed.
+//!
+//! `cinch device set-name` mirrors the desktop's Customize → Name field; the value
+//! appears as the colored pill in the desktop Devices panel and in `cinch device list`.
 //! `cinch auth set-name` is for the user-wide display name (per-account).
-//! This command is for the per-device name and operates on the active
+//! `cinch device set-name` is for the per-device name and operates on the active
 //! device only — no device-id prefix required.
 
 use client_core::auth::load_config;
@@ -20,6 +28,10 @@ pub struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Cmd {
+    /// List paired devices for this account.
+    List(crate::commands::devices::Args),
+    /// Set up cinch on a remote machine via SSH.
+    Pair(crate::commands::pair::Args),
     /// Set this device's display name. Pass `--clear` to remove it and fall
     /// back to the system hostname.
     SetName {
@@ -30,11 +42,25 @@ pub enum Cmd {
         #[arg(long, conflicts_with = "name")]
         clear: bool,
     },
+    /// Set or clear another paired device's nickname.
+    Nickname(crate::commands::nickname::Args),
+    /// View or set per-device clip retention.
+    Retention(crate::commands::retention::Args),
+    /// Revoke a paired device's token (asks for confirmation).
+    Revoke(crate::commands::revoke::Args),
+    /// List distinct source machines that have pushed clips.
+    Sources(crate::commands::sources::Args),
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
     match args.cmd {
+        Cmd::List(a) => crate::commands::devices::run(a).await,
+        Cmd::Pair(a) => crate::commands::pair::run(a).await,
         Cmd::SetName { name, clear } => run_set_name(name, clear).await,
+        Cmd::Nickname(a) => crate::commands::nickname::run(a).await,
+        Cmd::Retention(a) => crate::commands::retention::run(a).await,
+        Cmd::Revoke(a) => crate::commands::revoke::run(a).await,
+        Cmd::Sources(a) => crate::commands::sources::run(a).await,
     }
 }
 
@@ -141,6 +167,7 @@ mod tests {
                 assert_eq!(name.as_deref(), Some("MyMac"));
                 assert!(!clear);
             }
+            _ => panic!("expected SetName"),
         }
     }
 
@@ -153,6 +180,7 @@ mod tests {
                 assert!(name.is_none());
                 assert!(clear);
             }
+            _ => panic!("expected SetName"),
         }
     }
 
@@ -160,6 +188,22 @@ mod tests {
     fn set_name_with_name_and_clear_conflicts() {
         let result = TestCli::try_parse_from(["test", "set-name", "MyMac", "--clear"]);
         assert!(result.is_err(), "expected clap to reject name + --clear");
+    }
+
+    #[test]
+    fn parses_list_subcommand() {
+        let cli = TestCli::try_parse_from(["test", "list"]).expect("device list parses");
+        assert!(matches!(cli.args.cmd, Cmd::List(_)));
+    }
+
+    #[test]
+    fn parses_pair_subcommand() {
+        let cli =
+            TestCli::try_parse_from(["test", "pair", "user@host"]).expect("device pair parses");
+        match cli.args.cmd {
+            Cmd::Pair(a) => assert_eq!(a.target, "user@host"),
+            _ => panic!("expected Pair"),
+        }
     }
 
     #[tokio::test]

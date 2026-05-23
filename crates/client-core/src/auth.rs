@@ -371,7 +371,7 @@ pub fn rotate_credentials(
 }
 
 /// stdout marker emitted by `cinch auth login --headless` so the
-/// orchestrating side (e.g. `cinch pair` running over SSH) can pick
+/// orchestrating side (e.g. `cinch device pair` running over SSH) can pick
 /// up the device-code URL without parsing free-form output.
 ///
 /// Format (single line, no trailing whitespace):

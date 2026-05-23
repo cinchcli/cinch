@@ -1,4 +1,4 @@
-//! `cinch list` — recent clips with previews and metadata.
+//! `cinch clip list` — recent clips with previews and metadata.
 
 use serde::Serialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

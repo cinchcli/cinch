@@ -1,4 +1,4 @@
-//! `cinch pair <ssh-target>` — set up cinch on a remote machine via SSH.
+//! `cinch device pair <ssh-target>` — set up cinch on a remote machine via SSH.
 //!
 //! Steps:
 //! 1. Require active local auth.
@@ -207,7 +207,7 @@ mod tests {
     use super::*;
 
     // The remote bootstrap script is the on-the-wire contract between
-    // `cinch pair` and a freshly-installed remote — the local desktop
+    // `cinch device pair` and a freshly-installed remote — the local desktop
     // SSHes the script in and reads the device-code marker off stdout, so
     // any drift in the script shape (missing chmod, install command, or
     // login invocation) silently breaks the pair-via-SSH flow. These

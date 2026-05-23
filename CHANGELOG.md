@@ -4,6 +4,19 @@ All notable changes to the `cinch` CLI are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and the project follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed (breaking)
+
+- Top-level command surface restructured into hierarchical groups. `cinch --help` now shows 11 commands (`push`, `pull`, `clip`, `pin`, `device`, `auth`, `account`, `admin`, `completion`, `self-update`, `help`) instead of 22. Mapping:
+  - `cinch list` / `search` / `get` / `rm` → `cinch clip {list, search, get, rm}`
+  - `cinch pin <id>` / `unpin <id>` / `pinned` → `cinch pin {add, rm, list}`
+  - `cinch devices` / `pair` / `nickname` / `retention` / `revoke` / `sources` → `cinch device {list, pair, nickname, retention, revoke, sources}` (`cinch device set-name` already existed for the active device)
+  - `cinch plan` / `telemetry` → `cinch account {plan, telemetry}`
+  - `push`, `pull`, `auth`, `admin` are unchanged.
+- No aliases — old top-level commands now error. Update scripts, dotfiles, and shell completions (re-run `cinch completion <shell>`).
+- The dynamic-completion helper now invokes `cinch device list --names` (was `cinch devices --names`).
+
 ## 0.1.9 — 2026-05-18
 
 ### Added
