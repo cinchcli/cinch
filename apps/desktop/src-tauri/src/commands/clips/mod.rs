@@ -7,6 +7,7 @@ use client_core::store::models::{SourceRow, StoredClip};
 use client_core::store::queries;
 
 mod clip_ops;
+mod device_cache;
 mod devices;
 mod global_shortcut;
 mod misc;
@@ -14,6 +15,7 @@ mod retention;
 mod source_settings;
 
 pub use clip_ops::*;
+pub use device_cache::{DeviceCache, DeviceCacheHandle, DEVICE_CACHE_TTL};
 pub use devices::*;
 pub use global_shortcut::*;
 pub use misc::*;
