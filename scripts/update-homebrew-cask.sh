@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Updates Casks/cinch.rb in cinchcli/homebrew-tap with the new version and DMG SHA.
+# Updates Casks/cinchcli.rb in cinchcli/homebrew-tap with the new version and DMG SHA.
 #
 # Usage: ./scripts/update-homebrew-cask.sh <version> <dmg-path>
 # Requires: HOMEBREW_TAP_TOKEN env var (PAT with contents:write on cinchcli/homebrew-tap).
@@ -37,12 +37,12 @@ inplace_sed() {
   sed -E "$1" "$2" > "$2.tmp" && mv "$2.tmp" "$2"
 }
 
-inplace_sed "s/version \"[^\"]+\"/version \"${VERSION}\"/" Casks/cinch.rb
+inplace_sed "s/version \"[^\"]+\"/version \"${VERSION}\"/" Casks/cinchcli.rb
 # Match both :no_check (Ruby symbol, no quotes) and "..." (quoted SHA)
-inplace_sed "s/sha256 (:no_check|\"[^\"]+\")/sha256 \"${SHA}\"/" Casks/cinch.rb
+inplace_sed "s/sha256 (:no_check|\"[^\"]+\")/sha256 \"${SHA}\"/" Casks/cinchcli.rb
 
 git config user.name 'cinch-release[bot]'
 git config user.email 'cinch-release@users.noreply.github.com'
-git add Casks/cinch.rb
+git add Casks/cinchcli.rb
 git commit -m "cinch ${VERSION}"
 git push
