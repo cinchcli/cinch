@@ -35,3 +35,9 @@ build/
 
 # Test artifacts
 coverage/
+
+# AI
+.superpowers/
+
+# Internal product strategy (specs, plans, release secrets) — keep out of public repo
+docs/
