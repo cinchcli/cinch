@@ -92,6 +92,7 @@ pub async fn pair_with_token(
     ws_status: State<'_, Arc<WsStatus>>,
     auth_handle: State<'_, AuthStateHandle>,
     relay_connected: State<'_, Arc<std::sync::atomic::AtomicBool>>,
+    cache: State<'_, crate::commands::clips::DeviceCacheHandle>,
     req: PairWithTokenRequest,
 ) -> Result<PairWithTokenResult, String> {
     let relay = req.relay_url.trim().trim_end_matches('/').to_string();
@@ -245,6 +246,11 @@ pub async fn pair_with_token(
         });
         ws_abort.replace(jh);
     }
+
+    // Invalidate any device list cached under the previous relay's credentials.
+    // pair_with_token replaces the active relay, so the next list_devices must
+    // re-fetch against the new identity, not serve stale rows from relay A.
+    cache.invalidate();
 
     Ok(PairWithTokenResult {
         relay_id,
