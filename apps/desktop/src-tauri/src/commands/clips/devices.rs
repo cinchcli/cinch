@@ -54,7 +54,9 @@ pub async fn set_device_nickname(
         .await
         .map_err(|e| format!("set_device_nickname: {}", e))?;
     cache.invalidate();
-    DevicesChanged.emit(&app).ok();
+    if let Err(e) = DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
     Ok(())
 }
 
@@ -74,6 +76,8 @@ pub async fn revoke_device(
         .await
         .map_err(|e| format!("revoke_device: {}", e))?;
     cache.invalidate();
-    DevicesChanged.emit(&app).ok();
+    if let Err(e) = DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
     Ok(())
 }

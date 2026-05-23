@@ -4,8 +4,9 @@
 //! a cache that becomes an unconditional `GET /devices` round trip to the
 //! relay every 5 seconds. A 30-second TTL turns ~6 of every 7 polls into a
 //! local memory read while still surfacing relay-side changes within half a
-//! minute. Mutations (`set_device_nickname`, `revoke_device`) explicitly
-//! invalidate the cache so the following read sees the new state immediately.
+//! minute. Mutations (`set_device_nickname`, `revoke_device`, `sign_out`,
+//! `pair_with_token`, `pair_via_ssh`) explicitly invalidate the cache so
+//! the following read sees the new state immediately.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

@@ -253,7 +253,9 @@ pub async fn pair_with_token(
     // pair_with_token replaces the active relay, so the next list_devices must
     // re-fetch against the new identity, not serve stale rows from relay A.
     cache.invalidate();
-    crate::events::DevicesChanged.emit(&app).ok();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
 
     Ok(PairWithTokenResult {
         relay_id,

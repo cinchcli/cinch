@@ -46,7 +46,9 @@ pub async fn sign_out(
     // list_devices does not serve relay-A data after the user has signed
     // out (or signed in to a different relay).
     cache.invalidate();
-    crate::events::DevicesChanged.emit(&app).ok();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
 
     transition(&app, &handle, AuthState::LocalOnly);
     Ok(())

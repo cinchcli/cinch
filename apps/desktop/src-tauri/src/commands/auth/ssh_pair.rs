@@ -170,7 +170,9 @@ pub async fn pair_via_ssh(
         ));
     }
     cache.invalidate();
-    crate::events::DevicesChanged.emit(&app).ok();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
 
     Ok(())
 }
