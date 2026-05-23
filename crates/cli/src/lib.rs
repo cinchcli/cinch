@@ -205,7 +205,7 @@ fn print_first_run_welcome() {
     eprintln!("  cinch pull                    Receive the latest clip");
     eprintln!();
     eprintln!("Setting up a remote machine? From your laptop, run:");
-    eprintln!("  cinch pair user@your-server");
+    eprintln!("  cinch pair user@host");
     eprintln!();
     eprintln!("Docs: https://cinchcli.com/docs/");
     eprintln!();
