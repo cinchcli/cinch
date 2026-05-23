@@ -58,6 +58,15 @@ impl DeviceCache {
         let mut guard = self.inner.lock().expect("device cache poisoned");
         *guard = None;
     }
+
+    #[cfg(test)]
+    fn insert_with_timestamp(&self, devices: Vec<DeviceInfo>, inserted_at: Instant) {
+        let mut guard = self.inner.lock().expect("device cache poisoned");
+        *guard = Some(Entry {
+            inserted_at,
+            devices,
+        });
+    }
 }
 
 impl Default for DeviceCache {
@@ -69,7 +78,6 @@ impl Default for DeviceCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::DeviceInfo;
 
     fn sample(id: &str) -> DeviceInfo {
         DeviceInfo {
@@ -110,6 +118,14 @@ mod tests {
         let cache = DeviceCache::new();
         cache.insert(vec![sample("a")]);
         cache.invalidate();
+        assert!(cache.get().is_none());
+    }
+
+    #[test]
+    fn expired_entry_returns_none() {
+        let cache = DeviceCache::new();
+        let past = Instant::now() - DEVICE_CACHE_TTL - Duration::from_secs(1);
+        cache.insert_with_timestamp(vec![sample("a")], past);
         assert!(cache.get().is_none());
     }
 
