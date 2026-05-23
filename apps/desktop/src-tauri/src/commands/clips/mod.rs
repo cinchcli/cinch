@@ -15,7 +15,7 @@ mod retention;
 mod source_settings;
 
 pub use clip_ops::*;
-pub use device_cache::{DeviceCache, DeviceCacheHandle, DEVICE_CACHE_TTL};
+pub use device_cache::{DeviceCache, DeviceCacheHandle};
 pub use devices::*;
 pub use global_shortcut::*;
 pub use misc::*;
