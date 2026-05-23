@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Updates Formula/cinch.rb in cinchcli/homebrew-tap with the new version and CLI tarball SHAs.
+# Updates Formula/cinchcli.rb in cinchcli/homebrew-tap with the new version and CLI tarball SHAs.
 #
 # Usage: ./scripts/update-homebrew-formula.sh <version> <darwin-aarch64-tar.gz> <linux-arm64-tar.gz> <linux-x86_64-tar.gz>
 #
@@ -59,7 +59,7 @@ from pathlib import Path
 
 version, sha_darwin_arm, sha_linux_arm, sha_linux_x86 = sys.argv[1:]
 
-p = Path("Formula/cinch.rb")
+p = Path("Formula/cinchcli.rb")
 src = p.read_text()
 
 # Note: `version` is intentionally NOT set on the Formula. Homebrew parses
@@ -96,10 +96,10 @@ p.write_text(src)
 PY
 
 # Verify the formula still parses
-ruby -c Formula/cinch.rb
+ruby -c Formula/cinchcli.rb
 
 git config user.name 'cinch-release[bot]'
 git config user.email 'cinch-release@users.noreply.github.com'
-git add Formula/cinch.rb
+git add Formula/cinchcli.rb
 git commit -m "cinch CLI ${VERSION}"
 git push
