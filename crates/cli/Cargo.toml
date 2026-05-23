@@ -46,3 +46,6 @@ objc = "0.2"
 
 [dev-dependencies]
 wiremock = "0.6"
+
+[lints]
+workspace = true

@@ -50,6 +50,13 @@ semver = "1"
 uuid = { version = "1", features = ["v7"] }
 specta = { version = "2.0.0-rc.24", features = ["derive"] }
 
+[workspace.lints.rust]
+# `objc` 0.2 (unmaintained) expands `cfg(feature = "cargo-clippy")` inside its
+# `sel_impl!` macro, triggering `unexpected_cfgs` at every `msg_send!` site in
+# downstream crates. Register the value so the macro stays quiet without
+# disabling the lint wholesale.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
