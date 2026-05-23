@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
-import { commands } from '../bindings';
+import { commands, events } from '../bindings';
 import { unwrap } from '../lib/tauri';
 import { C, formatTime } from '../design';
 import {
@@ -101,8 +101,12 @@ export function DevicesPanel({
 
   useEffect(() => {
     fetchAll();
-    const id = setInterval(fetchAll, 5000);
-    return () => clearInterval(id);
+    const unsubPromise = events.devicesChanged.listen(() => {
+      fetchAll();
+    });
+    return () => {
+      unsubPromise.then((unsub) => unsub());
+    };
   }, [fetchAll]);
 
   useEffect(() => {

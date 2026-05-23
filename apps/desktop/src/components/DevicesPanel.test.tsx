@@ -27,6 +27,9 @@ vi.mock('../bindings', () => ({
     latestVersionsUpdated: {
       listen: vi.fn(() => Promise.resolve(() => {})),
     },
+    devicesChanged: {
+      listen: vi.fn(() => Promise.resolve(() => {})),
+    },
   },
 }));
 
