@@ -1,6 +1,6 @@
 //! Shared building blocks for the SSH pair bootstrap script.
 //!
-//! Both `cinch pair <ssh-target>` (CLI) and the desktop's `pair_via_ssh`
+//! Both `cinch device pair <ssh-target>` (CLI) and the desktop's `pair_via_ssh`
 //! Tauri command compose a POSIX shell script that runs on the remote
 //! machine to install/upgrade cinch and then drive a device-code login.
 //! Before this module existed each caller hand-rolled its own copy of

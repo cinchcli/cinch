@@ -467,7 +467,7 @@ async fn push_binary(
 /// Matches `name` case-insensitively against each device's nickname, then
 /// hostname. If neither matches, returns a `GENERIC_ERROR` with the list
 /// of known names so the user can correct the typo without round-tripping
-/// to `cinch devices`.
+/// to `cinch device list`.
 async fn resolve_target_device_id(client: &RestClient, name: &str) -> Result<String, ExitError> {
     let devices = client.list_devices().await.map_err(|e| {
         ExitError::new(

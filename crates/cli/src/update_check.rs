@@ -1,4 +1,4 @@
-//! Compatibility shim used by `cinch devices` to compute the per-device
+//! Compatibility shim used by `cinch device list` to compute the per-device
 //! "(outdated)" marker. The actual update-check cache lives in
 //! [`crate::update::cache`]; this module only exposes the read-side query +
 //! a strict-semver comparator.
@@ -14,7 +14,7 @@ pub fn cached_cli_latest() -> Option<String> {
 /// Returns `true` if `reported` is a parseable semver strictly less than
 /// `latest`. Returns `false` for any parse failure, missing input, or
 /// equal/newer reported version. Used to gate the "(outdated)" marker on
-/// the `cinch devices` table for CLI rows.
+/// the `cinch device list` table for CLI rows.
 pub fn is_outdated(reported: &str, latest: &str) -> bool {
     let Ok(a) = semver::Version::parse(reported) else {
         return false;

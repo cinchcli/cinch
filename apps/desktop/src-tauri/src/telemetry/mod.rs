@@ -9,7 +9,7 @@
 //! background task (every 30s) rather than blocking on process exit.
 //!
 //! Runtime opt-out: `TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, the file
-//! `~/.cinch/telemetry_opt_out`. (The desktop has no `cinch telemetry off`
+//! `~/.cinch/telemetry_opt_out`. (The desktop has no `cinch account telemetry off`
 //! analogue yet — toggling is currently CLI-only or by touching the file.)
 
 mod backend_posthog;

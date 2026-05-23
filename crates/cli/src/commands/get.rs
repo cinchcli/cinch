@@ -1,4 +1,4 @@
-//! `cinch get <id-prefix>` — print a single clip's contents (or metadata).
+//! `cinch clip get <id-prefix>` — print a single clip's contents (or metadata).
 
 use std::io::Write;
 

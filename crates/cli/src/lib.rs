@@ -40,42 +40,18 @@ enum Cmd {
     Push(commands::push::Args),
     /// Pull clipboard content to stdout.
     Pull(commands::pull::Args),
+    /// Operate on clips: list, search, get, rm.
+    Clip(commands::clip::Args),
+    /// Pin / unpin clips and list pinned clips.
+    Pin(commands::pin::Args),
+    /// Manage paired devices on this account.
+    Device(commands::device::Args),
     /// Manage authentication.
     Auth(commands::auth::Args),
-    /// Set up cinch on a remote machine via SSH.
-    Pair(commands::pair::Args),
-    /// Manage this device (e.g. set its display name).
-    Device(commands::device::Args),
-    /// List paired devices for this account.
-    Devices(commands::devices::Args),
-    /// Print a single clip's content by ID prefix.
-    Get(commands::get::Args),
-    /// List recent clips.
-    List(commands::list::Args),
-    /// Full-text search across the local clip store.
-    Search(commands::search::Args),
-    /// Pin a clip by ID prefix.
-    Pin(commands::pin::Args),
-    /// List pinned clips.
-    Pinned(commands::pinned::Args),
-    /// Show your plan tier and current usage (devices, retention cap).
-    Plan(commands::plan::Args),
-    /// Unpin a clip by ID prefix.
-    Unpin(commands::unpin::Args),
-    /// Set or clear a device's nickname.
-    Nickname(commands::nickname::Args),
-    /// List distinct source machines that have pushed clips.
-    Sources(commands::sources::Args),
-    /// View or set per-device clip retention.
-    Retention(commands::retention::Args),
-    /// Revoke a paired device's token (asks for confirmation).
-    Revoke(commands::revoke::Args),
+    /// Account-level commands: plan tier + telemetry preference.
+    Account(commands::account::Args),
     /// Administer this relay (self-host operators only).
     Admin(commands::admin::Args),
-    /// Delete a clip by ID prefix (with TTY confirm unless --force).
-    Rm(commands::rm::Args),
-    /// View or change anonymous usage telemetry state.
-    Telemetry(commands::telemetry::Args),
     /// Print a shell completion script to stdout.
     ///
     /// Example: cinch completion zsh > ~/.zsh/completions/_cinch
@@ -99,13 +75,13 @@ fn print_completion_override(shell: Shell) {
 
 // Appended after clap_complete's static output.
 // Teaches the shell to complete device-name values (`pull --from`,
-// `push --to`) with `cinch devices --names`.
+// `push --to`) with `cinch device list --names`.
 
 const ZSH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
 _cinch_devices_names() {
   local -a devs
-  devs=( ${(f)"$(cinch devices --names 2>/dev/null)"} )
+  devs=( ${(f)"$(cinch device list --names 2>/dev/null)"} )
   _describe 'device' devs
 }
 # clap_complete inlines subcommands inside _cinch, so we rename it
@@ -139,7 +115,7 @@ const BASH_FROM_OVERRIDE: &str = r#"
 # inspecting the token two slots back when the previous token is `=`.
 _cinch_devices_names() {
   local word="${COMP_WORDS[COMP_CWORD]}"
-  mapfile -t COMPREPLY < <(cinch devices --names 2>/dev/null | grep -- "^${word}")
+  mapfile -t COMPREPLY < <(cinch device list --names 2>/dev/null | grep -- "^${word}")
 }
 _cinch_with_from() {
   local cur prev prev2
@@ -163,37 +139,36 @@ const FISH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
 complete -c cinch -n '__fish_seen_subcommand_from pull' -l from -f \
   -d 'Device nickname or hostname' \
-  -a '(cinch devices --names 2>/dev/null)'
+  -a '(cinch device list --names 2>/dev/null)'
 complete -c cinch -n '__fish_seen_subcommand_from push' -l to -f \
   -d 'Device nickname or hostname' \
-  -a '(cinch devices --names 2>/dev/null)'
+  -a '(cinch device list --names 2>/dev/null)'
 "#;
 
 fn command_name(cmd: &Cmd) -> &'static str {
     match cmd {
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
-        Cmd::Auth(_) => "auth",
-        Cmd::Pair(_) => "pair",
-        Cmd::Device(_) => "device",
-        Cmd::Devices(_) => "devices",
-        Cmd::Get(_) => "get",
-        Cmd::List(_) => "list",
-        Cmd::Search(_) => "search",
+        Cmd::Clip(_) => "clip",
         Cmd::Pin(_) => "pin",
-        Cmd::Pinned(_) => "pinned",
-        Cmd::Plan(_) => "plan",
-        Cmd::Unpin(_) => "unpin",
-        Cmd::Nickname(_) => "nickname",
-        Cmd::Sources(_) => "sources",
-        Cmd::Retention(_) => "retention",
-        Cmd::Revoke(_) => "revoke",
+        Cmd::Device(_) => "device",
+        Cmd::Auth(_) => "auth",
+        Cmd::Account(_) => "account",
         Cmd::Admin(_) => "admin",
-        Cmd::Rm(_) => "rm",
-        Cmd::Telemetry(_) => "telemetry",
         Cmd::Completion { .. } => "completion",
         Cmd::SelfUpdate(_) => "self-update",
     }
+}
+
+/// Returns true when the invocation is `cinch account telemetry ...`. Used to
+/// suppress telemetry initialization for the meta-command that inspects /
+/// toggles telemetry itself — otherwise running `cinch account telemetry
+/// status` would create the distinct_id file as a side effect.
+fn is_telemetry_cmd(cmd: &Cmd) -> bool {
+    matches!(
+        cmd,
+        Cmd::Account(args) if matches!(args.cmd, commands::account::Cmd::Telemetry(_))
+    )
 }
 
 fn print_first_run_welcome() {
@@ -227,10 +202,10 @@ pub fn run() -> i32 {
         return 0;
     }
 
-    // Skip telemetry init for the `cinch telemetry` meta-command so that
-    // inspecting/toggling state does not itself create the distinct_id file
-    // or print the first-run notice.
-    let instrument = !matches!(cli.cmd, Cmd::Telemetry(_));
+    // Skip telemetry init for the `cinch account telemetry` meta-command so
+    // that inspecting/toggling state does not itself create the distinct_id
+    // file or print the first-run notice.
+    let instrument = !is_telemetry_cmd(&cli.cmd);
     if instrument {
         telemetry::init();
     }
@@ -254,24 +229,12 @@ pub fn run() -> i32 {
         let cmd_result = match cli.cmd {
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
-            Cmd::Auth(args) => commands::auth::run(args).await,
-            Cmd::Pair(args) => commands::pair::run(args).await,
-            Cmd::Device(args) => commands::device::run(args).await,
-            Cmd::Devices(args) => commands::devices::run(args).await,
-            Cmd::Get(args) => commands::get::run(args).await,
-            Cmd::List(args) => commands::list::run(args).await,
-            Cmd::Search(args) => commands::search::run(args).await,
+            Cmd::Clip(args) => commands::clip::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
-            Cmd::Pinned(args) => commands::pinned::run(args).await,
-            Cmd::Plan(args) => commands::plan::run(args).await,
-            Cmd::Unpin(args) => commands::unpin::run(args).await,
-            Cmd::Nickname(args) => commands::nickname::run(args).await,
-            Cmd::Sources(args) => commands::sources::run(args).await,
-            Cmd::Retention(args) => commands::retention::run(args).await,
-            Cmd::Revoke(args) => commands::revoke::run(args).await,
+            Cmd::Device(args) => commands::device::run(args).await,
+            Cmd::Auth(args) => commands::auth::run(args).await,
+            Cmd::Account(args) => commands::account::run(args).await,
             Cmd::Admin(args) => commands::admin::run(args).await,
-            Cmd::Rm(args) => commands::rm::run(args).await,
-            Cmd::Telemetry(args) => commands::telemetry::run(args).await,
             Cmd::SelfUpdate(args) => update::run_self_update(args).await,
             Cmd::Completion { .. } => unreachable!(),
         };

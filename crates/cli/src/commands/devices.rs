@@ -1,4 +1,4 @@
-//! `cinch devices` — list paired devices and source-only rows for this account.
+//! `cinch device list` — list paired devices and source-only rows for this account.
 
 use client_core::protocol::DeviceInfo;
 use client_core::store::models::SourceRow;

@@ -1,5 +1,5 @@
-//! `cinch revoke <device-id-prefix> [--force]` — revoke a paired device's
-//! token. Self-revoke requires uppercase `YES` to confirm.
+//! `cinch device revoke <device-id-prefix> [--force]` — revoke a paired
+//! device's token. Self-revoke requires uppercase `YES` to confirm.
 
 use std::io::{BufRead, IsTerminal};
 

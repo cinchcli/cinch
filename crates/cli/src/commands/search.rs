@@ -1,4 +1,4 @@
-//! `cinch search` — FTS5 full-text search of the local clip store.
+//! `cinch clip search` — FTS5 full-text search of the local clip store.
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 

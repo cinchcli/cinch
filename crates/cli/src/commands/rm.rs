@@ -1,4 +1,4 @@
-//! `cinch rm <id-prefix>` — delete a clip from the relay and the local store.
+//! `cinch clip rm <id-prefix>` — delete a clip from the relay and the local store.
 
 use std::io::{BufRead, IsTerminal};
 

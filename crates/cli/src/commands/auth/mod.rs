@@ -2,7 +2,7 @@
 //!
 //! OAuth-only flow: `auth login`, `auth status`, `auth logout`.
 //! For headless / SSH environments, use `auth login --headless`.
-//! Cross-device bootstrap happens via the SSH-driven `cinch pair
+//! Cross-device bootstrap happens via the SSH-driven `cinch device pair
 //! <ssh-target>` command (separate file).
 
 use std::time::Instant;
@@ -38,7 +38,7 @@ pub enum Cmd {
         force: bool,
         /// Headless mode: do not auto-open a browser. Emit a single-line
         /// stdout marker containing the device-code URL so an
-        /// orchestrator (e.g. `cinch pair` over SSH) can pick it up
+        /// orchestrator (e.g. `cinch device pair` over SSH) can pick it up
         /// programmatically. All other output goes to stderr.
         #[arg(long)]
         headless: bool,
