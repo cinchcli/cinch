@@ -654,6 +654,7 @@ function App() {
             onPin={(c) => setPinNoteDialog({ clip: c })}
             onUnpin={handleUnpin}
             onDelete={(c) => handleDelete(c.id)}
+            onSaveImage={(_c) => { /* TODO T5: wire to handleSaveImage */ }}
             query={debouncedQuery}
             deviceNicknames={nicknameBySource}
             tagColors={tagColors}
@@ -683,6 +684,7 @@ function App() {
               onCopy={copyClip}
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
+              onSaveImage={(_c) => { /* TODO T5: wire to handleSaveImage */ }}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}

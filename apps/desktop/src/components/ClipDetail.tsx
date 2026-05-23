@@ -11,6 +11,7 @@ interface ClipDetailProps {
   onCopy: (clip: LocalClip) => void;
   onPin: (clip: LocalClip) => void;
   onDelete: (clip: LocalClip) => void;
+  onSaveImage: (clip: LocalClip) => void;
   searchQuery?: string;
   tagColors?: MachineTagColorMap;
   sourceDisplayNames?: Record<string, string>;
@@ -21,6 +22,7 @@ export function ClipDetail({
   onCopy,
   onPin,
   onDelete,
+  onSaveImage,
   searchQuery,
   tagColors = {},
   sourceDisplayNames = {},
@@ -98,6 +100,16 @@ export function ClipDetail({
           <button type="button" onClick={() => onPin(clip)} className="btn-ghost" style={S.btnGhost}>
             {clip.is_pinned ? 'Unpin' : 'Pin'} <span style={S.kbdHint}>⌘P</span>
           </button>
+          {isImage && (
+            <button
+              type="button"
+              onClick={() => onSaveImage(clip)}
+              className="btn-ghost"
+              style={S.btnGhost}
+            >
+              Save…
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onDelete(clip)}
