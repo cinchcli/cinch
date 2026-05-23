@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "cinch-cli"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "arboard",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "cinch-desktop"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "cinchcli-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
