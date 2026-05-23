@@ -664,12 +664,6 @@ function App() {
               void unwrap(commands.copyClipToClipboard(text));
               showToast('Copied to clipboard', 'copy');
             }}
-            onOpenDevices={() => {
-              setActivePanel('devices');
-              setSelectedClip(null);
-              setSelectedSource(null);
-              setActiveFilter('all');
-            }}
           />
         ) : (
           <>
