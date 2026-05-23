@@ -187,3 +187,91 @@ pub fn copy_image_to_clipboard(
         .write_image_png_bytes(&bytes)
         .map_err(|e| e.to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/// Sniff a few well-known image-format magic bytes. Defaults to "png" for
+/// unknown payloads: the desktop push pipeline normalises to PNG, so this
+/// is the safest fallback for clipboard images that lack a clearer signal.
+fn detect_image_ext(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else if bytes.starts_with(b"GIF8") {
+        "gif"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else {
+        "png"
+    }
+}
+
+/// Build the default filename suggested in the save dialog. User can edit it.
+/// Shape: `cinch-YYYYMMDD-HHMMSS.<ext>`, timestamp from clip `created_at`
+/// (Unix seconds) formatted in the user's local timezone.
+fn default_image_filename(created_at_secs: i64, ext: &str) -> String {
+    use chrono::TimeZone as _;
+    let dt = chrono::Local
+        .timestamp_opt(created_at_secs, 0)
+        .single()
+        .unwrap_or_else(chrono::Local::now);
+    format!("cinch-{}.{}", dt.format("%Y%m%d-%H%M%S"), ext)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn detect_image_ext_matches_png_magic() {
+        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+        assert_eq!(detect_image_ext(&png), "png");
+    }
+
+    #[test]
+    fn detect_image_ext_matches_jpeg_magic() {
+        let jpg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        assert_eq!(detect_image_ext(&jpg), "jpg");
+    }
+
+    #[test]
+    fn detect_image_ext_matches_gif_magic() {
+        let gif = *b"GIF89a\0\0\0";
+        assert_eq!(detect_image_ext(&gif), "gif");
+    }
+
+    #[test]
+    fn detect_image_ext_matches_webp_magic() {
+        let mut webp = Vec::new();
+        webp.extend_from_slice(b"RIFF");
+        webp.extend_from_slice(&[0x24, 0x00, 0x00, 0x00]); // length placeholder
+        webp.extend_from_slice(b"WEBPVP8 ");
+        assert_eq!(detect_image_ext(&webp), "webp");
+    }
+
+    #[test]
+    fn detect_image_ext_defaults_to_png_on_unknown() {
+        assert_eq!(detect_image_ext(b""), "png");
+        assert_eq!(detect_image_ext(b"not-an-image"), "png");
+    }
+
+    #[test]
+    fn default_image_filename_uses_created_at_and_ext() {
+        // 2026-05-23 15:30:45 UTC — we format in local TZ, so just assert the
+        // shape: cinch-YYYYMMDD-HHMMSS.ext
+        let name = default_image_filename(1_779_500_000, "png");
+        assert!(
+            name.starts_with("cinch-") && name.ends_with(".png"),
+            "got {name}"
+        );
+        // 8-digit date, dash, 6-digit time
+        assert_eq!(name.len(), "cinch-YYYYMMDD-HHMMSS.png".len());
+    }
+}
