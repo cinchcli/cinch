@@ -3,10 +3,57 @@
 use crate::exit::ExitError;
 use client_core::store::Store;
 use serde_json::{json, Value};
+use std::io::{BufRead, Write};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
-pub fn serve_stdio(_store: &Store) -> Result<(), ExitError> {
+/// Read newline-delimited JSON-RPC messages from stdin, dispatch each, and
+/// write responses (one JSON object per line) to stdout. Returns on EOF.
+pub fn serve_stdio(store: &Store) -> Result<(), ExitError> {
+    // Exposure-scope cutoff, computed once at startup (opt-in privacy lever).
+    let max_age =
+        super::query::parse_max_age_days(std::env::var("CINCH_MCP_MAX_AGE_DAYS").ok().as_deref());
+    let since_ms = super::query::since_ms_from_days(chrono::Utc::now().timestamp_millis(), max_age);
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    for line in stdin.lock().lines() {
+        let line = line.map_err(|e| {
+            ExitError::new(
+                crate::exit::GENERIC_ERROR,
+                format!("stdin read failed: {e}"),
+                "",
+            )
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let response = match serde_json::from_str::<Value>(&line) {
+            Ok(msg) => handle_request(store, since_ms, &msg),
+            // Parse error: reply per JSON-RPC with a null id.
+            Err(e) => Some(json!({
+                "jsonrpc": "2.0", "id": Value::Null,
+                "error": { "code": -32700, "message": format!("parse error: {e}") }
+            })),
+        };
+        if let Some(resp) = response {
+            let line = serde_json::to_string(&resp).map_err(|e| {
+                ExitError::new(
+                    crate::exit::GENERIC_ERROR,
+                    format!("serialize failed: {e}"),
+                    "",
+                )
+            })?;
+            writeln!(stdout, "{line}").map_err(|e| {
+                ExitError::new(
+                    crate::exit::GENERIC_ERROR,
+                    format!("stdout write failed: {e}"),
+                    "",
+                )
+            })?;
+            stdout.flush().ok();
+        }
+    }
     Ok(())
 }
 
