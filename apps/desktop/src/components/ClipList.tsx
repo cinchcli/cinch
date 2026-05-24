@@ -11,6 +11,7 @@ interface ClipListProps {
   selected: LocalClip | null;
   onSelect: (clip: LocalClip) => void;
   onCopy: (clip: LocalClip) => void;
+  onSend: (clip: LocalClip) => void;
   query: string;
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
@@ -18,7 +19,7 @@ interface ClipListProps {
 }
 
 export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
-  ({ clips, selected, onSelect, onCopy, query, deviceNicknames, tagColors = {}, now }, ref) => {
+  ({ clips, selected, onSelect, onCopy, onSend, query, deviceNicknames, tagColors = {}, now }, ref) => {
     if (clips.length === 0) {
       return (
         <div style={S.col}>
@@ -48,6 +49,7 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
                 selected={selected?.id === clip.id}
                 onClick={() => onSelect(clip)}
                 onDoubleClick={() => onCopy(clip)}
+                onSend={() => onSend(clip)}
                 nickname={deviceNicknames[clip.source]}
                 colorSlot={tagColors[clip.source]}
               />
@@ -66,11 +68,18 @@ interface ClipRowProps {
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
+  onSend: () => void;
   nickname?: string;
   colorSlot?: MachineTagColorMap[string];
 }
 
-function ClipRow({ clip, selected, onClick, onDoubleClick, nickname, colorSlot }: ClipRowProps) {
+function syncStateLabel(s: string): string {
+  if (s === 'pending') return 'Sending…';
+  if (s === 'synced') return 'Sent';
+  return ''; // local: no badge (private to this device)
+}
+
+function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, colorSlot }: ClipRowProps) {
   const isImage = clip.content_type === 'image';
   const recency = clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
   const preview = isImage
@@ -98,6 +107,11 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, nickname, colorSlot }
         <SourcePill source={clip.source} status={clip.source === 'local' ? 'local' : 'remote'} nickname={nickname} colorSlot={colorSlot} />
         <span style={{ color: C.t4 }}>·</span>
         <span>{formatTime(recency)}</span>
+        {syncStateLabel(clip.sync_state) && (
+          <span data-testid="clip-sync-state" style={S.syncState}>
+            {syncStateLabel(clip.sync_state)}
+          </span>
+        )}
         {clip.is_pinned && (
           <span data-testid="clip-pin-indicator" style={S.pinIndicator} aria-label="Pinned">
             <IconPin size={11} />
@@ -105,6 +119,17 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, nickname, colorSlot }
         )}
       </span>
       <span data-testid="clip-preview" style={S.preview}>{preview || ' '}</span>
+      <button
+        aria-label="Send clip"
+        className="clip-row-send"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSend();
+        }}
+        style={S.sendBtn}
+      >
+        Send
+      </button>
     </div>
   );
 }
@@ -126,6 +151,7 @@ const S: Record<string, CSSProperties> = {
     color: C.t3,
   },
   row: {
+    position: 'relative',
     padding: 'var(--sp-md) var(--sp-lg)',
     display: 'flex',
     flexDirection: 'column',
@@ -159,11 +185,27 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: '0.04em',
     color: C.t3,
   },
+  syncState: {
+    color: C.t3,
+    marginLeft: 6,
+  },
   pinIndicator: {
     marginLeft: 'auto',
     display: 'inline-flex',
     alignItems: 'center',
     color: 'var(--accent)',
+  },
+  sendBtn: {
+    position: 'absolute',
+    right: 'var(--sp-lg)',
+    top: 'var(--sp-md)',
+    background: 'none',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+    color: C.t2,
+    fontSize: 11,
+    padding: '2px 8px',
+    cursor: 'pointer',
   },
   empty: {
     padding: '40px var(--sp-xl)',

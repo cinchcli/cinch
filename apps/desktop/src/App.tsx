@@ -685,6 +685,7 @@ function App() {
               selected={selectedClip}
               onSelect={setSelectedClip}
               onCopy={copyClip}
+              onSend={() => {}} // TODO(Task 6): wire sendClip handler + ⌘↵
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}

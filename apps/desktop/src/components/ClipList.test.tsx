@@ -20,6 +20,7 @@ const clip = (overrides: Partial<LocalClip>): LocalClip => {
     user_id: 'u1',
     label: '',
     synced: false,
+    sync_state: 'synced',
     received_at: overrides.received_at ?? createdAt,
     ...overrides,
   };
@@ -158,5 +159,52 @@ describe('ClipList', () => {
     const styleAttr = preview.getAttribute('style') || '';
     expect(styleAttr).toMatch(/-webkit-line-clamp:\s*2/);
     expect(styleAttr).not.toMatch(/white-space:\s*nowrap/);
+  });
+
+  it('shows a Sending… badge for pending clips', () => {
+    const c = clip({ id: 'p1', sync_state: 'pending' });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+    );
+    expect(screen.getByText('Sending…')).toBeInTheDocument();
+  });
+
+  it('shows a Sent badge for synced clips and no badge for local clips', () => {
+    const synced = clip({ id: 'syn', sync_state: 'synced' });
+    const { rerender } = render(
+      <ClipList clips={[synced]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+    );
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+
+    const local = clip({ id: 'loc', sync_state: 'local' });
+    rerender(
+      <ClipList clips={[local]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+    );
+    expect(screen.queryByTestId('clip-sync-state')).not.toBeInTheDocument();
+  });
+
+  it('calls onSend when the Send button is clicked', () => {
+    const onSend = vi.fn();
+    const c = clip({ id: 's1', sync_state: 'local' });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={onSend} query="" deviceNicknames={{}} now={NOW} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
+    expect(onSend).toHaveBeenCalledWith(c);
+  });
+
+  it('does not trigger row select when the Send button is clicked', () => {
+    const onSelect = vi.fn();
+    const c = clip({ id: 's2', sync_state: 'local' });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
+                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
