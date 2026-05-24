@@ -296,6 +296,71 @@ fn default_image_filename(created_at_secs: i64, ext: &str) -> String {
     format!("cinch-{}.{}", dt.format("%Y%m%d-%H%M%S"), ext)
 }
 
+/// Decide what to send from a polled clipboard snapshot. Pure + unit-tested.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SendAction {
+    Text(String),
+    ImagePng(Vec<u8>),
+    Nothing,
+}
+
+pub(crate) fn classify_for_send(content: crate::clipboard::backend::PollContent) -> SendAction {
+    use crate::clipboard::backend::PollContent;
+    match content {
+        PollContent::Text(t) if !t.is_empty() => SendAction::Text(t),
+        PollContent::ImagePng(b) if !b.is_empty() => SendAction::ImagePng(b),
+        _ => SendAction::Nothing,
+    }
+}
+
+/// Send whatever is currently on the system clipboard to the user's devices.
+/// Bound to the opt-in send shortcut. Returns Ok(()) on success, Err on
+/// empty/unsupported clipboard or push failure.
+#[tauri::command]
+#[specta::specta]
+pub async fn send_current_clipboard(
+    clipboard: State<'_, std::sync::Arc<ClipboardService>>,
+    pusher: State<'_, LocalPusherHandle>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let snapshot = clipboard.poll_snapshot().map_err(|e| e.to_string())?;
+    let pusher = {
+        let guard = pusher
+            .lock()
+            .map_err(|_| "pusher mutex poisoned".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "not signed in — sign in to enable sending".to_string())?
+    };
+    let source = format!("remote:{}", client_core::machine::hostname_or_unknown());
+    let ok = match classify_for_send(snapshot.content) {
+        SendAction::Text(t) => {
+            let raw = t.into_bytes();
+            let ct = client_core::classify::detect(&raw);
+            pusher
+                .push_text(raw, &source, "", ct)
+                .await
+                .map_err(|e| e.to_string())?;
+            true
+        }
+        SendAction::ImagePng(bytes) => {
+            pusher
+                .push_image_png(bytes, &source, "")
+                .await
+                .map_err(|e| e.to_string())?;
+            true
+        }
+        SendAction::Nothing => false,
+    };
+    // TODO(task2): emit ClipSent event
+    let _ = &app; // suppress unused-variable warning until ClipSent is wired up
+    if !ok {
+        return Err("clipboard is empty or unsupported".to_string());
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -399,6 +464,33 @@ mod send_clip_tests {
         assert_eq!(
             queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
             SyncState::Pending
+        );
+    }
+}
+
+#[cfg(test)]
+mod send_current_tests {
+    use super::*;
+    use crate::clipboard::backend::PollContent;
+
+    #[test]
+    fn classify_for_send_routes_text_and_image() {
+        assert_eq!(
+            classify_for_send(PollContent::Text("x".into())),
+            SendAction::Text("x".into())
+        );
+        assert_eq!(
+            classify_for_send(PollContent::ImagePng(vec![1, 2])),
+            SendAction::ImagePng(vec![1, 2])
+        );
+        assert_eq!(
+            classify_for_send(PollContent::Text(String::new())),
+            SendAction::Nothing
+        );
+        assert_eq!(classify_for_send(PollContent::Empty), SendAction::Nothing);
+        assert_eq!(
+            classify_for_send(PollContent::Unsupported),
+            SendAction::Nothing
         );
     }
 }
