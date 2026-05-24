@@ -22,9 +22,11 @@ use ulid::Ulid;
 pub const MAX_UNSYNCED: usize = 1000;
 
 /// Persist a clip to the local store with a `local-<ULID>` id and
-/// `synced=false`, then enforce the offline cap. Returns the temporary id —
-/// also used as the relay `idempotency_key` on flush so the relay can dedup
-/// retries.
+/// `sync_state = Pending`, then enforce the offline cap. This is the SEND
+/// queue for offline explicit sends (NOT the capture path — see
+/// `capture::capture_local` for `sync_state = Local` clipboard history).
+/// Returns the temporary id — also used as the relay `idempotency_key` on
+/// flush so the relay can dedup retries.
 pub fn enqueue_local(
     store: &Store,
     source: &str,
