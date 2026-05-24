@@ -362,7 +362,7 @@ function App() {
 
   const sendClip = useCallback(async (clip: LocalClip) => {
     try {
-      await unwrap(commands.sendClip(clip.id));
+      await unwrap(commands.sendClip(clip.id, null));
       refreshClips();
       showToast('Sent', 'copy');
     } catch (e) {

@@ -16,8 +16,11 @@ export const commands = {
 	 *  Explicitly send an already-captured local clip to the relay (and thus to
 	 *  the user's other devices). This is the ONLY path by which a clip leaves
 	 *  the device — the clipboard monitor never pushes.
+	 * 
+	 *  `target_device_id` is optional: `None` (null from TypeScript) broadcasts
+	 *  to all of the user's devices; `Some(id)` restricts delivery to that device.
 	 */
-	sendClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("send_clip", { id })),
+	sendClip: (id: string, targetDeviceId: string | null) => typedError<null, string>(__TAURI_INVOKE("send_clip", { id, targetDeviceId })),
 	getClipCount: () => typedError<number, string>(__TAURI_INVOKE("get_clip_count")),
 	getConfigInfo: () => __TAURI_INVOKE<ConfigInfo>("get_config_info"),
 	getSourceAutoCopy: (source: string) => typedError<boolean, string>(__TAURI_INVOKE("get_source_auto_copy", { source })),
