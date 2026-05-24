@@ -337,6 +337,8 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
       return;
     }
 
+    // physicalKey resolves Korean IME / non-QWERTY layouts to the
+    // QWERTY-positioned letter (same rationale as the window shortcut above).
     const key = physicalKey(e);
     const newShortcut = [...modifiers, key].join("+");
 

@@ -10,6 +10,8 @@ export function SendToast() {
     const unsubP = events.clipSent.listen((e) => {
       setMessage(e.payload ? "Sent to your devices" : "Nothing to send");
       if (timer) clearTimeout(timer);
+      // Short auto-dismiss: a success acknowledgement, not an error to read
+      // (error toasts use 6000ms). Matches App.tsx's inline Toast (1800ms).
       timer = setTimeout(() => setMessage(null), 1800);
     });
     return () => {
