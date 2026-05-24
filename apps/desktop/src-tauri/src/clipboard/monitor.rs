@@ -361,6 +361,7 @@ pub(crate) fn clip_received_stub(
         media_path: None,
         created_at: now_secs,
         synced: true,
+        sync_state: "local".to_string(),
         is_pinned: false,
         pin_note: None,
         received_at: now_secs,
