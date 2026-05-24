@@ -200,6 +200,51 @@ describe('App', () => {
         expect(invoke).not.toHaveBeenCalledWith('copy_clip_to_clipboard', { content: '' });
     });
 
+    it('saves an image clip to file via save_image_to_file when Save... is clicked', async () => {
+        const imageClip: LocalClip = {
+            id: 'cimg',
+            user_id: 'u1',
+            content: '',
+            content_type: 'image',
+            source: 'local',
+            label: 'screenshot.png',
+            byte_size: 245760,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([imageClip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+                return Promise.resolve([]);
+            }
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        // Click the clip card to select it (same pattern as the copy-image test)
+        const row = await screen.findByRole('button', { name: /Image \(240\.0 KB\)/i });
+        fireEvent.click(row);
+
+        // The Save... button is rendered by ClipDetail when the clip is selected
+        const saveBtn = await screen.findByRole('button', { name: /^save/i });
+        fireEvent.click(saveBtn);
+
+        await waitFor(() => {
+            expect(invoke).toHaveBeenCalledWith('save_image_to_file', { clipId: 'cimg' });
+        });
+    });
+
     it('does not copy and hide the window when confirming a pin note with Enter', async () => {
         const clip: LocalClip = {
             id: 'c1',

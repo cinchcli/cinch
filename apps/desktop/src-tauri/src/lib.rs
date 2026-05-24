@@ -66,6 +66,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::mark_clip_copied,
             commands::clips::copy_clip_to_clipboard,
             commands::clips::copy_image_to_clipboard,
+            commands::clips::save_image_to_file,
             commands::clips::focus_previous_app,
             commands::clips::list_devices,
             commands::clips::set_device_nickname,
@@ -262,6 +263,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(

@@ -23,6 +23,7 @@ export const commands = {
 	markClipCopied: (id: string) => typedError<null, string>(__TAURI_INVOKE("mark_clip_copied", { id })),
 	copyClipToClipboard: (content: string) => typedError<null, string>(__TAURI_INVOKE("copy_clip_to_clipboard", { content })),
 	copyImageToClipboard: (clipId: string) => typedError<null, string>(__TAURI_INVOKE("copy_image_to_clipboard", { clipId })),
+	saveImageToFile: (clipId: string) => typedError<string | null, string>(__TAURI_INVOKE("save_image_to_file", { clipId })),
 	/**
 	 *  Restore focus to the app that was frontmost before Cinch was shown, then hide the
 	 *  Cinch window. On non-macOS platforms this simply hides the window.

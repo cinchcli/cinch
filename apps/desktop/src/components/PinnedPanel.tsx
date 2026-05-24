@@ -13,6 +13,7 @@ interface PinnedPanelProps {
   onPin: (clip: LocalClip) => void;
   onUnpin: (clip: LocalClip) => void;
   onDelete: (clip: LocalClip) => void;
+  onSaveImage: (clip: LocalClip) => void;
   query: string;
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
@@ -20,7 +21,7 @@ interface PinnedPanelProps {
 }
 
 export function PinnedPanel({
-  clips, selected, onSelect, onCopy, onPin, onUnpin, onDelete,
+  clips, selected, onSelect, onCopy, onPin, onUnpin, onDelete, onSaveImage,
   query, deviceNicknames, tagColors = {}, listRef,
 }: PinnedPanelProps) {
   const groups = groupByPinNote(clips);
@@ -64,6 +65,7 @@ export function PinnedPanel({
         onCopy={onCopy}
         onPin={(c) => c.is_pinned ? onUnpin(c) : onPin(c)}
         onDelete={onDelete}
+        onSaveImage={onSaveImage}
         tagColors={tagColors}
         sourceDisplayNames={deviceNicknames}
       />
