@@ -1,7 +1,7 @@
 # AI-Era Clipboard — `cinch mcp` (clipboard history as an MCP server)
 
 - **Date:** 2026-05-24
-- **Status:** Design (approved in brainstorming; pending spec review)
+- **Status:** Design — revised after codex review (2026-05-24)
 - **Author:** brainstormed with the maintainer
 - **Scope:** v1 wedge of the "AI-era clipboard" direction for cinch
 
@@ -63,11 +63,18 @@ A prior code audit confirmed the human recall path is ~80% built:
   sees ciphertext; decryption happens client-side in the WS layer). FTS5
   virtual table `clips_fts` indexes `content`.
 - `client_core::store::queries::{search_clips, list_clips}` — reusable by
-  both CLI and desktop; the CLI already uses them.
+  both CLI and desktop; the CLI already uses them. Note the actual
+  `list_clips` signature filters by `source`, `since_ms`, `pinned_only`,
+  and `limit` — there is **no `content_type` filter** today.
 - Desktop: global hotkey (default `Cmd+Shift+V`) → summons a borderless,
   transparent window; captures the frontmost app PID *before* stealing
   focus; restores it afterward (`focus_previous_app`). NSPasteboard
   read+write. Search UI (SearchBar + ClipList + ClipCard + ClipDetail).
+- The **CLI already writes to the clipboard** (correcting the earlier
+  assumption): `cinch pull --copy` uses `arboard::Clipboard::set_text`
+  (`crates/cli/src/commands/pull.rs:506`); image write is macOS-only via a
+  CLI NSPasteboard helper (`pull.rs:525`). This matters for the deferred
+  write tool (§7): centralize, don't rebuild.
 
 **Decision:** the human recall experience is good enough for v1. We do **not**
 add auto-paste (auto-⌘V) — it is unpredictable, can paste into the wrong
@@ -75,7 +82,7 @@ target, breaks per-app, and removes user control. The existing flow
 (select → copy → focus returns → user presses ⌘V) stays. "Smart ranking"
 (recency/frequency/pinned/current-app) is noted as future polish, not v1.
 
-## 5. v1 scope — `cinch mcp`
+## 5. v1 scope — `cinch mcp` (read-only)
 
 A stdio MCP server shipped as a new `cinch mcp` subcommand. AI tools
 (Claude Code, Cursor, Cline) spawn it; it reads `~/.cinch/store.db` and
@@ -83,79 +90,119 @@ exposes the synced clipboard history. No new store, no encryption key
 (plaintext is local), no daemon; works whether or not the desktop app is
 running.
 
+**v1 is read-only.** The guarded write tool (`set_clipboard`) is deferred to
+v2 (§7) per codex review: ship the read loop first, add write once the server
+is stable and the visibility/notification story exists.
+
 ### 5.1 MCP tool surface
 
-Read tools (always available):
-
 | Tool | Behavior |
 |---|---|
-| `search_clipboard(query, limit?)` | FTS5 search over history. "find that error I copied last week" |
-| `list_recent_clipboard(limit?, content_type?, source?)` | Recent clips, optional filters. `limit=1` ≈ "what I just copied" |
+| `search_clipboard(query, limit?)` | FTS5 search over history (input-sanitized, §5.3). "find that error I copied last week" |
+| `list_recent_clipboard(limit?, source?)` | Recent clips, optional `source` filter. `limit=1` ≈ "what I just copied". (`content_type` filter omitted in v1 — `list_clips` does not support it yet; adding it is a query change, see §9) |
 | `get_clipboard_item(id)` | Full content of one clip (lists return previews only) |
-
-Guarded write tool (opt-in only — see §5.3):
-
-| Tool | Behavior |
-|---|---|
-| `set_clipboard(content, content_type?)` | Places content on the **local** system clipboard so the human can paste it |
 
 ### 5.2 Response shape & token discipline
 
-Per clip: `id`, `content`, `content_type` (`text`/`code`/`url`/`image`),
-`source`, `created_at` (ISO 8601), `byte_size`.
+Per clip: `id`, `content` (text only — see image rule below), `content_type`
+(normalized to `text`/`code`/`url`/`image`), `source`, `created_at`
+(ISO 8601), `byte_size`.
 
 - `search`/`list` results **truncate** `content` to a preview to avoid
   blowing the AI context window; full content via `get_clipboard_item`.
-- Image clips return metadata (+ `media_path`), never raw bytes.
+- **Image rule (hard):** never serialize `StoredClip.content` (a `BLOB`)
+  generically. Image clips return metadata only (`content_type: "image"`,
+  `byte_size`, `media_path`), never raw bytes — including from
+  `get_clipboard_item`.
+- **content_type normalization:** the store may hold legacy MIME-style
+  values (`text/*`, `image/*`) alongside the canonical four. Normalize to
+  the canonical set at the MCP boundary (reuse the existing
+  `normalize_content_type` helper) so AI consumers see a stable vocabulary.
+- **Empty results:** return a structured empty array (plus optional
+  diagnostic field), never a human-readable stdout/stderr message — stdio
+  is the MCP transport, not a console.
 
-### 5.3 Privacy & guards
+### 5.3 Robustness (from codex review)
+
+- **FTS input sanitization:** `search_clips` passes raw input into
+  `clips_fts MATCH ?1`. Natural-language AI queries with punctuation,
+  quotes, `-`, `:` can raise FTS5 syntax errors. The MCP layer must
+  sanitize/quote/tokenize the query (or fall back to a `LIKE` scan) so a
+  query never errors out the tool call.
+- **Limit clamping:** clamp `limit` to a sane default and a hard maximum;
+  reject negative/zero. Never pass arbitrary client `i64` straight through.
+
+### 5.4 Quiet runtime (critical for stdio)
+
+- Do **not** reuse `runtime::open_ctx()` — it requires an auth token and
+  builds a `RestClient`, which contradicts "local store only, never touches
+  relay or key" (`crates/cli/src/runtime.rs:29`). Open
+  `Store::open(default_db_path())` directly.
+- Suppress the normal CLI wrapper side effects on this path: no update
+  notices, no telemetry, no opportunistic backfill/session flush, no stderr
+  chatter (`crates/cli/src/lib.rs:225`). Any stray stdout/stderr corrupts
+  the MCP stdio stream.
+
+### 5.5 Privacy & guards
 
 - Reads only the local decrypted store; never touches the relay or the key.
-- Clipboard capture already skips password managers and concealed
-  pasteboard types, so secrets are largely never stored.
-- **Read-only by default.** The write tool (`set_clipboard`) is exposed
-  only when started with `cinch mcp --allow-write` (or equivalent config).
-- **Local clipboard only** in v1 — no silent cross-device push.
-- **Size cap** on written content (reject oversized payloads).
-- **Visibility (nice-to-have):** if the desktop app is running, surface a
-  notification ("Cinch: AI set your clipboard") so the human always knows.
-- Future: an exposure-scope option (e.g., "last N days only", exclude
-  certain sources/content types).
+- **Honest framing:** an MCP read surface gives any configured AI client
+  **bulk access to all plaintext local clipboard history**. "Read-only"
+  prevents writes, not exfiltration. The desktop's "skips password managers"
+  behavior is a macOS-specific NSPasteboard concealed-type guard at *capture*
+  time — it is not a universal guarantee that secrets are absent from the
+  store.
+- Mitigation for v1: an **exposure-scope** option (e.g., "last N days only",
+  exclude specific sources/content types) so the surface is bounded by
+  default rather than exposing the full history.
 
-### 5.4 Code location & dependencies
+### 5.6 Code location & dependencies
 
-- New subcommand: `crates/cli/src/commands/mcp.rs` + a JSON-RPC/stdio layer.
+- New subcommand: `crates/cli/src/commands/mcp.rs`; register it in the `Cmd`
+  enum and `crates/cli/src/commands/mod.rs`.
 - Wraps existing `client_core::store::queries::{search_clips, list_clips}`.
 - MCP protocol: evaluate the Rust SDK `rmcp` vs a minimal hand-rolled
   JSON-RPC-over-stdio (decide in planning).
-- Clipboard **write** for the CLI does not exist yet (only the desktop has
-  NSPasteboard write). Add it via `arboard` or by sharing the desktop's
-  write path through `client_core` (decide in planning).
 
-### 5.5 Integration (dogfooding path)
+### 5.7 Integration (dogfooding path)
 
 - Claude Code: `claude mcp add cinch -- cinch mcp` (or `.mcp.json`).
 - Cursor: register `cinch mcp` in `mcp.json`.
-- Future (optional): a desktop "Copy MCP config" helper.
+
+### 5.8 Sequencing & tests
+
+- Add `mcp` to the `Cmd` enum + `commands/mod.rs`; wire the quiet,
+  store-only runtime path; implement the three read tools.
+- Tests: MCP protocol round-trip, malformed/punctuated FTS queries (must not
+  error), limit clamping (negative/zero/over-max), image clips never return
+  bytes, content_type normalization of legacy MIME values, empty-store path.
 
 ## 6. Edge cases
 
-- `store.db` missing / empty → empty results with a clear message.
+- `store.db` missing / empty → structured empty results.
 - Offline clips (`synced = 0`) are included (correct — they are real local
   clips).
-- Concurrent access with desktop/CLI — reads are safe (SQLite WAL); the
-  existing `~/.cinch/sync.lock` coordinates writers.
-- `set_clipboard` from the CLI will be captured by the desktop monitor as a
-  new clip — acceptable and desirable ("AI set this" becomes recorded).
+- Concurrency: SQLite **WAL + `busy_timeout`** make concurrent reads safe
+  alongside desktop/CLI writers (`crates/client-core/src/store/mod.rs:41`).
+  `~/.cinch/sync.lock` coordinates the sync/backfill writers specifically,
+  not every local mutation — do not over-claim it as the general guard.
 
 ## 7. Out of scope (future)
 
+- **Guarded write (`set_clipboard`)** — v2. The write path already exists
+  (`arboard` text in `pull.rs:506`; macOS NSPasteboard image helper in
+  `pull.rs:525`), so v2 is centralization + guards, not new plumbing:
+  opt-in `--allow-write`, **text only** first, size cap, local clipboard
+  only (no cross-device push), and a desktop notification so the human
+  always knows the AI wrote.
 - Semantic/embedding search (FTS5 keyword search is the v1 recall).
 - Transform-on-recall (KO↔EN / summarize / to-table) — strong v2 candidate;
   hits the maintainer's personal bilingual pain and is the most "AI-era"
   hook, but adds AI calls and UI surface.
 - Cross-device push / device targeting via MCP write.
 - Smart ranking of recall (recency × frequency × pinned × current app).
+- `content_type` filter on `list_recent_clipboard` (needs a `list_clips`
+  query change).
 - Desktop UI for MCP onboarding.
 
 ## 8. Success criteria
@@ -163,14 +210,14 @@ Per clip: `id`, `content`, `content_type` (`text`/`code`/`url`/`image`),
 1. With `cinch` added to Claude Code, *"fix the error I just copied"* and
    *"pull the API spec I copied last week"* work **without manual
    copy/paste**.
-2. In the maintainer's own dogfooding, the number of manual copy/pastes
+2. A natural-language query with punctuation never errors the tool call.
+3. In the maintainer's own dogfooding, the number of manual copy/pastes
    done purely to carry context to an AI drops noticeably.
-3. With `--allow-write`, an agent can place a result on the local clipboard
-   for the human to paste, and the human is never surprised by it.
 
 ## 9. Open questions for planning
 
 - `rmcp` SDK vs hand-rolled JSON-RPC/stdio.
-- CLI clipboard-write implementation (`arboard` vs shared `client_core`).
-- Preview truncation length and `byte_size` thresholds.
-- Exact `--allow-write` ergonomics (flag vs config vs both).
+- FTS sanitization approach (quote/tokenize vs `LIKE` fallback).
+- Preview truncation length and `byte_size` thresholds; limit default + max.
+- Exposure-scope default (full history vs last-N-days out of the box).
+- Where to centralize the CLI clipboard-write path for the v2 write tool.
