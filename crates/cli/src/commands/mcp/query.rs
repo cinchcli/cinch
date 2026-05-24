@@ -35,9 +35,11 @@ pub fn parse_max_age_days(raw: Option<&str>) -> Option<i64> {
 }
 
 /// Compute the `since_ms` cutoff from a max-age window relative to `now_ms`.
-/// `None` window means no cutoff.
+/// `None` window means no cutoff. Returns `None` if the multiplication would overflow.
 pub fn since_ms_from_days(now_ms: i64, max_age_days: Option<i64>) -> Option<i64> {
-    max_age_days.map(|days| now_ms - days * 86_400_000)
+    max_age_days
+        .and_then(|days| days.checked_mul(86_400_000))
+        .map(|window| now_ms - window)
 }
 
 #[cfg(test)]
@@ -89,5 +91,10 @@ mod tests {
         let now = 1_700_000_000_000;
         assert_eq!(since_ms_from_days(now, None), None);
         assert_eq!(since_ms_from_days(now, Some(1)), Some(now - 86_400_000));
+    }
+
+    #[test]
+    fn since_cutoff_does_not_overflow() {
+        assert_eq!(since_ms_from_days(0, Some(i64::MAX)), None);
     }
 }

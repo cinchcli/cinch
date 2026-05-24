@@ -89,7 +89,7 @@ fn tools_list() -> Value {
     json!({ "tools": [
         {
             "name": "search_clipboard",
-            "description": "Full-text search the user's clipboard history. Returns matching clips as previews; use get_clipboard_item for full content.",
+            "description": "Full-text search the user's clipboard history. Returns matching clips as previews; use get_clipboard_item for full content. Results may be fewer than `limit` when CINCH_MCP_MAX_AGE_DAYS is set.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -142,7 +142,10 @@ fn handle_tool_call(
 
     let payload: Value = match name {
         "search_clipboard" => {
-            let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+            let query = args
+                .get("query")
+                .and_then(Value::as_str)
+                .ok_or((-32602, "missing required 'query'".to_string()))?;
             let limit = clamp_limit(args.get("limit").and_then(Value::as_i64));
             let fts = sanitize_fts_query(query);
             // The empty-query path goes through list_clips (DB-filters by since_ms);
@@ -422,5 +425,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn search_clipboard_without_query_is_invalid_params() {
+        let store = mem_store();
+        let resp = handle_request(
+            &store,
+            None,
+            &json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
+                    "params":{"name":"search_clipboard","arguments":{}}}),
+        )
+        .unwrap();
+        assert_eq!(resp["error"]["code"], -32602);
     }
 }

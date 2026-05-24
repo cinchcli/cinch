@@ -48,10 +48,13 @@ pub fn to_mcp_clip(c: &StoredClip, full: bool) -> McpClip {
             None => (None, false),
             Some(bytes) => {
                 let text = String::from_utf8_lossy(bytes);
-                if full || text.chars().count() <= PREVIEW_CHARS {
+                if full {
                     (Some(text.into_owned()), false)
                 } else {
-                    (Some(text.chars().take(PREVIEW_CHARS).collect()), true)
+                    let mut chars = text.chars();
+                    let preview: String = chars.by_ref().take(PREVIEW_CHARS).collect();
+                    let truncated = chars.next().is_some();
+                    (Some(preview), truncated)
                 }
             }
         }

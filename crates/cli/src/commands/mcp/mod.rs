@@ -12,7 +12,8 @@ use client_core::store::{default_db_path, Store};
 #[derive(Debug, clap::Args)]
 pub struct Args {}
 
-/// Open the local store directly (no auth / RestClient), read-only usage.
+/// Open the local store directly (no auth / RestClient). The MCP tools only read,
+/// but Store::open runs schema migrations / legacy import on first open.
 fn open_store() -> Result<Store, ExitError> {
     let path = default_db_path().map_err(|e| {
         ExitError::new(GENERIC_ERROR, format!("cannot resolve store path: {e}"), "")
