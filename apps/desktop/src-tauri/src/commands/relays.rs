@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State};
 
+use tauri_specta::Event;
+
 use crate::auth::{add_relay_profile, load_multi_config, transition, AuthState, AuthStateHandle};
 use crate::protocol::MultiConfigHandle;
 use crate::sync_status::{WsAbortHandle, WsStatus};
@@ -251,6 +253,9 @@ pub async fn pair_with_token(
     // pair_with_token replaces the active relay, so the next list_devices must
     // re-fetch against the new identity, not serve stale rows from relay A.
     cache.invalidate();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
 
     Ok(PairWithTokenResult {
         relay_id,

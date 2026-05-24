@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tauri::{AppHandle, State};
+use tauri_specta::Event;
 
 use crate::auth::{transition, wipe_credentials, AuthState, AuthStateHandle};
 use crate::commands::relays::PendingAuthRelay;
@@ -45,6 +46,9 @@ pub async fn sign_out(
     // list_devices does not serve relay-A data after the user has signed
     // out (or signed in to a different relay).
     cache.invalidate();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
 
     transition(&app, &handle, AuthState::LocalOnly);
     Ok(())

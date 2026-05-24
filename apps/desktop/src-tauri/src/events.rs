@@ -99,6 +99,14 @@ pub struct ClipPinned {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, specta::Type, tauri_specta::Event)]
 pub struct DeviceCodePending(pub crate::auth::state::PendingDeviceCode);
 
+/// Fired when the relay-side device set may have changed: after a successful
+/// rename/revoke/sign_out/pair_with_token/pair_via_ssh from this device, and
+/// on every WS (re)connect (other devices may have paired/revoked while this
+/// desktop was offline). React listens once and re-fetches `list_devices`,
+/// replacing the legacy 5-second polling in `DevicesPanel`.
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct DevicesChanged;
+
 /// Streamed to the `snap-overlay` window during a panel drag. All
 /// coordinates are physical pixels relative to the global desktop space;
 /// the overlay subtracts the monitor origin and divides by `scale` to get

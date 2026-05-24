@@ -271,13 +271,14 @@ function App() {
       events.clipReceived.listen(() => { refreshClips(); refreshSources(); }),
       events.remoteClipReceived.listen(() => { refreshClips(); refreshSources(); }),
       events.clipDeleted.listen(() => { refreshClips(); refreshSources(); }),
+      events.devicesChanged.listen(() => { refreshDevices(); }),
       events.clipPinned.listen(() => { refreshClips(); }),
       events.newSourceDetected.listen((e) => {
         setNewSourcePrompt(e.payload);
       }),
     ];
     return () => { unsubs.forEach((p) => p.then((f) => f())); };
-  }, [refreshClips, refreshSources]);
+  }, [refreshClips, refreshSources, refreshDevices]);
 
   // OS notification when a clip arrives from another device. The per-source
   // toggle in DevicesPanel (Alerts on/off) gates this — defaults to on.

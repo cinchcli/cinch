@@ -27,6 +27,7 @@ use tauri_specta::Event;
 #[specta::specta]
 pub async fn pair_via_ssh(
     app: AppHandle,
+    cache: tauri::State<'_, crate::commands::clips::DeviceCacheHandle>,
     target: String,
     relay_url: Option<String>,
     skip_install: bool,
@@ -168,6 +169,11 @@ pub async fn pair_via_ssh(
             marker.user_id, expected_user_id
         ));
     }
+    cache.invalidate();
+    if let Err(e) = crate::events::DevicesChanged.emit(&app) {
+        log::warn!("DevicesChanged emit failed: {}", e);
+    }
+
     Ok(())
 }
 

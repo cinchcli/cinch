@@ -30,6 +30,12 @@ pub(crate) struct ClipNotifierTx(
     pub(crate) tokio::sync::mpsc::UnboundedSender<client_core::protocol::Clip>,
 );
 
+/// Fires on WS (re)connect so the consumer in lib.rs setup() can emit a
+/// DevicesChanged Tauri event without needing an AppHandle inside
+/// client-core's `on_connected` callback.
+#[derive(Clone)]
+pub(crate) struct DevicesChangedTx(pub(crate) tokio::sync::mpsc::UnboundedSender<()>);
+
 /// Builds the `ClientInfo` block that identifies this desktop binary to
 /// `cinch-core`'s REST + WS clients. Cinch-core attaches it as HTTP
 /// headers and as the WS `client_hello` payload, so the relay can
