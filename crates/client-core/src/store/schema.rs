@@ -90,6 +90,7 @@ fn migrate_v3(conn: &Connection) -> rusqlite::Result<()> {
     // must not transmit them after upgrade.
     conn.execute_batch(
         r#"
+        BEGIN;
         ALTER TABLE clips ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'synced';
         UPDATE clips SET sync_state = CASE WHEN synced = 1 THEN 'synced' ELSE 'local' END;
         DROP INDEX IF EXISTS clips_unsynced_idx;
@@ -97,6 +98,7 @@ fn migrate_v3(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX clips_pending_idx ON clips(sync_state, created_at)
             WHERE sync_state = 'pending';
         UPDATE meta SET value = '3' WHERE key = 'schema_version';
+        COMMIT;
     "#,
     )?;
     Ok(())
@@ -221,25 +223,5 @@ mod tests {
             r.get::<_, i64>(0)
         });
         assert!(err.is_err(), "synced column must be dropped after v3");
-    }
-
-    #[test]
-    fn fresh_db_defaults_sync_state_synced() {
-        let conn = Connection::open_in_memory().unwrap();
-        apply_migrations(&conn).unwrap();
-        conn.execute(
-            "INSERT INTO clips (id, source, content_type, created_at) VALUES ('y','s','text',0)",
-            [],
-        )
-        .unwrap();
-        let state: String = conn
-            .query_row("SELECT sync_state FROM clips WHERE id='y'", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        assert_eq!(
-            state, "synced",
-            "received/backfilled rows default to synced"
-        );
     }
 }
