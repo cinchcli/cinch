@@ -432,6 +432,30 @@ pub fn run() {
                 // store (~/.cinch/store.db). Task 4.3 will delete ws.rs once that path
                 // is confirmed stable in production.
                 let _ = (ws_relay_url, ws_token); // consumed by Writer above
+
+                // Reflect the boot-time writer result into ws_status + tray. startup.rs
+                // sets the WriterHandle but never touches ws_status, which is initialized
+                // to "connecting" — so without this the tray would read "Connecting…"
+                // forever until the next restart_writer (sign-in/token refresh).
+                let writer_present = app
+                    .state::<crate::app_state::WriterHandle>()
+                    .lock()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                let initial_ws = if writer_present {
+                    "connected"
+                } else {
+                    "connecting"
+                };
+                ws_status.set(initial_ws);
+                let h = handle.clone();
+                let ws_value = initial_ws.to_string();
+                tauri::async_runtime::spawn(async move {
+                    crate::events::WsStatus(ws_value.clone()).emit(&h).ok();
+                    let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
+                    let snapshot = auth_handle.lock().unwrap().clone();
+                    crate::tray::set_status(&h, &snapshot, &ws_value);
+                });
             } else {
                 // No config — show window immediately with setup instructions
                 show_on_active_monitor(handle);
