@@ -13,6 +13,7 @@ pub async fn sign_out(
     app: AppHandle,
     handle: State<'_, AuthStateHandle>,
     pending_auth: State<'_, Arc<PendingAuthRelay>>,
+    cache: State<'_, crate::commands::clips::DeviceCacheHandle>,
 ) -> Result<(), String> {
     let cfg = crate::protocol::Config::load().unwrap_or_default();
     if !cfg.token.is_empty() || !cfg.active_device_id.is_empty() {
@@ -39,6 +40,12 @@ pub async fn sign_out(
     pending_auth.clear();
 
     wipe_credentials().map_err(|e| format!("wipe: {}", e))?;
+
+    // Drop any device list cached under the old credentials so the next
+    // list_devices does not serve relay-A data after the user has signed
+    // out (or signed in to a different relay).
+    cache.invalidate();
+
     transition(&app, &handle, AuthState::LocalOnly);
     Ok(())
 }

@@ -31,6 +31,7 @@ use tauri_specta::{collect_commands, collect_events, Builder, Event};
 
 use auth::state::PendingCodesHandle;
 use auth::{AuthState, AuthStateHandle};
+use commands::clips::{DeviceCache, DeviceCacheHandle};
 use protocol::MultiConfigHandle;
 
 pub(crate) use app_state::ClipNotifierTx;
@@ -202,6 +203,7 @@ pub fn run() {
         );
 
     let multi_config_handle: MultiConfigHandle = Arc::new(Mutex::new(multi_config));
+    let device_cache_handle: DeviceCacheHandle = Arc::new(DeviceCache::new());
     let ws_abort_handle = Arc::new(sync_status::WsAbortHandle::new());
     let pending_relay_add = Arc::new(commands::relays::PendingRelayAdd::new());
     let pending_auth_relay = Arc::new(commands::relays::PendingAuthRelay::new());
@@ -264,6 +266,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(db.clone())
         .manage(multi_config_handle.clone())
+        .manage(device_cache_handle.clone())
         .manage(ws_abort_handle.clone())
         .manage(pending_relay_add.clone())
         .manage(pending_auth_relay.clone())

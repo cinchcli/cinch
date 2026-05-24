@@ -23,7 +23,9 @@ const DARK_SHADOW =
   "rgba(0,0,0,0.5) 0 0 0 2px, rgba(255,255,255,0.19) 0 0 14px, rgba(255,255,255,0.05) 0 1px 0 0 inset";
 
 // DESIGN.md §2.5 flow-glow — destructive + primary tones on the primary CTA.
-const DESTRUCTIVE_GLOW = "rgba(255,99,99,0.15) 0 0 20px 5px";
+// Destructive glow is themed via --destructive-glow so light theme can use a
+// softer halo around its vivid red button.
+const DESTRUCTIVE_GLOW = "var(--destructive-glow)";
 const PRIMARY_GLOW = "rgba(79,179,169,0.18) 0 0 20px 5px";
 
 export default function ConfirmDialog({
@@ -125,8 +127,8 @@ export default function ConfirmDialog({
       cursor: "pointer",
     },
     primaryBtn: {
-      background: isDestructive ? C.error : C.t1,
-      color: isDestructive ? "#07080a" : C.bg,
+      background: isDestructive ? "var(--destructive-bg)" : C.t1,
+      color: isDestructive ? "var(--destructive-fg)" : C.bg,
       border: "none",
       fontSize: 12,
       fontWeight: 600,

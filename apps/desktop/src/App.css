@@ -52,6 +52,12 @@
   --info:    #B4C8E6;
   --highlight: rgba(255, 193, 7, 0.35);
 
+  /* Destructive button — separate from --error so light theme can use a vivid
+     button-red without dragging error TEXT contrast down. */
+  --destructive-bg:   #FF6363;
+  --destructive-fg:   #07080a;
+  --destructive-glow: rgba(255, 99, 99, 0.15) 0 0 20px 5px;
+
   /* Spacing (8px base + 12) */
   --sp-2xs: 2px;
   --sp-xs:  4px;
@@ -122,6 +128,13 @@ html.light {
   --error:   #9F2F2D;
   --info:    #2563EB;
   --highlight: rgba(255, 193, 7, 0.4);
+
+  /* Light-theme destructive button: red-700 with white text. Brighter than the
+     AAA-contrast --error text color, but less saturated than red-600 so it
+     doesn't shout against the editorial light palette. */
+  --destructive-bg:   #B91C1C;
+  --destructive-fg:   #FFFFFF;
+  --destructive-glow: rgba(185, 28, 28, 0.12) 0 0 14px 3px;
 
   color-scheme: light;
 }

@@ -1,28 +1,45 @@
 use tauri::State;
 
 use super::resolve_active_creds;
+use super::DeviceCacheHandle;
 use crate::protocol::{DeviceInfo, MultiConfigHandle};
 
 // ---------------------------------------------------------------------------
 // Device management commands — delegated to RestClient
 // ---------------------------------------------------------------------------
+//
+// `list_devices` is read through a 30-second in-memory TTL cache. The desktop
+// polls every 5 seconds; without the cache that's an unconditional relay
+// round trip on every tick. Mutations below explicitly invalidate the cache
+// so a follow-up read after a rename or revoke surfaces the new state.
 
 #[tauri::command]
 #[specta::specta]
-pub async fn list_devices(mc: State<'_, MultiConfigHandle>) -> Result<Vec<DeviceInfo>, String> {
+pub async fn list_devices(
+    mc: State<'_, MultiConfigHandle>,
+    cache: State<'_, DeviceCacheHandle>,
+) -> Result<Vec<DeviceInfo>, String> {
+    if let Some(cached) = cache.get() {
+        return Ok(cached);
+    }
+
     let (relay_url, token) = resolve_active_creds(&mc)?;
     let client = client_core::http::RestClient::new(relay_url, token, crate::build_client_info())
         .map_err(|e| format!("build client: {}", e))?;
-    client
+    let devices = client
         .list_devices()
         .await
-        .map_err(|e| format!("list_devices: {}", e))
+        .map_err(|e| format!("list_devices: {}", e))?;
+
+    cache.insert(devices.clone());
+    Ok(devices)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn set_device_nickname(
     mc: State<'_, MultiConfigHandle>,
+    cache: State<'_, DeviceCacheHandle>,
     device_id: String,
     nickname: String,
 ) -> Result<(), String> {
@@ -32,13 +49,16 @@ pub async fn set_device_nickname(
     client
         .set_device_nickname(&device_id, &nickname)
         .await
-        .map_err(|e| format!("set_device_nickname: {}", e))
+        .map_err(|e| format!("set_device_nickname: {}", e))?;
+    cache.invalidate();
+    Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn revoke_device(
     mc: State<'_, MultiConfigHandle>,
+    cache: State<'_, DeviceCacheHandle>,
     device_id: String,
 ) -> Result<(), String> {
     let (relay_url, token) = resolve_active_creds(&mc)?;
@@ -47,5 +67,7 @@ pub async fn revoke_device(
     client
         .revoke_device(&device_id)
         .await
-        .map_err(|e| format!("revoke_device: {}", e))
+        .map_err(|e| format!("revoke_device: {}", e))?;
+    cache.invalidate();
+    Ok(())
 }
