@@ -26,6 +26,28 @@ brew install cinchcli/tap/cinch
 curl -fsSL https://cinchcli.com/install.sh | sh
 ```
 
+### Clipboard for your AI tools (MCP)
+
+`cinch mcp` exposes your synced clipboard history (read-only) to MCP-aware AI
+tools so they can search and fetch what you copied — no manual paste.
+
+Claude Code:
+```bash
+claude mcp add cinch -- cinch mcp
+```
+
+Cursor (`~/.cursor/mcp.json` or project `.cursor/mcp.json`):
+```json
+{ "mcpServers": { "cinch": { "command": "cinch", "args": ["mcp"] } } }
+```
+
+Tools: `search_clipboard`, `list_recent_clipboard`, `get_clipboard_item`.
+Read-only; runs locally against `~/.cinch/store.db`; no relay/network access.
+
+Privacy: this exposes your local clipboard history to the AI client. To bound
+the surface, set `CINCH_MCP_MAX_AGE_DAYS` (e.g. `90`) so only recent clips are
+returned; unset (default) exposes full history.
+
 ## Development
 
 Requirements: Rust stable, Node 22+, pnpm, buf, Go (for proto bindings used by the relay).
