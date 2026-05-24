@@ -26,6 +26,7 @@ import SettingsPane from './SettingsPane';
 import { AdoptedAuthToast } from './components/AdoptedAuthToast';
 import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast';
 import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
+import { SendToast } from './components/SendToast';
 import { AddRelayDialog } from './components/AddRelayDialog';
 import { Rail, type RailPanel } from './components/Rail';
 import { SearchBar, type DeviceOption } from './components/SearchBar';
@@ -619,6 +620,7 @@ function App() {
         <AdoptedAuthToast />
         <OfflineQueueDroppedToast />
         <ClipDecryptFailedToast />
+        <SendToast />
       </main>
     );
   }
@@ -766,6 +768,7 @@ function App() {
       <AdoptedAuthToast />
       <OfflineQueueDroppedToast />
       <ClipDecryptFailedToast />
+      <SendToast />
       {handoffDialog}
     </main>
   );

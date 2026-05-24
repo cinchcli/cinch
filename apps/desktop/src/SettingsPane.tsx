@@ -139,6 +139,12 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
 
+  // Send shortcut state — opt-in, null means disabled
+  const [sendShortcut, setSendShortcut] = useState<string | null>(null);
+  const [sendShortcutInput, setSendShortcutInput] = useState<string>("Off");
+  const [sendShortcutError, setSendShortcutError] = useState<string | null>(null);
+  const [sendShortcutSaving, setSendShortcutSaving] = useState(false);
+
   // Subscribe to device_code_pending events while the pane is mounted.
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -165,6 +171,14 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
       setCurrentShortcut(s);
       setShortcutInput(formatShortcutDisplay(s));
     }).catch(() => {/* use defaults */});
+  }, []);
+
+  // Load persisted send shortcut on mount.
+  useEffect(() => {
+    unwrap(commands.getSendShortcut()).then((s) => {
+      setSendShortcut(s);
+      setSendShortcutInput(s !== null ? formatShortcutDisplay(s) : "Off");
+    }).catch(() => {/* default to disabled */});
   }, []);
 
   // Load retention config on mount.
@@ -302,6 +316,55 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
       } catch { /* old shortcut may also fail */ }
     } finally {
       setShortcutSaving(false);
+    }
+  };
+
+  // Handle keydown for the send shortcut capture input.
+  // Unlike the window shortcut, we only call commands.setSendShortcut — the
+  // Rust backend registers the OS-level shortcut itself. No JS register/unregister.
+  const handleSendShortcutKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const modifiers: string[] = [];
+    if (e.metaKey || e.ctrlKey) modifiers.push("CmdOrCtrl");
+    if (e.shiftKey) modifiers.push("Shift");
+    if (e.altKey) modifiers.push("Alt");
+
+    const ignoredKeys = ["Meta", "Control", "Shift", "Alt", "OS"];
+    if (ignoredKeys.includes(e.key)) return;
+
+    if (modifiers.length === 0) {
+      setSendShortcutError("Shortcut must include a modifier key");
+      return;
+    }
+
+    const key = physicalKey(e);
+    const newShortcut = [...modifiers, key].join("+");
+
+    setSendShortcutError(null);
+    setSendShortcutSaving(true);
+
+    try {
+      await unwrap(commands.setSendShortcut(newShortcut));
+      setSendShortcut(newShortcut);
+      setSendShortcutInput(formatShortcutDisplay(newShortcut));
+    } catch {
+      setSendShortcutError("Invalid shortcut");
+    } finally {
+      setSendShortcutSaving(false);
+    }
+  };
+
+  const handleClearSendShortcut = async () => {
+    setSendShortcutError(null);
+    setSendShortcutSaving(true);
+    try {
+      await unwrap(commands.setSendShortcut(null));
+      setSendShortcut(null);
+      setSendShortcutInput("Off");
+    } catch {
+      setSendShortcutError("Couldn't clear shortcut");
+    } finally {
+      setSendShortcutSaving(false);
     }
   };
 
@@ -484,6 +547,44 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
                 />
                 {shortcutError && (
                   <div style={S.errorRegion}>{shortcutError}</div>
+                )}
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Send current clipboard</div>
+                <div style={S.fieldDescription}>
+                  Press a key combination to send your current clipboard to all connected devices.
+                  Off by default — set a shortcut to opt in.
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={sendShortcutSaving ? "Saving…" : sendShortcutInput}
+                    onKeyDown={handleSendShortcutKeyDown}
+                    placeholder="Press a shortcut…"
+                    aria-label="Send clipboard shortcut"
+                    style={{
+                      ...S.shortcutInput,
+                      borderColor: sendShortcutError ? C.error : C.border,
+                      color: sendShortcut === null ? C.t3 : C.t1,
+                    }}
+                  />
+                  {sendShortcut !== null && (
+                    <button
+                      type="button"
+                      onClick={() => void handleClearSendShortcut()}
+                      style={S.ghostBtn}
+                      aria-label="Disable send shortcut"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {sendShortcutError && (
+                  <div style={S.errorRegion}>{sendShortcutError}</div>
                 )}
               </div>
 
