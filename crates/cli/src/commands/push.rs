@@ -199,7 +199,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
                 created_at,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: client_core::store::models::SyncState::Synced,
             };
             let _ = client_core::store::queries::insert_clip(&ctx.store, &stored);
             let _ = client_core::store::queries::set_watermark(&ctx.store, &resp.clip_id);
@@ -341,6 +341,13 @@ fn map_ingest_error(err: client_core::sync::IngestError) -> ExitError {
         IngestError::Store(msg) => ExitError::new(
             GENERIC_ERROR,
             format!("Local store write failed: {}", msg),
+            "",
+        ),
+        // Surfaced by `LocalPusher::send_stored` when the requested clip id is
+        // unknown or has no sendable plaintext (e.g. media-only).
+        IngestError::NotFound(id) => ExitError::new(
+            GENERIC_ERROR,
+            format!("Clip not found or has no sendable content: {}", id),
             "",
         ),
     }

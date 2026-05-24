@@ -62,7 +62,7 @@ pub fn clip_wire_to_stored(c: &Clip) -> Result<Option<StoredClip>, String> {
         pinned: c.is_pinned,
         // pinned_at is not present on the wire Clip.
         pinned_at: None,
-        synced: true,
+        sync_state: crate::store::models::SyncState::Synced,
     }))
 }
 

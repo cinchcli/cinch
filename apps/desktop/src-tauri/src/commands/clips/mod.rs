@@ -46,6 +46,7 @@ pub struct LocalClip {
     pub media_path: Option<String>,
     pub created_at: i64, // unix seconds (frontend convention)
     pub synced: bool,
+    pub sync_state: String,
     pub is_pinned: bool,
     pub pin_note: Option<String>,
     pub received_at: i64,
@@ -66,6 +67,11 @@ impl LocalClip {
             media_path: l.media_path,
             created_at: l.created_at,
             synced: l.synced,
+            sync_state: if l.synced {
+                "synced".to_string()
+            } else {
+                "local".to_string()
+            },
             is_pinned: l.is_pinned,
             pin_note: l.pin_note,
             received_at: l.received_at,
@@ -125,7 +131,8 @@ fn stored_to_local(c: StoredClip) -> LocalClip {
         byte_size: c.byte_size,
         media_path: c.media_path,
         created_at: created_at_secs,
-        synced: true,
+        synced: matches!(c.sync_state, client_core::store::models::SyncState::Synced),
+        sync_state: c.sync_state.as_str().to_string(),
         is_pinned: c.pinned,
         pin_note: None, // pinned_at is an i64 in StoredClip; notes not stored
         received_at: created_at_secs,
@@ -191,6 +198,7 @@ pub(super) mod test_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client_core::store::models::SyncState;
 
     #[test]
     fn stored_to_local_converts_ms_to_seconds() {
@@ -205,7 +213,7 @@ mod tests {
             created_at: 1_777_614_529_000, // ms
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(lc.created_at, 1_777_614_529); // seconds
@@ -226,11 +234,30 @@ mod tests {
             created_at: 1_000_000_000,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(lc.content, "");
         assert_eq!(lc.media_path.as_deref(), Some("media/shot.png"));
+    }
+
+    #[test]
+    fn stored_to_local_carries_sync_state() {
+        let sc = StoredClip {
+            id: "01JTEST00000000000000000003".to_string(),
+            source: "remote:host".to_string(),
+            source_key: None,
+            content_type: "text".to_string(),
+            content: Some(b"hi".to_vec()),
+            media_path: None,
+            byte_size: 2,
+            created_at: 1_700_000_000_000,
+            pinned: false,
+            pinned_at: None,
+            sync_state: client_core::store::models::SyncState::Pending,
+        };
+        let lc = stored_to_local(sc);
+        assert_eq!(lc.sync_state, "pending");
     }
 
     #[test]
@@ -263,7 +290,7 @@ mod tests {
             created_at: 1_700_000_000_000,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(
@@ -289,7 +316,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();
@@ -314,7 +341,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();

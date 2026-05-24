@@ -22,9 +22,11 @@ use ulid::Ulid;
 pub const MAX_UNSYNCED: usize = 1000;
 
 /// Persist a clip to the local store with a `local-<ULID>` id and
-/// `synced=false`, then enforce the offline cap. Returns the temporary id —
-/// also used as the relay `idempotency_key` on flush so the relay can dedup
-/// retries.
+/// `sync_state = Pending`, then enforce the offline cap. This is the SEND
+/// queue for offline explicit sends (NOT the capture path — see
+/// `capture::capture_local` for `sync_state = Local` clipboard history).
+/// Returns the temporary id — also used as the relay `idempotency_key` on
+/// flush so the relay can dedup retries.
 pub fn enqueue_local(
     store: &Store,
     source: &str,
@@ -45,7 +47,7 @@ pub fn enqueue_local(
         created_at: chrono::Utc::now().timestamp_millis(),
         pinned: false,
         pinned_at: None,
-        synced: false,
+        sync_state: crate::store::models::SyncState::Pending,
     };
     queries::insert_clip(store, &stored)?;
     queries::enforce_offline_cap(store, MAX_UNSYNCED)?;
@@ -67,7 +69,7 @@ pub async fn flush_once(
     client: &RestClient,
     enc_key: [u8; 32],
 ) -> Result<FlushReport, FlushError> {
-    let pending = queries::list_unsynced_clips(store)?;
+    let pending = queries::list_pending_clips(store)?;
     let total = pending.len();
     let mut report = FlushReport::default();
 
@@ -119,7 +121,7 @@ pub async fn flush_once(
     Ok(report)
 }
 
-fn is_transient(e: &HttpError) -> bool {
+pub(crate) fn is_transient(e: &HttpError) -> bool {
     match e {
         HttpError::Network(_) => true,
         HttpError::Relay { status, .. } => (500..600).contains(status),
@@ -203,11 +205,11 @@ mod tests {
             id.starts_with("local-"),
             "id must start with 'local-' marker, got {id}"
         );
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
         assert_eq!(row.id, id);
-        assert!(!row.synced);
+        assert_eq!(row.sync_state, crate::store::models::SyncState::Pending);
         assert_eq!(row.source, "remote:host");
         assert_eq!(row.content.as_deref(), Some(&b"hello"[..]));
         assert_eq!(row.content_type, "text");
@@ -220,7 +222,7 @@ mod tests {
         for _ in 0..3 {
             enqueue_local(&store, "s", "", "text", b"x".to_vec(), 1).unwrap();
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(
             rows.len(),
             3,
@@ -244,7 +246,7 @@ mod tests {
     }
 
     fn seed_three_unsynced(store: &Store) {
-        use crate::store::models::StoredClip;
+        use crate::store::models::{StoredClip, SyncState};
         for (id, ts, content) in [
             ("local-a", 10i64, b"first" as &[u8]),
             ("local-b", 20, b"second"),
@@ -261,7 +263,7 @@ mod tests {
                 created_at: ts,
                 pinned: false,
                 pinned_at: None,
-                synced: false,
+                sync_state: SyncState::Pending,
             };
             queries::insert_clip(store, &c).unwrap();
         }
@@ -279,7 +281,7 @@ mod tests {
         assert_eq!(report.remaining, 0);
 
         // No more unsynced rows.
-        let pending = queries::list_unsynced_clips(&store).unwrap();
+        let pending = queries::list_pending_clips(&store).unwrap();
         assert!(pending.is_empty(), "all rows should be synced");
 
         // The mock recorded calls in chronological order with idempotency keys.
@@ -315,7 +317,7 @@ mod tests {
         assert_eq!(report.flushed, 1);
         assert_eq!(report.dropped, 0);
         assert_eq!(report.remaining, 2);
-        assert_eq!(queries::list_unsynced_clips(&store).unwrap().len(), 2);
+        assert_eq!(queries::list_pending_clips(&store).unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -334,12 +336,12 @@ mod tests {
         let report = flush_once(&store, &client, key).await.unwrap();
         assert_eq!(report.flushed, 2);
         assert_eq!(report.dropped, 1);
-        assert_eq!(queries::list_unsynced_clips(&store).unwrap().len(), 0);
+        assert_eq!(queries::list_pending_clips(&store).unwrap().len(), 0);
     }
 
     #[tokio::test]
     async fn flush_once_drops_rows_with_null_content() {
-        use crate::store::models::StoredClip;
+        use crate::store::models::{StoredClip, SyncState};
         let store = std::sync::Arc::new(fresh_store());
         let c = StoredClip {
             id: "local-nocontent".into(),
@@ -352,7 +354,7 @@ mod tests {
             created_at: 10,
             pinned: false,
             pinned_at: None,
-            synced: false,
+            sync_state: SyncState::Pending,
         };
         queries::insert_clip(&store, &c).unwrap();
         let key = [9u8; 32];
@@ -360,7 +362,7 @@ mod tests {
         let report = flush_once(&store, &client, key).await.unwrap();
         assert_eq!(report.flushed, 0);
         assert_eq!(report.dropped, 1);
-        assert!(queries::list_unsynced_clips(&store).unwrap().is_empty());
+        assert!(queries::list_pending_clips(&store).unwrap().is_empty());
         assert!(
             client.recorded_pushes().is_empty(),
             "no relay call for null-content row"

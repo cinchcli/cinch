@@ -93,7 +93,7 @@ mod tests {
             created_at: 0,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: client_core::store::models::SyncState::Synced,
         }
     }
 
