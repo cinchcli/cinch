@@ -106,9 +106,20 @@ pub fn get_send_shortcut(db: State<'_, Arc<Database>>) -> Result<Option<String>,
 #[specta::specta]
 pub fn set_send_shortcut(
     db: State<'_, Arc<Database>>,
+    app: tauri::AppHandle,
     shortcut: Option<String>,
 ) -> Result<(), String> {
-    set_send_shortcut_inner(&db, shortcut.as_deref())
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    // Capture the previously-registered value before overwriting it.
+    let prev = get_send_shortcut_inner(&db)?;
+    set_send_shortcut_inner(&db, shortcut.as_deref())?;
+    // Unregister ONLY the previous send shortcut (not unregister_all, which would
+    // also drop the window-show shortcut), then re-register from the new value.
+    if let Some(prev) = prev {
+        let _ = app.global_shortcut().unregister(prev.as_str());
+    }
+    crate::window_manage::register_send_shortcut(&app);
+    Ok(())
 }
 
 #[cfg(test)]

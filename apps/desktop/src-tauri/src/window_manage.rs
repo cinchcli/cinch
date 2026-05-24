@@ -177,6 +177,52 @@ pub(crate) fn configure_activation_policy(app: &tauri::AppHandle) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn configure_activation_policy(_app: &tauri::AppHandle) {}
 
+/// Register the opt-in "send current clipboard" shortcut. No-op when the user
+/// has not configured one (the send hotkey is opt-in).
+pub(crate) fn register_send_shortcut(app: &tauri::AppHandle) {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    let Some(shortcut_str) = app
+        .state::<Arc<store::db::Database>>()
+        .get_setting("send_shortcut")
+        .ok()
+        .flatten()
+    else {
+        return; // unset → disabled (opt-in)
+    };
+
+    let handle = app.clone();
+    if let Err(e) =
+        app.global_shortcut()
+            .on_shortcut(shortcut_str.as_str(), move |_app, _shortcut, event| {
+                if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                    let h = handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Resolve owned Arcs from the handle — avoids holding Tauri
+                        // `State` (a borrow of `h`) across the await point.
+                        let clipboard = h
+                            .state::<Arc<crate::clipboard::ClipboardService>>()
+                            .inner()
+                            .clone();
+                        let pusher = h
+                            .state::<crate::app_state::LocalPusherHandle>()
+                            .inner()
+                            .clone();
+                        if let Err(e) = crate::commands::clips::send_current_clipboard_impl(
+                            &clipboard, &pusher, &h,
+                        )
+                        .await
+                        {
+                            log::warn!("send shortcut: {}", e);
+                        }
+                    });
+                }
+            })
+    {
+        log::warn!("failed to register send shortcut {}: {}", shortcut_str, e);
+    }
+}
+
 pub(crate) fn register_global_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 

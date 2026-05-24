@@ -324,6 +324,16 @@ pub async fn send_current_clipboard(
     pusher: State<'_, LocalPusherHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    send_current_clipboard_impl(&clipboard, &pusher, &app).await
+}
+
+/// Core of `send_current_clipboard`, decoupled from Tauri `State` so the
+/// global-shortcut callback can call it with refs resolved from an `AppHandle`.
+pub(crate) async fn send_current_clipboard_impl(
+    clipboard: &ClipboardService,
+    pusher: &LocalPusherHandle,
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
     let snapshot = clipboard.poll_snapshot().map_err(|e| e.to_string())?;
     let pusher = {
         let guard = pusher
@@ -354,7 +364,7 @@ pub async fn send_current_clipboard(
         }
         SendAction::Nothing => false,
     };
-    let _ = crate::events::ClipSent(ok).emit(&app);
+    let _ = crate::events::ClipSent(ok).emit(app);
     if !ok {
         return Err("clipboard is empty or unsupported".to_string());
     }

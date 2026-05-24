@@ -389,6 +389,8 @@ pub fn run() {
 
             // Register global shortcuts (⌘⇧V main window focus)
             window_manage::register_global_shortcuts(handle);
+            // Register the opt-in "send current clipboard" shortcut (no-op if unset)
+            window_manage::register_send_shortcut(handle);
 
             // Make the window movable by external window managers (Rectangle, Moom, etc.).
             // decorations:false sets NSWindowStyleMaskBorderless whose default is isMovable=false,
