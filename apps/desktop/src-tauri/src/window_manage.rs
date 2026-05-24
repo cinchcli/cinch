@@ -158,6 +158,25 @@ pub(crate) fn configure_macos_window(app: &tauri::AppHandle) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn configure_macos_window(_app: &tauri::AppHandle) {}
 
+/// Make the app a background menu-bar agent on macOS: no Dock icon, hidden
+/// from the Cmd+Tab app switcher, and no top-left app menu. Only the tray
+/// status icon remains.
+///
+/// The app's `NSApp.mainMenu` is not drawn for an Accessory app, but its key
+/// equivalents still fire while a window is focused. The custom menu in
+/// `app_menu.rs` relies on this: Cmd+C/V/X/A keep working in text fields, and
+/// Cmd+Q routes through `app_menu::handle_menu_event` (which hides the window)
+/// rather than the native `terminate:` that would bypass the exit guard.
+#[cfg(target_os = "macos")]
+pub(crate) fn configure_activation_policy(app: &tauri::AppHandle) {
+    if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+        log::warn!("failed to set Accessory activation policy: {}", e);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn configure_activation_policy(_app: &tauri::AppHandle) {}
+
 pub(crate) fn register_global_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 

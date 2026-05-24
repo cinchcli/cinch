@@ -1,3 +1,4 @@
+mod app_menu;
 pub mod app_state;
 pub mod auth;
 mod auth_bootstrap;
@@ -301,6 +302,8 @@ pub fn run() {
             }
             _ => {}
         })
+        .menu(app_menu::build_menu)
+        .on_menu_event(app_menu::handle_menu_event)
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -386,6 +389,10 @@ pub fn run() {
             // decorations:false sets NSWindowStyleMaskBorderless whose default is isMovable=false,
             // so Rectangle's AX-based "Move to Next Display" silently fails.
             window_manage::configure_macos_window(handle);
+
+            // Run as a background menu-bar agent: no Dock icon, hidden from the
+            // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
+            window_manage::configure_activation_policy(handle);
 
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {
@@ -518,8 +525,11 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|_app, event| {
             // Keep the app alive when macOS fires an implicit ExitRequested
-            // (e.g., last window closed). Explicit `app.exit(n)` calls — including
-            // the tray's "Quit Cinch" — set `code = Some(n)`, so they pass through.
+            // (e.g., the last window closed). Explicit `app.exit(n)` calls —
+            // including the tray's "Quit Cinch" — set `code = Some(n)`, so they
+            // pass through and terminate. Cmd+Q is handled separately via the
+            // custom app menu (see app_menu.rs): it hides the window instead of
+            // routing through the native `terminate:` that bypasses this guard.
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
