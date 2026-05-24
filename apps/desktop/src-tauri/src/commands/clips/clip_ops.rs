@@ -164,9 +164,10 @@ pub async fn send_clip(pusher: State<'_, LocalPusherHandle>, id: String) -> Resu
         let guard = pusher
             .lock()
             .map_err(|_| "pusher mutex poisoned".to_string())?;
-        guard.as_ref().cloned().ok_or_else(|| {
-            "not configured — run `cinch auth login` to enable sending".to_string()
-        })?
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "not signed in — sign in to enable sending".to_string())?
     };
     pusher
         .send_stored(&id)
