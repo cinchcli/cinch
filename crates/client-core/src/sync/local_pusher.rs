@@ -160,8 +160,13 @@ impl LocalPusher {
             .ok_or_else(|| IngestError::NotFound(format!("{clip_id} (no content)")))?;
         let key = self.enc_key.ok_or(IngestError::NoEncryptionKey)?;
 
-        queries::mark_pending(&self.store, clip_id)?;
+        // Encrypt while the clip is still `Local`. Encryption failure is
+        // deterministic (bad key / AEAD), so doing it before `mark_pending`
+        // keeps a failed encrypt from stranding the clip in `Pending` where
+        // the backlog flusher would re-fail it every cycle.
         let ciphertext = crypto::encrypt(&key, &plaintext).map_err(IngestError::Crypto)?;
+
+        queries::mark_pending(&self.store, clip_id)?;
         let req = PushRequest {
             content: ciphertext,
             content_type: clip.content_type.clone(),
@@ -443,5 +448,13 @@ mod tests {
             SyncState::Pending,
             "transient error must leave the clip Pending for the flusher to retry"
         );
+    }
+
+    #[tokio::test]
+    async fn send_stored_unknown_id_is_not_found() {
+        let store = fresh_store();
+        let pusher = LocalPusher::new(store.clone(), offline_client(), Some([9u8; 32]));
+        let res = pusher.send_stored("does-not-exist").await;
+        assert!(matches!(res, Err(IngestError::NotFound(_))));
     }
 }
