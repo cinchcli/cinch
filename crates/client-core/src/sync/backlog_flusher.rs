@@ -121,7 +121,7 @@ pub async fn flush_once(
     Ok(report)
 }
 
-fn is_transient(e: &HttpError) -> bool {
+pub(crate) fn is_transient(e: &HttpError) -> bool {
     match e {
         HttpError::Network(_) => true,
         HttpError::Relay { status, .. } => (500..600).contains(status),

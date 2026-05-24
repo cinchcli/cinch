@@ -90,8 +90,8 @@ impl LocalPusher {
                 .await
             {
                 Ok(clip_id) => return Ok(PushOutcome::Synced(clip_id)),
-                Err(IngestError::Push(_)) => {
-                    // Transient relay error — fall through to enqueue.
+                Err(IngestError::Push(e)) if crate::sync::backlog_flusher::is_transient(&e) => {
+                    // Transient relay error — fall through to enqueue as Pending.
                 }
                 Err(e) => return Err(e),
             }
@@ -126,8 +126,8 @@ impl LocalPusher {
                 .await
             {
                 Ok(clip_id) => return Ok(PushOutcome::Synced(clip_id)),
-                Err(IngestError::Push(_)) => {
-                    // Transient relay error — fall through to enqueue.
+                Err(IngestError::Push(e)) if crate::sync::backlog_flusher::is_transient(&e) => {
+                    // Transient relay error — fall through to enqueue as Pending.
                 }
                 Err(e) => return Err(e),
             }
@@ -282,6 +282,35 @@ mod tests {
             .await
             .expect("push_text");
         assert!(matches!(outcome, PushOutcome::Queued(_)));
+    }
+
+    #[tokio::test]
+    async fn push_text_errors_on_permanent_failure() {
+        let store = fresh_store();
+        // Unauthorized is a permanent error — must NOT be queued.
+        let client = std::sync::Arc::new(RestClient::for_test_with_failures(vec![
+            crate::http::FakePush::Relay {
+                status: 401,
+                msg: "unauthorized".into(),
+            },
+        ]));
+        let pusher = LocalPusher::new(store.clone(), client, Some([9u8; 32]));
+        let res = pusher
+            .push_text(
+                b"hi".to_vec(),
+                "remote:host",
+                "",
+                crate::rest::ContentType::Text,
+            )
+            .await;
+        assert!(
+            matches!(res, Err(IngestError::Push(_))),
+            "permanent error must surface, not queue"
+        );
+        assert!(
+            queries::list_pending_clips(&store).unwrap().is_empty(),
+            "permanent failure must not enqueue a Pending clip"
+        );
     }
 
     #[tokio::test]
