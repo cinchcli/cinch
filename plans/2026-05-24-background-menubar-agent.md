@@ -4,6 +4,18 @@
 
 **Goal:** Make the Cinch macOS desktop app a background menu-bar agent — hidden from the Dock and Cmd+Tab switcher, kept alive when its window is "quit", summoned via the existing Cmd+Shift+W hotkey and the existing tray icon.
 
+> **Post-implementation correction (Task 2):** Task 2 as written (extend the
+> `ExitRequested { code: None }` arm to hide windows, commit `23864c9`) did NOT
+> make Cmd+Q hide — manual testing showed Cmd+Q still quit instantly. Root cause
+> (verified in source): the default macOS menu's predefined Quit fires the native
+> `terminate:` selector and tao has no `applicationShouldTerminate:` override, so
+> Cmd+Q bypasses `ExitRequested` entirely. **Actual fix (commit `f4d785f`):** a new
+> `apps/desktop/src-tauri/src/app_menu.rs` replaces the default menu with a custom
+> one whose Cmd+Q slot is a plain `MenuItem` → `on_menu_event` → hide window
+> (re-supplying Edit/Window shortcuts), wired via `.menu()` + `.on_menu_event()`;
+> the `ExitRequested` hide-loop was reverted to `prevent_exit()` only. See the
+> updated spec for the final design. Tasks 1 and 3 are unchanged.
+
 **Architecture:** Two surgical edits on top of the existing tray/window plumbing. (1) Switch the macOS activation policy to `Accessory` in `.setup()`. (2) Extend the already-present `ExitRequested { code: None }` arm so Cmd+Q hides the window instead of leaving it on screen. The tray's "Quit Cinch" (`app.exit(0)` → `code: Some(0)`) already passes through and is the only real quit.
 
 **Tech Stack:** Rust, Tauri v2 (2.11.2), macOS (`objc`), `log`.
