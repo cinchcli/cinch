@@ -126,3 +126,13 @@ pub struct SnapGuideUpdate {
     pub within_snap: bool,
     pub visible: bool,
 }
+
+/// Fired when the user clicks the tray's "Settings…" item. React's `App.tsx`
+/// listens and opens the in-app Settings pane (`setShowSettings(true)`).
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct TrayOpenSettings;
+
+/// Fired when the user clicks the tray's "N pending login requests" item.
+/// React's `App.tsx` listens and surfaces the device-code approval UI.
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct TrayOpenPendingLogins;

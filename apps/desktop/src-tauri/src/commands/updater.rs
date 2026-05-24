@@ -48,6 +48,12 @@ pub fn get_device_version_status(
 #[tauri::command]
 #[specta::specta]
 pub async fn run_self_update(app: tauri::AppHandle) -> Result<(), String> {
+    run_self_update_inner(app).await
+}
+
+/// Same logic as `run_self_update` but callable from non-command contexts
+/// (e.g. the system tray menu handler).
+pub async fn run_self_update_inner(app: tauri::AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater.check().await.map_err(|e| e.to_string())?;
     let Some(update) = update else { return Ok(()) };

@@ -192,6 +192,8 @@ export const events = {
 	remoteClipReceived: makeEvent<RemoteClipReceived>("remote-clip-received"),
 	snapGuideUpdate: makeEvent<SnapGuideUpdate>("snap-guide-update"),
 	sshPairMarkerFound: makeEvent<SshPairMarkerFound>("ssh-pair-marker-found"),
+	trayOpenPendingLogins: makeEvent<TrayOpenPendingLogins>("tray-open-pending-logins"),
+	trayOpenSettings: makeEvent<TrayOpenSettings>("tray-open-settings"),
 	wsStatus: makeEvent<WsStatus>("ws-status"),
 };
 
@@ -449,6 +451,18 @@ export type SourceSetting = {
 export type SshPairMarkerFound = {
 	url: string,
 };
+
+/**
+ *  Fired when the user clicks the tray's "N pending login requests" item.
+ *  React's `App.tsx` listens and surfaces the device-code approval UI.
+ */
+export type TrayOpenPendingLogins = null;
+
+/**
+ *  Fired when the user clicks the tray's "Settings…" item. React's `App.tsx`
+ *  listens and opens the in-app Settings pane (`setShowSettings(true)`).
+ */
+export type TrayOpenSettings = null;
 
 /**
  *  Display-facing user profile sourced from the active relay profile.

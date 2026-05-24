@@ -1,71 +1,18 @@
 use log::info;
 use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{TrayIcon, TrayIconBuilder},
     AppHandle, Manager,
 };
 
 use crate::auth::state::AuthState;
 
 pub struct TrayMenuItems {
+    pub status: MenuItem<tauri::Wry>,
     pub pending: MenuItem<tauri::Wry>,
     // Kept alive so the system tray icon isn't removed when this scope ends.
     #[allow(dead_code)]
-    pub tray: tauri::tray::TrayIcon<tauri::Wry>,
-}
-
-pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let open = MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Cinch", true, None::<&str>)?;
-    // Initially empty and disabled; set_pending_count enables it when codes arrive.
-    let pending = MenuItem::with_id(app, "pending", "", false, None::<&str>)?;
-    let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
-
-    let menu = Menu::with_items(app, &[&open, &sep1, &pending, &sep2, &quit])?;
-
-    let tray_img = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
-    let tray_icon = TrayIconBuilder::new()
-        .icon(tray_img)
-        .icon_as_template(true)
-        .menu(&menu)
-        .tooltip("Cinch — Clipboard Sync")
-        .on_menu_event(|app: &AppHandle, event| match event.id().as_ref() {
-            "open" => crate::show_on_active_monitor(app),
-            "quit" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                crate::show_on_active_monitor(tray.app_handle());
-            }
-        })
-        .build(app)?;
-
-    app.manage(TrayMenuItems {
-        pending,
-        tray: tray_icon,
-    });
-
-    info!("tray icon created");
-    Ok(())
-}
-
-/// Pure label producer for the "pending login requests" tray row.
-/// Empty string when the row should be hidden (count == 0).
-pub fn pending_label(count: usize) -> String {
-    if count == 0 {
-        String::new()
-    } else if count == 1 {
-        "1 pending login request".to_string()
-    } else {
-        format!("{} pending login requests", count)
-    }
+    pub tray: TrayIcon<tauri::Wry>,
 }
 
 /// Pure label producer for the first tray row (account + connection status).
@@ -82,6 +29,104 @@ pub fn status_label(auth: &AuthState, ws: &str) -> String {
         AuthState::LocalOnly => "Not signed in — clipboard stays on this Mac".to_string(),
         AuthState::Authenticating { .. } => "Signing in…".to_string(),
         AuthState::ErrorRecoverable { .. } => "Sign-in error — open Dashboard".to_string(),
+    }
+}
+
+/// Pure label producer for the "pending login requests" tray row.
+/// Empty string when the row should be hidden (count == 0).
+pub fn pending_label(count: usize) -> String {
+    if count == 0 {
+        String::new()
+    } else if count == 1 {
+        "1 pending login request".to_string()
+    } else {
+        format!("{} pending login requests", count)
+    }
+}
+
+pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    // Disabled placeholder; first set_status call replaces this text.
+    let status = MenuItem::with_id(app, "status", "…", false, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
+    // Initially empty and disabled; set_pending_count enables it when codes arrive.
+    let pending = MenuItem::with_id(app, "pending", "", false, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        "check_updates",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Cinch", true, None::<&str>)?;
+
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let sep3 = PredefinedMenuItem::separator(app)?;
+    let sep4 = PredefinedMenuItem::separator(app)?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &status,
+            &sep1,
+            &open,
+            &sep2,
+            &pending,
+            &sep3,
+            &settings,
+            &check_updates,
+            &sep4,
+            &quit,
+        ],
+    )?;
+
+    let tray_img = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
+    let tray_icon = TrayIconBuilder::new()
+        .icon(tray_img)
+        .icon_as_template(true)
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .tooltip("Cinch — Clipboard Sync")
+        .on_menu_event(|app: &AppHandle, event| match event.id().as_ref() {
+            "open" => crate::show_on_active_monitor(app),
+            "pending" => {
+                crate::show_on_active_monitor(app);
+                use tauri_specta::Event as _;
+                crate::events::TrayOpenPendingLogins.emit(app).ok();
+            }
+            "settings" => {
+                crate::show_on_active_monitor(app);
+                use tauri_specta::Event as _;
+                crate::events::TrayOpenSettings.emit(app).ok();
+            }
+            "check_updates" => {
+                let app2 = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = crate::commands::updater::run_self_update_inner(app2).await {
+                        log::warn!("tray check_updates failed: {}", e);
+                    }
+                });
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+
+    app.manage(TrayMenuItems {
+        status,
+        pending,
+        tray: tray_icon,
+    });
+
+    info!("tray icon created");
+    Ok(())
+}
+
+/// Refresh the tray's status row using the latest auth + ws values.
+pub fn set_status(app: &AppHandle, auth: &AuthState, ws: &str) {
+    if let Some(items) = app.try_state::<TrayMenuItems>() {
+        let _ = items.status.set_text(status_label(auth, ws));
     }
 }
 
