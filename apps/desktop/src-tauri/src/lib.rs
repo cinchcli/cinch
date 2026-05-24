@@ -520,15 +520,21 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app, event| {
+        .run(|app, event| {
             // Keep the app alive when macOS fires an implicit ExitRequested
-            // (e.g., last window closed). Explicit `app.exit(n)` calls — including
-            // the tray's "Quit Cinch" — set `code = Some(n)`, so they pass through.
+            // (e.g., Cmd+Q, or the last window closed). Explicit `app.exit(n)`
+            // calls — including the tray's "Quit Cinch" — set `code = Some(n)`,
+            // so they pass through and terminate the process.
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
             {
                 api.prevent_exit();
+                // Tuck the window away so Cmd+Q behaves like Cmd+W: the app
+                // lives on in the menu bar and is re-summoned via the hotkey.
+                for window in app.webview_windows().values() {
+                    let _ = window.hide();
+                }
             }
         });
 }
