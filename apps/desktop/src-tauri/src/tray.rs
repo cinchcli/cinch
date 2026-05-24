@@ -88,28 +88,30 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .tooltip("Cinch — Clipboard Sync")
-        .on_menu_event(|app: &AppHandle, event| match event.id().as_ref() {
-            "open" => crate::show_on_active_monitor(app),
-            "pending" => {
-                crate::show_on_active_monitor(app);
-                use tauri_specta::Event as _;
-                crate::events::TrayOpenPendingLogins.emit(app).ok();
+        .on_menu_event(|app: &AppHandle, event| {
+            use tauri_specta::Event as _;
+            match event.id().as_ref() {
+                "open" => crate::show_on_active_monitor(app),
+                "pending" => {
+                    crate::show_on_active_monitor(app);
+                    crate::events::TrayOpenPendingLogins.emit(app).ok();
+                }
+                "settings" => {
+                    crate::show_on_active_monitor(app);
+                    crate::events::TrayOpenSettings.emit(app).ok();
+                }
+                "check_updates" => {
+                    let app2 = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = crate::commands::updater::run_self_update_inner(app2).await
+                        {
+                            log::warn!("tray check_updates failed: {}", e);
+                        }
+                    });
+                }
+                "quit" => app.exit(0),
+                _ => {}
             }
-            "settings" => {
-                crate::show_on_active_monitor(app);
-                use tauri_specta::Event as _;
-                crate::events::TrayOpenSettings.emit(app).ok();
-            }
-            "check_updates" => {
-                let app2 = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = crate::commands::updater::run_self_update_inner(app2).await {
-                        log::warn!("tray check_updates failed: {}", e);
-                    }
-                });
-            }
-            "quit" => app.exit(0),
-            _ => {}
         })
         .build(app)?;
 

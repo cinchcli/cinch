@@ -11,7 +11,9 @@
 //!
 //! `run_self_update` runs the tauri-plugin-updater check + download
 //! flow. Only the user's own desktop row should call this; the frontend
-//! gates it on `isOwnDesktop && status === Outdated`.
+//! gates it on `isOwnDesktop && status === Outdated`. The tray menu's
+//! "Check for Updates…" item also invokes the same logic via
+//! `run_self_update_inner`.
 
 use tauri_plugin_updater::UpdaterExt;
 use tauri_specta::Event;
@@ -53,7 +55,7 @@ pub async fn run_self_update(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Same logic as `run_self_update` but callable from non-command contexts
 /// (e.g. the system tray menu handler).
-pub async fn run_self_update_inner(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn run_self_update_inner(app: tauri::AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater.check().await.map_err(|e| e.to_string())?;
     let Some(update) = update else { return Ok(()) };
