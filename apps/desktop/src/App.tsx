@@ -37,7 +37,7 @@ import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { dialogStyles } from './components/dialogPrimitives';
-import { IconCopy, IconTrash } from './icons';
+import { IconCopy, IconTrash, IconX } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
 import packageJson from '../package.json';
@@ -196,10 +196,10 @@ function App() {
       window.removeEventListener('storage', refreshDisplayNames);
     };
   }, []);
-  const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' | 'error' } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((message: string, icon: 'copy' | 'trash') => {
+  const showToast = useCallback((message: string, icon: 'copy' | 'trash' | 'error') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, icon });
     toastTimer.current = setTimeout(() => setToast(null), 1800);
@@ -364,10 +364,12 @@ function App() {
     try {
       await unwrap(commands.sendClip(clip.id));
       refreshClips();
+      showToast('Sent', 'copy');
     } catch (e) {
       console.error('sendClip failed', e);
+      showToast(e instanceof Error ? e.message : 'Send failed', 'error');
     }
-  }, [refreshClips]);
+  }, [refreshClips, showToast]);
 
   const handleDelete = async (id: string) => {
     await unwrap(commands.deleteClip(id));
@@ -1094,7 +1096,7 @@ function PinNoteDialog({
   );
 }
 
-function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' }) {
+function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' | 'error' }) {
   const toastStyle: React.CSSProperties = {
     position: 'fixed',
     bottom: 44,
@@ -1116,7 +1118,13 @@ function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' }) {
   return (
     <div style={toastStyle}>
       <span style={{ color: C.t3, display: 'flex', alignItems: 'center' }}>
-        {icon === 'copy' ? <IconCopy size={12} /> : <IconTrash size={12} />}
+        {icon === 'copy' ? (
+          <IconCopy size={12} />
+        ) : icon === 'error' ? (
+          <IconX size={12} />
+        ) : (
+          <IconTrash size={12} />
+        )}
       </span>
       <span style={textStyle}>{message}</span>
     </div>
