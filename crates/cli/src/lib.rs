@@ -62,6 +62,8 @@ enum Cmd {
     },
     /// Download and install the latest release (for manually-placed binaries).
     SelfUpdate(update::SelfUpdateArgs),
+    /// Run a read-only MCP server over your local clipboard (stdio).
+    Mcp(commands::mcp::Args),
 }
 
 fn print_completion_override(shell: Shell) {
@@ -157,6 +159,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Admin(_) => "admin",
         Cmd::Completion { .. } => "completion",
         Cmd::SelfUpdate(_) => "self-update",
+        Cmd::Mcp(_) => "mcp",
     }
 }
 
@@ -205,6 +208,22 @@ pub fn run() -> i32 {
         return 0;
     }
 
+    // Quiet path: MCP is a read-only stdio server. It must run before
+    // telemetry/update-check/session-flush and without the tokio runtime,
+    // or stray stdout/stderr would corrupt the JSON-RPC stream.
+    if matches!(cli.cmd, Cmd::Mcp(_)) {
+        let Cmd::Mcp(args) = cli.cmd else {
+            unreachable!()
+        };
+        return match commands::mcp::run(args) {
+            Ok(()) => exit::SUCCESS,
+            Err(e) => {
+                e.print_stderr();
+                e.code
+            }
+        };
+    }
+
     // Skip telemetry init for the `cinch account telemetry` meta-command so
     // that inspecting/toggling state does not itself create the distinct_id
     // file or print the first-run notice.
@@ -240,6 +259,7 @@ pub fn run() -> i32 {
             Cmd::Admin(args) => commands::admin::run(args).await,
             Cmd::SelfUpdate(args) => update::run_self_update(args).await,
             Cmd::Completion { .. } => unreachable!(),
+            Cmd::Mcp(_) => unreachable!(),
         };
         // Best-effort update notifier: never delays user-facing output by >300ms,
         // never affects exit status, never surfaces its errors. Replaces the
