@@ -360,6 +360,15 @@ function App() {
     void commands.focusPreviousApp();
   }, [showToast, refreshClips]);
 
+  const sendClip = useCallback(async (clip: LocalClip) => {
+    try {
+      await unwrap(commands.sendClip(clip.id));
+      refreshClips();
+    } catch (e) {
+      console.error('sendClip failed', e);
+    }
+  }, [refreshClips]);
+
   const handleDelete = async (id: string) => {
     await unwrap(commands.deleteClip(id));
     if (selectedClip?.id === id) setSelectedClip(null);
@@ -525,7 +534,13 @@ function App() {
         return;
       }
       if (selectedClip) {
-        if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
+        // ⌘↵ / Ctrl+↵ — explicitly send the selected clip. Checked before the
+        // plain-Enter copy below, which is gated on no modifier so the two
+        // don't both fire.
+        if ((e.metaKey || e.ctrlKey) && key === 'Enter') {
+          e.preventDefault();
+          void sendClip(selectedClip);
+        } else if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
           e.preventDefault();
           copyClip(selectedClip);
         }
@@ -560,7 +575,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, showShortcuts, activePanel]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -685,7 +700,7 @@ function App() {
               selected={selectedClip}
               onSelect={setSelectedClip}
               onCopy={copyClip}
-              onSend={() => {}} // TODO(Task 6): wire sendClip handler + ⌘↵
+              onSend={sendClip}
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}
