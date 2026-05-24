@@ -90,8 +90,8 @@ impl LocalPusher {
                 .await
             {
                 Ok(clip_id) => return Ok(PushOutcome::Synced(clip_id)),
-                Err(IngestError::Push(_)) => {
-                    // Transient relay error — fall through to enqueue.
+                Err(IngestError::Push(e)) if crate::sync::backlog_flusher::is_transient(&e) => {
+                    // Transient relay error — fall through to enqueue as Pending.
                 }
                 Err(e) => return Err(e),
             }
@@ -126,8 +126,8 @@ impl LocalPusher {
                 .await
             {
                 Ok(clip_id) => return Ok(PushOutcome::Synced(clip_id)),
-                Err(IngestError::Push(_)) => {
-                    // Transient relay error — fall through to enqueue.
+                Err(IngestError::Push(e)) if crate::sync::backlog_flusher::is_transient(&e) => {
+                    // Transient relay error — fall through to enqueue as Pending.
                 }
                 Err(e) => return Err(e),
             }
@@ -223,7 +223,7 @@ impl LocalPusher {
             created_at: chrono::Utc::now().timestamp_millis(),
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: crate::store::models::SyncState::Synced,
         };
         queries::insert_clip(&self.store, &stored)?;
         // Watermark is best-effort — failure here doesn't lose the clip.
@@ -263,7 +263,7 @@ mod tests {
             PushOutcome::Queued(id) => assert!(id.starts_with("local-")),
             PushOutcome::Synced(_) => panic!("expected Queued, got Synced"),
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content.as_deref(), Some(&b"hello"[..]));
     }
@@ -285,6 +285,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn push_text_errors_on_permanent_failure() {
+        let store = fresh_store();
+        // Unauthorized is a permanent error — must NOT be queued.
+        let client = std::sync::Arc::new(RestClient::for_test_with_failures(vec![
+            crate::http::FakePush::Relay {
+                status: 401,
+                msg: "unauthorized".into(),
+            },
+        ]));
+        let pusher = LocalPusher::new(store.clone(), client, Some([9u8; 32]));
+        let res = pusher
+            .push_text(
+                b"hi".to_vec(),
+                "remote:host",
+                "",
+                crate::rest::ContentType::Text,
+            )
+            .await;
+        assert!(
+            matches!(res, Err(IngestError::Push(_))),
+            "permanent error must surface, not queue"
+        );
+        assert!(
+            queries::list_pending_clips(&store).unwrap().is_empty(),
+            "permanent failure must not enqueue a Pending clip"
+        );
+    }
+
+    #[tokio::test]
     async fn push_image_png_queues_when_no_key() {
         let store = fresh_store();
         let pusher = LocalPusher::new(store.clone(), offline_client(), None);
@@ -296,7 +325,7 @@ mod tests {
             PushOutcome::Queued(id) => assert!(id.starts_with("local-")),
             PushOutcome::Synced(_) => panic!("expected Queued, got Synced"),
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content_type, "image");
     }

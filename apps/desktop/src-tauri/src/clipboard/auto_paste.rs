@@ -42,7 +42,10 @@ pub fn paste_incoming_image(
 mod tests {
     use super::*;
     use crate::clipboard::backend::{Backend, ClipboardError, PollContent, PollSnapshot};
-    use client_core::store::{models::StoredClip, queries};
+    use client_core::store::{
+        models::{StoredClip, SyncState},
+        queries,
+    };
     use std::path::Path;
 
     const PNG: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -91,7 +94,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();
@@ -161,7 +164,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();

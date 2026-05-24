@@ -199,7 +199,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
                 created_at,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: client_core::store::models::SyncState::Synced,
             };
             let _ = client_core::store::queries::insert_clip(&ctx.store, &stored);
             let _ = client_core::store::queries::set_watermark(&ctx.store, &resp.clip_id);

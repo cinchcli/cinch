@@ -191,6 +191,7 @@ pub(super) mod test_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client_core::store::models::SyncState;
 
     #[test]
     fn stored_to_local_converts_ms_to_seconds() {
@@ -205,7 +206,7 @@ mod tests {
             created_at: 1_777_614_529_000, // ms
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(lc.created_at, 1_777_614_529); // seconds
@@ -226,7 +227,7 @@ mod tests {
             created_at: 1_000_000_000,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(lc.content, "");
@@ -263,7 +264,7 @@ mod tests {
             created_at: 1_700_000_000_000,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: SyncState::Synced,
         };
         let lc = stored_to_local(sc);
         assert_eq!(
@@ -289,7 +290,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();
@@ -314,7 +315,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();

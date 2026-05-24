@@ -2,6 +2,7 @@
 //! Lockfile coordinates at most one writer per machine.
 
 pub mod backlog_flusher;
+pub mod capture;
 pub mod local_pusher;
 pub mod lockfile;
 pub mod map;
@@ -13,6 +14,7 @@ pub use backlog_flusher::{
     enqueue_local, flush_once, format_rfc3339_millis, FlushError, FlushGate, FlushGuard,
     FlushReport, MAX_UNSYNCED,
 };
+pub use capture::capture_local;
 pub use local_pusher::{IngestError, LocalPusher, PushOutcome};
 pub use lockfile::{LockKind, Lockfile};
 pub use reader::{backfill_once, BackfillBudget, BackfillError};

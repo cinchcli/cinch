@@ -109,7 +109,7 @@ mod tests {
                 )
             })
             .expect("read schema_version");
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -127,7 +127,7 @@ mod tests {
             created_at: 1_700_000_000_000,
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: crate::store::models::SyncState::Synced,
         };
         super::queries::insert_clip(&store, &clip).unwrap();
         let rows = super::queries::list_clips(&store, None, None, None, false, 10).unwrap();
@@ -154,7 +154,7 @@ mod tests {
                     created_at: 1_700_000_000_000 + i as i64,
                     pinned: false,
                     pinned_at: None,
-                    synced: true,
+                    sync_state: crate::store::models::SyncState::Synced,
                 },
             )
             .unwrap();
@@ -181,7 +181,7 @@ mod tests {
                     created_at: 0,
                     pinned: false,
                     pinned_at: None,
-                    synced: true,
+                    sync_state: crate::store::models::SyncState::Synced,
                 },
             )
             .unwrap();
