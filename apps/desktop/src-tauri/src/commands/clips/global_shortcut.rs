@@ -84,6 +84,8 @@ fn get_send_shortcut_inner(db: &Database) -> Result<Option<String>, String> {
     db.get_setting(SEND_SHORTCUT_KEY)
 }
 
+/// Testable inner: validate and persist the opt-in send shortcut.
+/// `None` clears the key (disabling the hotkey); `Some(s)` validates then stores.
 fn set_send_shortcut_inner(db: &Database, shortcut: Option<&str>) -> Result<(), String> {
     match shortcut {
         None => db.delete_setting(SEND_SHORTCUT_KEY),
@@ -177,8 +179,24 @@ mod tests {
     }
 
     #[test]
+    fn send_shortcut_overwrite() {
+        let db = test_db();
+        set_send_shortcut_inner(&db, Some("CmdOrCtrl+Shift+S")).unwrap();
+        set_send_shortcut_inner(&db, Some("Alt+F")).unwrap();
+        assert_eq!(
+            get_send_shortcut_inner(&db).unwrap(),
+            Some("Alt+F".to_string())
+        );
+    }
+
+    #[test]
     fn send_shortcut_rejects_no_modifier() {
         let db = test_db();
-        assert!(set_send_shortcut_inner(&db, Some("S")).is_err());
+        let err = set_send_shortcut_inner(&db, Some("S")).unwrap_err();
+        assert!(
+            err.contains("modifier"),
+            "error should mention modifier: {}",
+            err
+        );
     }
 }
