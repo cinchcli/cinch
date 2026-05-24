@@ -29,10 +29,14 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     // App submenu (the first submenu is the macOS application menu). The Cmd+Q
     // item is a plain MenuItem — NOT the predefined quit — so Cmd+Q fires a menu
     // event we turn into a window hide instead of `terminate:`.
+    // Labeled "Hide Window" because it calls window.hide() (the app stays
+    // alive); the real quit is the tray's "Quit Cinch". Standard app-menu items
+    // like Hide Others / Show All / Quit are intentionally omitted — they are
+    // never visible for an Accessory app and not needed for a menu-bar agent.
     let hide_window = MenuItem::with_id(
         app,
         HIDE_WINDOW_ID,
-        "Close Window",
+        "Hide Window",
         true,
         Some("CmdOrCtrl+Q"),
     )?;

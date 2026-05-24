@@ -162,10 +162,11 @@ pub(crate) fn configure_macos_window(_app: &tauri::AppHandle) {}
 /// from the Cmd+Tab app switcher, and no top-left app menu. Only the tray
 /// status icon remains.
 ///
-/// Tauri keeps the default `NSApp.mainMenu` even though it is no longer drawn
-/// for an Accessory app, so its key equivalents still fire: Cmd+C/V/X/A keep
-/// working in text fields and Cmd+Q still routes through
-/// `RunEvent::ExitRequested` (which `lib.rs` turns into a window hide).
+/// The app's `NSApp.mainMenu` is not drawn for an Accessory app, but its key
+/// equivalents still fire while a window is focused. The custom menu in
+/// `app_menu.rs` relies on this: Cmd+C/V/X/A keep working in text fields, and
+/// Cmd+Q routes through `app_menu::handle_menu_event` (which hides the window)
+/// rather than the native `terminate:` that would bypass the exit guard.
 #[cfg(target_os = "macos")]
 pub(crate) fn configure_activation_policy(app: &tauri::AppHandle) {
     if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
