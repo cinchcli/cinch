@@ -387,6 +387,10 @@ pub fn run() {
             // so Rectangle's AX-based "Move to Next Display" silently fails.
             window_manage::configure_macos_window(handle);
 
+            // Run as a background menu-bar agent: no Dock icon, hidden from the
+            // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
+            window_manage::configure_activation_policy(handle);
+
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {
                 let auth_handle: AuthStateHandle = app.state::<AuthStateHandle>().inner().clone();
