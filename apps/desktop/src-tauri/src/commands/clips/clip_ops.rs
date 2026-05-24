@@ -329,6 +329,14 @@ pub async fn send_current_clipboard(
 
 /// Core of `send_current_clipboard`, decoupled from Tauri `State` so the
 /// global-shortcut callback can call it with refs resolved from an `AppHandle`.
+///
+/// This is an EXPLICIT user-initiated send, so the capture-time bundle-ID
+/// exclusion list (`should_accept_snapshot` in the monitor) is intentionally
+/// skipped here — it's a frontmost-app heuristic that doesn't apply when the
+/// user deliberately fires the hotkey. The stronger content-tagged protection
+/// still applies: `poll_snapshot` emits `PollContent::Unsupported` for
+/// NSPasteboard concealed/transient items (password managers, 2FA), which
+/// `classify_for_send` maps to `SendAction::Nothing` (nothing is sent).
 pub(crate) async fn send_current_clipboard_impl(
     clipboard: &ClipboardService,
     pusher: &LocalPusherHandle,
