@@ -45,7 +45,7 @@ pub fn enqueue_local(
         created_at: chrono::Utc::now().timestamp_millis(),
         pinned: false,
         pinned_at: None,
-        synced: false,
+        sync_state: crate::store::models::SyncState::Pending,
     };
     queries::insert_clip(store, &stored)?;
     queries::enforce_offline_cap(store, MAX_UNSYNCED)?;
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
         assert_eq!(row.id, id);
-        assert!(!row.synced);
+        assert_eq!(row.sync_state, crate::store::models::SyncState::Pending);
         assert_eq!(row.source, "remote:host");
         assert_eq!(row.content.as_deref(), Some(&b"hello"[..]));
         assert_eq!(row.content_type, "text");
@@ -244,7 +244,7 @@ mod tests {
     }
 
     fn seed_three_unsynced(store: &Store) {
-        use crate::store::models::StoredClip;
+        use crate::store::models::{StoredClip, SyncState};
         for (id, ts, content) in [
             ("local-a", 10i64, b"first" as &[u8]),
             ("local-b", 20, b"second"),
@@ -261,7 +261,7 @@ mod tests {
                 created_at: ts,
                 pinned: false,
                 pinned_at: None,
-                synced: false,
+                sync_state: SyncState::Pending,
             };
             queries::insert_clip(store, &c).unwrap();
         }
@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_once_drops_rows_with_null_content() {
-        use crate::store::models::StoredClip;
+        use crate::store::models::{StoredClip, SyncState};
         let store = std::sync::Arc::new(fresh_store());
         let c = StoredClip {
             id: "local-nocontent".into(),
@@ -352,7 +352,7 @@ mod tests {
             created_at: 10,
             pinned: false,
             pinned_at: None,
-            synced: false,
+            sync_state: SyncState::Pending,
         };
         queries::insert_clip(&store, &c).unwrap();
         let key = [9u8; 32];

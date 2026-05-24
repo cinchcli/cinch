@@ -46,7 +46,7 @@ pub struct StoredClip {
     pub created_at: i64, // unix ms
     pub pinned: bool,
     pub pinned_at: Option<i64>,
-    pub synced: bool,
+    pub sync_state: SyncState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

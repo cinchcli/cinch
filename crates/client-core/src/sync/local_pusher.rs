@@ -223,7 +223,7 @@ impl LocalPusher {
             created_at: chrono::Utc::now().timestamp_millis(),
             pinned: false,
             pinned_at: None,
-            synced: true,
+            sync_state: crate::store::models::SyncState::Synced,
         };
         queries::insert_clip(&self.store, &stored)?;
         // Watermark is best-effort — failure here doesn't lose the clip.
