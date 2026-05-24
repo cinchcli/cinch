@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
+use tauri_specta::Event;
 
 use super::{
     image_bytes_for, resolve_active_creds, source_row_to_info, stored_to_local, LocalClip,
@@ -353,7 +354,6 @@ pub async fn send_current_clipboard(
         }
         SendAction::Nothing => false,
     };
-    use tauri_specta::Event;
     let _ = crate::events::ClipSent(ok).emit(&app);
     if !ok {
         return Err("clipboard is empty or unsupported".to_string());
