@@ -1,3 +1,4 @@
+mod app_menu;
 pub mod app_state;
 pub mod auth;
 mod auth_bootstrap;
@@ -301,6 +302,8 @@ pub fn run() {
             }
             _ => {}
         })
+        .menu(app_menu::build_menu)
+        .on_menu_event(app_menu::handle_menu_event)
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -520,21 +523,18 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app, event| {
+        .run(|_app, event| {
             // Keep the app alive when macOS fires an implicit ExitRequested
-            // (e.g., Cmd+Q, or the last window closed). Explicit `app.exit(n)`
-            // calls — including the tray's "Quit Cinch" — set `code = Some(n)`,
-            // so they pass through and terminate the process.
+            // (e.g., the last window closed). Explicit `app.exit(n)` calls —
+            // including the tray's "Quit Cinch" — set `code = Some(n)`, so they
+            // pass through and terminate. Cmd+Q is handled separately via the
+            // custom app menu (see app_menu.rs): it hides the window instead of
+            // routing through the native `terminate:` that bypasses this guard.
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
             {
                 api.prevent_exit();
-                // Tuck the window away so Cmd+Q behaves like Cmd+W: the app
-                // lives on in the menu bar and is re-summoned via the hotkey.
-                for window in app.webview_windows().values() {
-                    let _ = window.hide();
-                }
             }
         });
 }
