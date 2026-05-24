@@ -103,7 +103,6 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             events::AuthStateChanged,
             events::WsStatus,
             events::TrayOpenSettings,
-            events::TrayOpenPendingLogins,
             events::DevicesChanged,
             events::ClipReceived,
             events::RemoteClipReceived,
@@ -470,13 +469,12 @@ pub fn run() {
             }
 
             // TTL sweeper: drop pending device-code entries older than 5 minutes
-            // every 30 seconds; refresh tray badge when the count changes.
+            // every 30 seconds.
             {
                 let pending: crate::auth::state::PendingCodesHandle = app
                     .state::<crate::auth::state::PendingCodesHandle>()
                     .inner()
                     .clone();
-                let sweeper_handle = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let ttl = std::time::Duration::from_secs(5 * 60);
                     let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -484,12 +482,7 @@ pub fn run() {
                     tick.tick().await;
                     loop {
                         tick.tick().await;
-                        let before = crate::auth::state::pending_count(&pending);
                         crate::auth::state::sweep_expired(&pending, ttl);
-                        let after = crate::auth::state::pending_count(&pending);
-                        if before != after {
-                            crate::tray::set_pending_count(&sweeper_handle, after);
-                        }
                     }
                 });
             }

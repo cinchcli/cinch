@@ -9,7 +9,6 @@ use crate::auth::state::AuthState;
 
 pub struct TrayMenuItems {
     pub status: MenuItem<tauri::Wry>,
-    pub pending: MenuItem<tauri::Wry>,
     // Kept alive so the system tray icon isn't removed when this scope ends.
     #[allow(dead_code)]
     pub tray: TrayIcon<tauri::Wry>,
@@ -32,24 +31,10 @@ pub fn status_label(auth: &AuthState, ws: &str) -> String {
     }
 }
 
-/// Pure label producer for the "pending login requests" tray row.
-/// Empty string when the row should be hidden (count == 0).
-pub fn pending_label(count: usize) -> String {
-    if count == 0 {
-        String::new()
-    } else if count == 1 {
-        "1 pending login request".to_string()
-    } else {
-        format!("{} pending login requests", count)
-    }
-}
-
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Disabled placeholder; first set_status call replaces this text.
     let status = MenuItem::with_id(app, "status", "…", false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Dashboard", true, None::<&str>)?;
-    // Initially empty and disabled; set_pending_count enables it when codes arrive.
-    let pending = MenuItem::with_id(app, "pending", "", false, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let check_updates = MenuItem::with_id(
         app,
@@ -63,7 +48,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
-    let sep4 = PredefinedMenuItem::separator(app)?;
 
     let menu = Menu::with_items(
         app,
@@ -72,11 +56,9 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             &sep1,
             &open,
             &sep2,
-            &pending,
-            &sep3,
             &settings,
             &check_updates,
-            &sep4,
+            &sep3,
             &quit,
         ],
     )?;
@@ -92,10 +74,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             use tauri_specta::Event as _;
             match event.id().as_ref() {
                 "open" => crate::show_on_active_monitor(app),
-                "pending" => {
-                    crate::show_on_active_monitor(app);
-                    crate::events::TrayOpenPendingLogins.emit(app).ok();
-                }
                 "settings" => {
                     crate::show_on_active_monitor(app);
                     crate::events::TrayOpenSettings.emit(app).ok();
@@ -117,7 +95,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     app.manage(TrayMenuItems {
         status,
-        pending,
         tray: tray_icon,
     });
 
@@ -132,31 +109,10 @@ pub fn set_status(app: &AppHandle, auth: &AuthState, ws: &str) {
     }
 }
 
-/// Update the tray menu item to reflect pending device-code count.
-/// Called from the WS handler when a `device_code_pending` frame arrives,
-/// and from the TTL sweeper (Task 3.6) after expiry.
-pub fn set_pending_count(app: &AppHandle, count: usize) {
-    let label = pending_label(count);
-    if let Some(items) = app.try_state::<TrayMenuItems>() {
-        let _ = items.pending.set_text(&label);
-        let _ = items.pending.set_enabled(count > 0);
-    }
-    // TODO(future): swap to a badged tray icon when count > 0.
-    // Requires `icons/tray-badge.png` asset.
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::state::{AuthErrorReason, AuthProgress, AuthState};
-
-    #[test]
-    fn pending_label_cases() {
-        assert_eq!(pending_label(0), "");
-        assert_eq!(pending_label(1), "1 pending login request");
-        assert_eq!(pending_label(2), "2 pending login requests");
-        assert_eq!(pending_label(5), "5 pending login requests");
-    }
 
     fn auth_authenticated(hostname: &str) -> AuthState {
         AuthState::Authenticated {
