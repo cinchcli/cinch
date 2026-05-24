@@ -102,6 +102,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             events::AuthStateChanged,
             events::WsStatus,
+            events::TrayOpenSettings,
             events::DevicesChanged,
             events::ClipReceived,
             events::RemoteClipReceived,
@@ -431,12 +432,39 @@ pub fn run() {
                 // store (~/.cinch/store.db). Task 4.3 will delete ws.rs once that path
                 // is confirmed stable in production.
                 let _ = (ws_relay_url, ws_token); // consumed by Writer above
+
+                // Reflect the boot-time writer result into ws_status + tray. startup.rs
+                // sets the WriterHandle but never touches ws_status, which is initialized
+                // to "connecting" — so without this the tray would read "Connecting…"
+                // forever until the next restart_writer (sign-in/token refresh).
+                let writer_present = app
+                    .state::<crate::app_state::WriterHandle>()
+                    .lock()
+                    .map(|g| g.is_some())
+                    .unwrap_or(false);
+                let initial_ws = if writer_present {
+                    "connected"
+                } else {
+                    "connecting"
+                };
+                ws_status.set(initial_ws);
+                let h = handle.clone();
+                let ws_value = initial_ws.to_string();
+                tauri::async_runtime::spawn(async move {
+                    crate::events::WsStatus(ws_value.clone()).emit(&h).ok();
+                    let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
+                    let snapshot = auth_handle.lock().unwrap().clone();
+                    crate::tray::set_status(&h, &snapshot, &ws_value);
+                });
             } else {
                 // No config — show window immediately with setup instructions
                 show_on_active_monitor(handle);
                 let h = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     crate::events::WsStatus("unconfigured".into()).emit(&h).ok();
+                    let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
+                    let snapshot = auth_handle.lock().unwrap().clone();
+                    crate::tray::set_status(&h, &snapshot, "unconfigured");
                 });
             }
 
@@ -465,13 +493,12 @@ pub fn run() {
             }
 
             // TTL sweeper: drop pending device-code entries older than 5 minutes
-            // every 30 seconds; refresh tray badge when the count changes.
+            // every 30 seconds.
             {
                 let pending: crate::auth::state::PendingCodesHandle = app
                     .state::<crate::auth::state::PendingCodesHandle>()
                     .inner()
                     .clone();
-                let sweeper_handle = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let ttl = std::time::Duration::from_secs(5 * 60);
                     let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -479,12 +506,7 @@ pub fn run() {
                     tick.tick().await;
                     loop {
                         tick.tick().await;
-                        let before = crate::auth::state::pending_count(&pending);
                         crate::auth::state::sweep_expired(&pending, ttl);
-                        let after = crate::auth::state::pending_count(&pending);
-                        if before != after {
-                            crate::tray::set_pending_count(&sweeper_handle, after);
-                        }
                     }
                 });
             }
@@ -495,7 +517,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|_app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            // Keep the app alive when macOS fires an implicit ExitRequested
+            // (e.g., last window closed). Explicit `app.exit(n)` calls — including
+            // the tray's "Quit Cinch" — set `code = Some(n)`, so they pass through.
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+            {
                 api.prevent_exit();
             }
         });

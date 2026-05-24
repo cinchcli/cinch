@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 pub type AuthStateHandle = Arc<Mutex<AuthState>>;
@@ -70,10 +70,16 @@ pub fn transition(app: &AppHandle, handle: &AuthStateHandle, next: AuthState) {
         *guard = next;
     } // guard dropped here
     let tag = snapshot_tag(&snapshot);
+    let snapshot_for_tray = snapshot.clone();
     match crate::events::AuthStateChanged(snapshot).emit(app) {
         Ok(()) => log::info!("auth-state: {:?}", tag),
         Err(e) => log::warn!("auth-state-changed emit failed: {}", e),
     }
+    let ws_value: String = match app.try_state::<std::sync::Arc<crate::sync_status::WsStatus>>() {
+        Some(ws) => ws.get(),
+        None => String::new(),
+    };
+    crate::tray::set_status(app, &snapshot_for_tray, &ws_value);
 }
 
 fn snapshot_tag(s: &AuthState) -> &'static str {

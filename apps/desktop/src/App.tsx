@@ -276,6 +276,7 @@ function App() {
       events.newSourceDetected.listen((e) => {
         setNewSourcePrompt(e.payload);
       }),
+      events.trayOpenSettings.listen(() => setShowSettings(true)),
     ];
     return () => { unsubs.forEach((p) => p.then((f) => f())); };
   }, [refreshClips, refreshSources, refreshDevices]);
