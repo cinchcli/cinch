@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tauri::Manager;
+use tauri_specta::Event as _;
 
 use crate::app_state::{
     build_client_info, ClipNotifierTx, DevicesChangedTx, LocalPusherHandle, WriterHandle,
@@ -110,8 +111,7 @@ pub(crate) async fn restart_writer(
     }
 
     ws_status.set("connecting");
-    use tauri_specta::Event as _;
-    let _ = crate::events::WsStatus("connecting".into()).emit(app);
+    crate::events::WsStatus("connecting".into()).emit(app).ok();
     relay_connected.store(false, Ordering::Relaxed);
 
     // Forward NewClip notifications from the rebuilt Writer through the same
@@ -179,8 +179,7 @@ pub(crate) async fn restart_writer(
             let mut guard = writer_handle.lock().map_err(|e| e.to_string())?;
             *guard = Some(new_writer);
             ws_status.set("connected");
-            use tauri_specta::Event as _;
-            let _ = crate::events::WsStatus("connected".into()).emit(app);
+            crate::events::WsStatus("connected".into()).emit(app).ok();
             relay_connected.store(true, Ordering::Relaxed);
             log::info!("restart_writer: new Writer started for relay={}", relay_url);
         }
