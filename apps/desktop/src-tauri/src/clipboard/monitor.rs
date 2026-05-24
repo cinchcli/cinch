@@ -1,6 +1,7 @@
 //! Clipboard polling loop. Drives `ClipboardService`, applies dedup and the
-//! excluded-app filter, then hands captured clips to `client_core::sync::LocalPusher`
-//! which encrypts, pushes to the relay, and write-throughs to the shared store.
+//! excluded-app filter, then captures clips to LOCAL history via
+//! `client_core::sync::capture::capture_local`. The monitor NEVER contacts the
+//! relay: a clip leaves the device only via the explicit `send_clip` command.
 
 use log::{error, info, warn};
 use sha2::{Digest, Sha256};
@@ -13,7 +14,7 @@ use tokio::time::{self, Duration};
 use super::backend::{PollContent, PollSnapshot};
 use super::service::ClipboardService;
 use crate::store::db::Database;
-use crate::LocalPusherHandle;
+use crate::SharedStore;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const DEDUP_WINDOW_SECS: i64 = 5;
@@ -81,12 +82,12 @@ pub fn spawn_clipboard_monitor(
     app: &AppHandle,
     db: Arc<Database>,
     service: Arc<ClipboardService>,
-    pusher_handle: LocalPusherHandle,
+    store: SharedStore,
 ) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        info!("clipboard monitor started");
-        run_monitor_loop(&app_handle, &db, &service, &pusher_handle).await;
+        info!("clipboard monitor started (local capture only)");
+        run_monitor_loop(&app_handle, &db, &service, &store).await;
     });
 }
 
@@ -94,7 +95,7 @@ async fn run_monitor_loop(
     app: &AppHandle,
     db: &Arc<Database>,
     service: &Arc<ClipboardService>,
-    pusher_handle: &LocalPusherHandle,
+    store: &SharedStore,
 ) {
     let mut last_token: Option<u64> = service.token();
     let mut recent_hashes: VecDeque<RecentHash> = VecDeque::new();
@@ -146,10 +147,10 @@ async fn run_monitor_loop(
 
         match classify_snapshot(snapshot.content, MAX_IMAGE_BYTES) {
             ClipAction::PushText(text) => {
-                handle_text_clip(text, app, pusher_handle, &mut recent_hashes, now, &source);
+                handle_text_clip(text, app, store, &mut recent_hashes, now, &source);
             }
             ClipAction::PushImage(bytes) => {
-                handle_image_clip(bytes, app, pusher_handle, &mut recent_hashes, now, &source);
+                handle_image_clip(bytes, app, store, &mut recent_hashes, now, &source);
             }
             ClipAction::SkipOversizedImage(n) => {
                 info!("skipping oversized image: {} bytes", n);
@@ -162,7 +163,7 @@ async fn run_monitor_loop(
 fn handle_text_clip(
     text: String,
     app: &AppHandle,
-    pusher_handle: &LocalPusherHandle,
+    store: &SharedStore,
     recent_hashes: &mut VecDeque<RecentHash>,
     now: i64,
     source: &str,
@@ -186,71 +187,35 @@ fn handle_text_clip(
         recent_hashes.pop_front();
     }
 
-    // Snapshot the pusher (cheap clone — Arcs inside) so the polling loop
-    // never holds the Mutex across an await.
-    let pusher = {
-        let guard = match pusher_handle.lock() {
-            Ok(g) => g,
-            Err(e) => {
-                error!("clipboard: pusher mutex poisoned: {}", e);
-                return;
-            }
-        };
-        match &*guard {
-            Some(p) => p.clone(),
-            None => {
-                warn!(
-                    "clipboard: dropped {}-byte text clip — not configured \
-                     (run `cinch auth login` to enable sync)",
-                    text.len()
-                );
-                return;
-            }
-        }
-    };
-
     let raw = text.into_bytes();
     let content_type = client_core::classify::detect(&raw);
     let byte_size = raw.len() as i64;
-    let source = source.to_string();
-    let app = app.clone();
-
-    tauri::async_runtime::spawn(async move {
-        use client_core::sync::PushOutcome;
-        match pusher.push_text(raw, &source, "", content_type).await {
-            Ok(PushOutcome::Synced(clip_id)) => {
-                info!(
-                    "clipboard: pushed text clip {} ({} bytes)",
-                    clip_id, byte_size
-                );
-                let payload =
-                    clip_received_stub(&clip_id, &source, byte_size, content_type.as_wire());
-                let _ = crate::events::ClipReceived(payload).emit(&app);
-            }
-            Ok(PushOutcome::Queued(clip_id)) => {
-                info!(
-                    "clipboard: queued text clip {} for sync (offline, {} bytes)",
-                    clip_id, byte_size
-                );
-                let payload =
-                    clip_received_stub(&clip_id, &source, byte_size, content_type.as_wire());
-                let _ = crate::events::ClipReceived(payload).emit(&app);
-            }
-            Err(e) => {
-                warn!("clipboard: text clip ingest failed: {}", e);
-            }
+    match client_core::sync::capture::capture_local(
+        store,
+        source,
+        content_type.as_wire(),
+        raw,
+        byte_size,
+    ) {
+        Ok(clip_id) => {
+            info!(
+                "clipboard: captured text clip {} locally ({} bytes)",
+                clip_id, byte_size
+            );
+            let payload = clip_received_stub(&clip_id, source, byte_size, content_type.as_wire());
+            let _ = crate::events::ClipReceived(payload).emit(app);
         }
-    });
+        Err(e) => warn!("clipboard: local capture failed: {}", e),
+    }
 }
 
-/// Image-clip analog of `handle_text_clip`. Same dedup window and
-/// not-configured guard; routes the PNG/TIFF bytes through
-/// `LocalPusher::push_image_png` (which encrypts, pushes as
-/// `content_type = "image"`, and write-throughs to the shared store).
+/// Image-clip analog of `handle_text_clip`. Same dedup window; captures the
+/// PNG/TIFF bytes to LOCAL history via `capture_local` as
+/// `content_type = "image"`. The relay is never contacted.
 fn handle_image_clip(
     bytes: Vec<u8>,
     app: &AppHandle,
-    pusher_handle: &LocalPusherHandle,
+    store: &SharedStore,
     recent_hashes: &mut VecDeque<RecentHash>,
     now: i64,
     source: &str,
@@ -274,65 +239,19 @@ fn handle_image_clip(
         recent_hashes.pop_front();
     }
 
-    let pusher = {
-        let guard = match pusher_handle.lock() {
-            Ok(g) => g,
-            Err(e) => {
-                error!("clipboard: pusher mutex poisoned: {}", e);
-                return;
-            }
-        };
-        match &*guard {
-            Some(p) => p.clone(),
-            None => {
-                warn!(
-                    "clipboard: dropped {}-byte image clip — not configured \
-                     (run `cinch auth login` to enable sync)",
-                    bytes.len()
-                );
-                return;
-            }
-        }
-    };
-
     let byte_size = bytes.len() as i64;
-    let source = source.to_string();
-    let app = app.clone();
-
-    tauri::async_runtime::spawn(async move {
-        use client_core::sync::PushOutcome;
-        match pusher.push_image_png(bytes, &source, "").await {
-            Ok(PushOutcome::Synced(clip_id)) => {
-                info!(
-                    "clipboard: pushed image clip {} ({} bytes)",
-                    clip_id, byte_size
-                );
-                let payload = clip_received_stub(
-                    &clip_id,
-                    &source,
-                    byte_size,
-                    client_core::rest::ContentType::Image.as_wire(),
-                );
-                let _ = crate::events::ClipReceived(payload).emit(&app);
-            }
-            Ok(PushOutcome::Queued(clip_id)) => {
-                info!(
-                    "clipboard: queued image clip {} for sync (offline, {} bytes)",
-                    clip_id, byte_size
-                );
-                let payload = clip_received_stub(
-                    &clip_id,
-                    &source,
-                    byte_size,
-                    client_core::rest::ContentType::Image.as_wire(),
-                );
-                let _ = crate::events::ClipReceived(payload).emit(&app);
-            }
-            Err(e) => {
-                warn!("clipboard: image clip ingest failed: {}", e);
-            }
+    let content_type = client_core::rest::ContentType::Image.as_wire();
+    match client_core::sync::capture::capture_local(store, source, content_type, bytes, byte_size) {
+        Ok(clip_id) => {
+            info!(
+                "clipboard: captured image clip {} locally ({} bytes)",
+                clip_id, byte_size
+            );
+            let payload = clip_received_stub(&clip_id, source, byte_size, content_type);
+            let _ = crate::events::ClipReceived(payload).emit(app);
         }
-    });
+        Err(e) => warn!("clipboard: local capture failed: {}", e),
+    }
 }
 
 /// Build a minimal `LocalClip` payload for the `ClipReceived` event. The React
@@ -360,7 +279,7 @@ pub(crate) fn clip_received_stub(
         byte_size,
         media_path: None,
         created_at: now_secs,
-        synced: true,
+        synced: false,
         sync_state: "local".to_string(),
         is_pinned: false,
         pin_note: None,
