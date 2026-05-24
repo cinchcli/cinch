@@ -138,7 +138,7 @@ fn handle_tool_call(
         .unwrap_or_else(|| json!({}));
 
     // Exposure-scope: keep only clips at or newer than the cutoff (None = all).
-    let within = |created_at: i64| since_ms.map_or(true, |s| created_at >= s);
+    let within = |created_at: i64| since_ms.is_none_or(|s| created_at >= s);
 
     let payload: Value = match name {
         "search_clipboard" => {
