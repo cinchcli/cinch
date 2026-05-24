@@ -10,6 +10,7 @@ use super::{
 use crate::clipboard::ClipboardService;
 use crate::protocol::MultiConfigHandle;
 use crate::store::db::Database;
+use crate::LocalPusherHandle;
 use crate::SharedStore;
 use client_core::store::queries;
 
@@ -151,6 +152,27 @@ pub async fn delete_clip(
 #[specta::specta]
 pub fn get_clip_count(store: State<'_, SharedStore>) -> Result<i64, String> {
     queries::clip_count(&store).map_err(|e| e.to_string())
+}
+
+/// Explicitly send an already-captured local clip to the relay (and thus to
+/// the user's other devices). This is the ONLY path by which a clip leaves
+/// the device — the clipboard monitor never pushes.
+#[tauri::command]
+#[specta::specta]
+pub async fn send_clip(pusher: State<'_, LocalPusherHandle>, id: String) -> Result<(), String> {
+    let pusher = {
+        let guard = pusher
+            .lock()
+            .map_err(|_| "pusher mutex poisoned".to_string())?;
+        guard.as_ref().cloned().ok_or_else(|| {
+            "not configured — run `cinch auth login` to enable sending".to_string()
+        })?
+    };
+    pusher
+        .send_stored(&id)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -325,5 +347,57 @@ mod helper_tests {
         );
         // 8-digit date, dash, 6-digit time
         assert_eq!(name.len(), "cinch-YYYYMMDD-HHMMSS.png".len());
+    }
+}
+
+#[cfg(test)]
+mod send_clip_tests {
+    use client_core::store::models::SyncState;
+    use client_core::store::queries;
+    use std::sync::Arc;
+
+    // The `send_clip` command is a thin wrapper around
+    // `LocalPusher::send_stored`. `State` is awkward to construct in a unit
+    // test, so we exercise the exact library path the command calls.
+    //
+    // client-core's recording test client (`RestClient::for_test_recording`,
+    // `recorded_pushes`) is `#[cfg(test)]`-only inside client-core, so it is
+    // NOT reachable from this (dependent) crate. We instead build an offline
+    // client via the public `RestClient::new` aimed at an unreachable port:
+    // the push fails with a transient network error, so `send_stored` leaves
+    // the clip `Pending` (queued for the backlog flusher to retry). This
+    // verifies the same intent with only public client-core API: the path
+    // `send_clip` calls actually drives a captured `Local` clip off `Local`.
+    #[tokio::test]
+    async fn send_clip_path_syncs_local_clip() {
+        let store =
+            Arc::new(client_core::store::Store::open(std::path::Path::new(":memory:")).unwrap());
+        let id =
+            client_core::sync::capture::capture_local(&store, "remote:h", "text", b"x".to_vec(), 1)
+                .unwrap();
+        assert_eq!(
+            queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
+            SyncState::Local
+        );
+
+        // Public offline client: an unreachable localhost port makes every
+        // push return a transient network error.
+        let client = Arc::new(
+            client_core::http::RestClient::new(
+                "http://127.0.0.1:1",
+                "test-token",
+                client_core::version::ClientInfo::for_test(),
+            )
+            .unwrap(),
+        );
+        let pusher =
+            client_core::sync::LocalPusher::new(store.clone(), client.clone(), Some([7u8; 32]));
+        pusher.send_stored(&id).await.unwrap();
+
+        // Transient failure → the clip is queued (Pending), no longer Local.
+        assert_eq!(
+            queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
+            SyncState::Pending
+        );
     }
 }
