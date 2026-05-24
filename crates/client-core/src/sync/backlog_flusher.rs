@@ -67,7 +67,7 @@ pub async fn flush_once(
     client: &RestClient,
     enc_key: [u8; 32],
 ) -> Result<FlushReport, FlushError> {
-    let pending = queries::list_unsynced_clips(store)?;
+    let pending = queries::list_pending_clips(store)?;
     let total = pending.len();
     let mut report = FlushReport::default();
 
@@ -203,7 +203,7 @@ mod tests {
             id.starts_with("local-"),
             "id must start with 'local-' marker, got {id}"
         );
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
         assert_eq!(row.id, id);
@@ -220,7 +220,7 @@ mod tests {
         for _ in 0..3 {
             enqueue_local(&store, "s", "", "text", b"x".to_vec(), 1).unwrap();
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(
             rows.len(),
             3,
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(report.remaining, 0);
 
         // No more unsynced rows.
-        let pending = queries::list_unsynced_clips(&store).unwrap();
+        let pending = queries::list_pending_clips(&store).unwrap();
         assert!(pending.is_empty(), "all rows should be synced");
 
         // The mock recorded calls in chronological order with idempotency keys.
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(report.flushed, 1);
         assert_eq!(report.dropped, 0);
         assert_eq!(report.remaining, 2);
-        assert_eq!(queries::list_unsynced_clips(&store).unwrap().len(), 2);
+        assert_eq!(queries::list_pending_clips(&store).unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -334,7 +334,7 @@ mod tests {
         let report = flush_once(&store, &client, key).await.unwrap();
         assert_eq!(report.flushed, 2);
         assert_eq!(report.dropped, 1);
-        assert_eq!(queries::list_unsynced_clips(&store).unwrap().len(), 0);
+        assert_eq!(queries::list_pending_clips(&store).unwrap().len(), 0);
     }
 
     #[tokio::test]
@@ -360,7 +360,7 @@ mod tests {
         let report = flush_once(&store, &client, key).await.unwrap();
         assert_eq!(report.flushed, 0);
         assert_eq!(report.dropped, 1);
-        assert!(queries::list_unsynced_clips(&store).unwrap().is_empty());
+        assert!(queries::list_pending_clips(&store).unwrap().is_empty());
         assert!(
             client.recorded_pushes().is_empty(),
             "no relay call for null-content row"

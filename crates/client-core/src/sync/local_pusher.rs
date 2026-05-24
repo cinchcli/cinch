@@ -263,7 +263,7 @@ mod tests {
             PushOutcome::Queued(id) => assert!(id.starts_with("local-")),
             PushOutcome::Synced(_) => panic!("expected Queued, got Synced"),
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content.as_deref(), Some(&b"hello"[..]));
     }
@@ -296,7 +296,7 @@ mod tests {
             PushOutcome::Queued(id) => assert!(id.starts_with("local-")),
             PushOutcome::Synced(_) => panic!("expected Queued, got Synced"),
         }
-        let rows = queries::list_unsynced_clips(&store).unwrap();
+        let rows = queries::list_pending_clips(&store).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content_type, "image");
     }

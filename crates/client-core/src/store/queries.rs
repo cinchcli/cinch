@@ -317,8 +317,9 @@ pub fn search_clips(store: &Store, query: &str, limit: i64) -> Result<Vec<Stored
     })
 }
 
-/// Return all clips that have not yet been synced to the relay, ordered oldest first.
-pub fn list_unsynced_clips(store: &Store) -> Result<Vec<StoredClip>, StoreError> {
+/// Return all clips that are queued for an explicit send (`sync_state = 'pending'`),
+/// ordered oldest first.
+pub fn list_pending_clips(store: &Store) -> Result<Vec<StoredClip>, StoreError> {
     store.with_conn(|conn| {
         let mut stmt = conn.prepare(
             "SELECT id, source, source_key, content_type, content, media_path, byte_size,
@@ -345,6 +346,29 @@ pub fn list_unsynced_clips(store: &Store) -> Result<Vec<StoredClip>, StoreError>
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    })
+}
+
+/// Transition a clip to `Pending` (queued for an explicit send).
+pub fn mark_pending(store: &Store, id: &str) -> Result<(), StoreError> {
+    store.with_conn(|conn| {
+        conn.execute(
+            "UPDATE clips SET sync_state = 'pending' WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    })
+}
+
+/// Transition a clip back to `Local` (e.g. an explicit send hit a permanent
+/// error and must not be retried).
+pub fn mark_local(store: &Store, id: &str) -> Result<(), StoreError> {
+    store.with_conn(|conn| {
+        conn.execute(
+            "UPDATE clips SET sync_state = 'local' WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
     })
 }
 
@@ -449,10 +473,72 @@ mod tests {
         );
     }
 
-    // ── Task 5: list_unsynced_clips ──────────────────────────────────────────
+    // ── Task 5: list_pending_clips ───────────────────────────────────────────
 
     #[test]
-    fn list_unsynced_clips_returns_oldest_first() {
+    fn list_pending_clips_excludes_local_and_synced() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        fn make(id: &str, ts: i64, state: SyncState) -> StoredClip {
+            StoredClip {
+                id: id.into(),
+                source: "s".into(),
+                source_key: None,
+                content_type: "text".into(),
+                content: Some(b"x".to_vec()),
+                media_path: None,
+                byte_size: 1,
+                created_at: ts,
+                pinned: false,
+                pinned_at: None,
+                sync_state: state,
+            }
+        }
+        for c in [
+            make("local", 10, SyncState::Local),
+            make("pending", 20, SyncState::Pending),
+            make("synced", 30, SyncState::Synced),
+        ] {
+            insert_clip(&store, &c).unwrap();
+        }
+        let ids: Vec<String> = list_pending_clips(&store)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["pending".to_string()]);
+    }
+
+    #[test]
+    fn mark_pending_and_mark_local_transition() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let c = StoredClip {
+            id: "c1".into(),
+            source: "s".into(),
+            source_key: None,
+            content_type: "text".into(),
+            content: Some(b"x".to_vec()),
+            media_path: None,
+            byte_size: 1,
+            created_at: 0,
+            pinned: false,
+            pinned_at: None,
+            sync_state: SyncState::Local,
+        };
+        insert_clip(&store, &c).unwrap();
+        mark_pending(&store, "c1").unwrap();
+        assert_eq!(
+            get_clip(&store, "c1").unwrap().unwrap().sync_state,
+            SyncState::Pending
+        );
+        mark_local(&store, "c1").unwrap();
+        assert_eq!(
+            get_clip(&store, "c1").unwrap().unwrap().sync_state,
+            SyncState::Local
+        );
+    }
+
+    #[test]
+    fn list_pending_clips_returns_oldest_first() {
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         fn make(id: &str, ts: i64, sync_state: SyncState) -> StoredClip {
             StoredClip {
@@ -476,7 +562,7 @@ mod tests {
         ] {
             insert_clip(&store, &c).unwrap();
         }
-        let rows = list_unsynced_clips(&store).unwrap();
+        let rows = list_pending_clips(&store).unwrap();
         let ids: Vec<&str> = rows.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["b", "c"]);
     }
@@ -504,7 +590,7 @@ mod tests {
         }
         let dropped = enforce_offline_cap(&store, 2).unwrap();
         assert_eq!(dropped, 1);
-        let remaining = list_unsynced_clips(&store).unwrap();
+        let remaining = list_pending_clips(&store).unwrap();
         let ids: Vec<&str> = remaining.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["b", "c"]);
     }
