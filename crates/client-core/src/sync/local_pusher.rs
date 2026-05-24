@@ -151,6 +151,9 @@ impl LocalPusher {
     /// relay id + `Synced`. On a transient error the clip stays `Pending`
     /// (the backlog flusher retries); on a permanent error it reverts to
     /// `Local` so it is never stuck retrying.
+    ///
+    /// `target_device_id`: `Some(id)` asks the relay to deliver the clip only
+    /// to that device; `None` broadcasts to all of the user's devices.
     pub async fn send_stored(
         &self,
         clip_id: &str,
@@ -471,10 +474,11 @@ mod tests {
         let client = std::sync::Arc::new(RestClient::for_test_recording());
         let pusher = LocalPusher::new(store.clone(), client.clone(), Some([9u8; 32]));
 
-        pusher
+        let outcome = pusher
             .send_stored(&id, Some("dev-123"))
             .await
             .expect("send_stored");
+        assert!(matches!(outcome, PushOutcome::Synced(_)));
         let pushes = client.recorded_pushes();
         assert_eq!(pushes.len(), 1);
         assert_eq!(pushes[0].target_device_id.as_deref(), Some("dev-123"));
