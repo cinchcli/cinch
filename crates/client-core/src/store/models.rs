@@ -110,8 +110,18 @@ mod sync_state_tests {
 
     #[test]
     fn serde_is_lowercase() {
-        let j = serde_json::to_string(&SyncState::Pending).unwrap();
-        assert_eq!(j, "\"pending\"");
+        assert_eq!(
+            serde_json::to_string(&SyncState::Local).unwrap(),
+            "\"local\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SyncState::Pending).unwrap(),
+            "\"pending\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SyncState::Synced).unwrap(),
+            "\"synced\""
+        );
     }
 }
 
