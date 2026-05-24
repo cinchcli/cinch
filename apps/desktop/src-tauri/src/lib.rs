@@ -56,6 +56,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::search_clips,
             commands::clips::get_sources,
             commands::clips::delete_clip,
+            commands::clips::send_clip,
             commands::clips::get_clip_count,
             commands::clips::get_config_info,
             commands::clips::get_source_auto_copy,
@@ -475,15 +476,14 @@ pub fn run() {
                 });
             }
 
-            // Spawn local clipboard monitor — always runs (relay-independent).
-            // The LocalPusher handle drives encrypt + push + store-write; if it
-            // is `None` (unconfigured) the monitor short-circuits and drops the
-            // capture rather than writing plaintext locally.
+            // Spawn local clipboard monitor — captures to local history only.
+            // It never contacts the relay; a clip leaves the device only via
+            // the explicit `send_clip` command. Runs regardless of auth.
             clipboard::monitor::spawn_clipboard_monitor(
                 handle,
                 db.clone(),
                 clipboard_service.clone(),
-                local_pusher_handle.clone(),
+                app.state::<crate::SharedStore>().inner().clone(),
             );
 
             // Spawn local retention sweep — purges clips older than the

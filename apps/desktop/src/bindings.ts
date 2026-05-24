@@ -12,6 +12,12 @@ export const commands = {
 	searchClips: (query: string, limit: number | null) => typedError<LocalClip[], string>(__TAURI_INVOKE("search_clips", { query, limit })),
 	getSources: () => typedError<SourceInfo[], string>(__TAURI_INVOKE("get_sources")),
 	deleteClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_clip", { id })),
+	/**
+	 *  Explicitly send an already-captured local clip to the relay (and thus to
+	 *  the user's other devices). This is the ONLY path by which a clip leaves
+	 *  the device — the clipboard monitor never pushes.
+	 */
+	sendClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("send_clip", { id })),
 	getClipCount: () => typedError<number, string>(__TAURI_INVOKE("get_clip_count")),
 	getConfigInfo: () => __TAURI_INVOKE<ConfigInfo>("get_config_info"),
 	getSourceAutoCopy: (source: string) => typedError<boolean, string>(__TAURI_INVOKE("get_source_auto_copy", { source })),
@@ -344,6 +350,7 @@ export type LocalClip = {
 	media_path: string | null,
 	created_at: number,
 	synced: boolean,
+	sync_state: string,
 	is_pinned: boolean,
 	pin_note: string | null,
 	received_at: number,

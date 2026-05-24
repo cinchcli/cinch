@@ -343,6 +343,13 @@ fn map_ingest_error(err: client_core::sync::IngestError) -> ExitError {
             format!("Local store write failed: {}", msg),
             "",
         ),
+        // Surfaced by `LocalPusher::send_stored` when the requested clip id is
+        // unknown or has no sendable plaintext (e.g. media-only).
+        IngestError::NotFound(id) => ExitError::new(
+            GENERIC_ERROR,
+            format!("Clip not found or has no sendable content: {}", id),
+            "",
+        ),
     }
 }
 

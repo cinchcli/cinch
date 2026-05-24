@@ -37,7 +37,7 @@ import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { dialogStyles } from './components/dialogPrimitives';
-import { IconCopy, IconTrash } from './icons';
+import { IconCopy, IconTrash, IconX } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
 import packageJson from '../package.json';
@@ -196,10 +196,10 @@ function App() {
       window.removeEventListener('storage', refreshDisplayNames);
     };
   }, []);
-  const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' | 'error' } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = useCallback((message: string, icon: 'copy' | 'trash') => {
+  const showToast = useCallback((message: string, icon: 'copy' | 'trash' | 'error') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, icon });
     toastTimer.current = setTimeout(() => setToast(null), 1800);
@@ -359,6 +359,17 @@ function App() {
       .catch((e) => console.error('failed to mark clip copied:', e));
     void commands.focusPreviousApp();
   }, [showToast, refreshClips]);
+
+  const sendClip = useCallback(async (clip: LocalClip) => {
+    try {
+      await unwrap(commands.sendClip(clip.id));
+      refreshClips();
+      showToast('Sent', 'copy');
+    } catch (e) {
+      console.error('sendClip failed', e);
+      showToast(e instanceof Error ? e.message : 'Send failed', 'error');
+    }
+  }, [refreshClips, showToast]);
 
   const handleDelete = async (id: string) => {
     await unwrap(commands.deleteClip(id));
@@ -525,7 +536,13 @@ function App() {
         return;
       }
       if (selectedClip) {
-        if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
+        // ⌘↵ / Ctrl+↵ — explicitly send the selected clip. Checked before the
+        // plain-Enter copy below, which is gated on no modifier so the two
+        // don't both fire.
+        if ((e.metaKey || e.ctrlKey) && key === 'Enter') {
+          e.preventDefault();
+          void sendClip(selectedClip);
+        } else if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
           e.preventDefault();
           copyClip(selectedClip);
         }
@@ -560,7 +577,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, showShortcuts, activePanel]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -685,6 +702,7 @@ function App() {
               selected={selectedClip}
               onSelect={setSelectedClip}
               onCopy={copyClip}
+              onSend={sendClip}
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}
@@ -1078,7 +1096,7 @@ function PinNoteDialog({
   );
 }
 
-function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' }) {
+function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' | 'error' }) {
   const toastStyle: React.CSSProperties = {
     position: 'fixed',
     bottom: 44,
@@ -1100,7 +1118,13 @@ function Toast({ message, icon }: { message: string; icon: 'copy' | 'trash' }) {
   return (
     <div style={toastStyle}>
       <span style={{ color: C.t3, display: 'flex', alignItems: 'center' }}>
-        {icon === 'copy' ? <IconCopy size={12} /> : <IconTrash size={12} />}
+        {icon === 'copy' ? (
+          <IconCopy size={12} />
+        ) : icon === 'error' ? (
+          <IconX size={12} />
+        ) : (
+          <IconTrash size={12} />
+        )}
       </span>
       <span style={textStyle}>{message}</span>
     </div>

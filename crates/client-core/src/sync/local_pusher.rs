@@ -51,6 +51,8 @@ pub enum IngestError {
     NoEncryptionKey,
     #[error("encryption failed: {0}")]
     Crypto(String),
+    #[error("clip not found or has no sendable content: {0}")]
+    NotFound(String),
     #[error("relay push failed: {0}")]
     Push(#[from] HttpError),
     #[error("local store write failed: {0}")]
@@ -142,6 +144,57 @@ impl LocalPusher {
             original_size,
         )?;
         Ok(PushOutcome::Queued(clip_id))
+    }
+
+    /// Send an already-stored clip the user explicitly chose to send (by id).
+    /// Marks it `Pending`, encrypts + pushes, and on success swaps to the
+    /// relay id + `Synced`. On a transient error the clip stays `Pending`
+    /// (the backlog flusher retries); on a permanent error it reverts to
+    /// `Local` so it is never stuck retrying.
+    pub async fn send_stored(&self, clip_id: &str) -> Result<PushOutcome, IngestError> {
+        let clip = queries::get_clip(&self.store, clip_id)?
+            .ok_or_else(|| IngestError::NotFound(clip_id.to_string()))?;
+        let plaintext = clip
+            .content
+            .clone()
+            .ok_or_else(|| IngestError::NotFound(format!("{clip_id} (no content)")))?;
+        let key = self.enc_key.ok_or(IngestError::NoEncryptionKey)?;
+
+        // Encrypt while the clip is still `Local`. Encryption failure is
+        // deterministic (bad key / AEAD), so doing it before `mark_pending`
+        // keeps a failed encrypt from stranding the clip in `Pending` where
+        // the backlog flusher would re-fail it every cycle.
+        let ciphertext = crypto::encrypt(&key, &plaintext).map_err(IngestError::Crypto)?;
+
+        queries::mark_pending(&self.store, clip_id)?;
+        let req = PushRequest {
+            content: ciphertext,
+            content_type: clip.content_type.clone(),
+            label: String::new(),
+            source: clip.source.clone(),
+            media_path: None,
+            byte_size: clip.byte_size,
+            encrypted: true,
+            target_device_id: None,
+            client_created_at: Some(crate::sync::backlog_flusher::format_rfc3339_millis(
+                clip.created_at,
+            )),
+            idempotency_key: Some(clip_id.to_string()),
+        };
+
+        match self.client.push_clip_json(&req).await {
+            Ok(resp) => {
+                queries::replace_id_and_mark_synced(&self.store, clip_id, &resp.clip_id)?;
+                Ok(PushOutcome::Synced(resp.clip_id))
+            }
+            Err(e) if crate::sync::backlog_flusher::is_transient(&e) => {
+                Ok(PushOutcome::Queued(clip_id.to_string()))
+            }
+            Err(e) => {
+                queries::mark_local(&self.store, clip_id)?;
+                Err(IngestError::Push(e))
+            }
+        }
     }
 
     async fn try_push_text_online(
@@ -339,5 +392,69 @@ mod tests {
             .await
             .expect("push_image_png");
         assert!(matches!(outcome, PushOutcome::Queued(_)));
+    }
+
+    #[tokio::test]
+    async fn send_stored_syncs_a_captured_local_clip() {
+        let store = fresh_store();
+        let id =
+            crate::sync::capture::capture_local(&store, "remote:host", "text", b"hi".to_vec(), 2)
+                .unwrap();
+        let client = std::sync::Arc::new(RestClient::for_test_recording());
+        let pusher = LocalPusher::new(store.clone(), client.clone(), Some([9u8; 32]));
+
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
+        assert!(matches!(outcome, PushOutcome::Synced(_)));
+        assert_eq!(client.recorded_pushes().len(), 1, "exactly one relay push");
+        // The local id was swapped for the relay id; old id is gone.
+        assert!(queries::get_clip(&store, &id).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn send_stored_reverts_to_local_on_permanent_error() {
+        use crate::store::models::SyncState;
+        let store = fresh_store();
+        let id =
+            crate::sync::capture::capture_local(&store, "s", "text", b"hi".to_vec(), 2).unwrap();
+        let client = std::sync::Arc::new(RestClient::for_test_with_failures(vec![
+            crate::http::FakePush::Relay {
+                status: 401,
+                msg: "unauthorized".into(),
+            },
+        ]));
+        let pusher = LocalPusher::new(store.clone(), client, Some([9u8; 32]));
+
+        let res = pusher.send_stored(&id).await;
+        assert!(matches!(res, Err(IngestError::Push(_))));
+        assert_eq!(
+            queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
+            SyncState::Local,
+            "permanent error must revert the clip to Local, not leave it Pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_stored_stays_pending_on_transient_error() {
+        use crate::store::models::SyncState;
+        let store = fresh_store();
+        let id =
+            crate::sync::capture::capture_local(&store, "s", "text", b"hi".to_vec(), 2).unwrap();
+        let pusher = LocalPusher::new(store.clone(), offline_client(), Some([9u8; 32]));
+
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
+        assert!(matches!(outcome, PushOutcome::Queued(_)));
+        assert_eq!(
+            queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
+            SyncState::Pending,
+            "transient error must leave the clip Pending for the flusher to retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_stored_unknown_id_is_not_found() {
+        let store = fresh_store();
+        let pusher = LocalPusher::new(store.clone(), offline_client(), Some([9u8; 32]));
+        let res = pusher.send_stored("does-not-exist").await;
+        assert!(matches!(res, Err(IngestError::NotFound(_))));
     }
 }
