@@ -70,7 +70,7 @@ pub(crate) fn serve_clip_image(store: &Store, clip_id: &str) -> MediaResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client_core::store::models::StoredClip;
+    use client_core::store::models::{StoredClip, SyncState};
     use client_core::store::Store;
 
     fn mem_store() -> Store {
@@ -91,7 +91,7 @@ mod tests {
                 created_at: 1,
                 pinned: false,
                 pinned_at: None,
-                synced: true,
+                sync_state: SyncState::Synced,
             },
         )
         .unwrap();
