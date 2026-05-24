@@ -181,9 +181,11 @@ pub(crate) async fn restart_writer(
     .map_err(|e| e.to_string())?
     {
         Some(new_writer) => {
-            let writer_handle = app.state::<WriterHandle>();
-            let mut guard = writer_handle.lock().map_err(|e| e.to_string())?;
-            *guard = Some(new_writer);
+            {
+                let writer_handle = app.state::<WriterHandle>();
+                let mut guard = writer_handle.lock().map_err(|e| e.to_string())?;
+                *guard = Some(new_writer);
+            } // writer guard dropped here — auth lock taken below with no nested ordering
             ws_status.set("connected");
             crate::events::WsStatus("connected".into()).emit(app).ok();
             {
