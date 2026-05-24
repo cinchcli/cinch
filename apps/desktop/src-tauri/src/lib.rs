@@ -122,6 +122,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             events::DeviceCodePending,
             events::LatestVersionsUpdated,
             events::SnapGuideUpdate,
+            events::ClipSent,
         ])
 }
 

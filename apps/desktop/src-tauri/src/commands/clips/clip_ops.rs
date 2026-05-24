@@ -353,8 +353,8 @@ pub async fn send_current_clipboard(
         }
         SendAction::Nothing => false,
     };
-    // TODO(task2): emit ClipSent event
-    let _ = &app; // suppress unused-variable warning until ClipSent is wired up
+    use tauri_specta::Event;
+    let _ = crate::events::ClipSent(ok).emit(&app);
     if !ok {
         return Err("clipboard is empty or unsupported".to_string());
     }
