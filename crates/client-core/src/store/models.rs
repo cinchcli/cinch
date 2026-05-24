@@ -1,5 +1,39 @@
 use serde::{Deserialize, Serialize};
 
+/// Per-clip relay-sync state. The store default for a captured clip is
+/// `Local`: it never leaves the device until the user explicitly sends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncState {
+    /// Captured locally, no intent to send. Never picked up by the flusher.
+    Local,
+    /// Explicitly requested to send, not yet relay-confirmed. The only state
+    /// the backlog flusher retries.
+    Pending,
+    /// Relay-confirmed: sent by us, or received from the relay.
+    Synced,
+}
+
+impl SyncState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncState::Local => "local",
+            SyncState::Pending => "pending",
+            SyncState::Synced => "synced",
+        }
+    }
+
+    /// Parse a stored string. Any unrecognized value maps to `Local` so a
+    /// corrupt row can never be auto-sent.
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s {
+            "pending" => SyncState::Pending,
+            "synced" => SyncState::Synced,
+            _ => SyncState::Local,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StoredClip {
     pub id: String, // ULID
@@ -55,6 +89,30 @@ pub struct MatchInfo {
     pub content_type: String,
     pub created_at: i64,
     pub preview: String, // first 40 chars of content or "[binary type · NkB]"
+}
+
+#[cfg(test)]
+mod sync_state_tests {
+    use super::SyncState;
+
+    #[test]
+    fn as_str_and_back_roundtrip() {
+        for s in [SyncState::Local, SyncState::Pending, SyncState::Synced] {
+            assert_eq!(SyncState::from_str_lossy(s.as_str()), s);
+        }
+    }
+
+    #[test]
+    fn unknown_text_is_local() {
+        // Unknown / corrupt values must never be treated as sendable.
+        assert_eq!(SyncState::from_str_lossy("garbage"), SyncState::Local);
+    }
+
+    #[test]
+    fn serde_is_lowercase() {
+        let j = serde_json::to_string(&SyncState::Pending).unwrap();
+        assert_eq!(j, "\"pending\"");
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
