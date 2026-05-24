@@ -112,6 +112,12 @@ pub(crate) async fn restart_writer(
 
     ws_status.set("connecting");
     crate::events::WsStatus("connecting".into()).emit(app).ok();
+    {
+        let auth_handle: crate::auth::AuthStateHandle =
+            app.state::<crate::auth::AuthStateHandle>().inner().clone();
+        let snapshot = auth_handle.lock().unwrap().clone();
+        crate::tray::set_status(app, &snapshot, "connecting");
+    }
     relay_connected.store(false, Ordering::Relaxed);
 
     // Forward NewClip notifications from the rebuilt Writer through the same
@@ -180,6 +186,12 @@ pub(crate) async fn restart_writer(
             *guard = Some(new_writer);
             ws_status.set("connected");
             crate::events::WsStatus("connected".into()).emit(app).ok();
+            {
+                let auth_handle: crate::auth::AuthStateHandle =
+                    app.state::<crate::auth::AuthStateHandle>().inner().clone();
+                let snapshot = auth_handle.lock().unwrap().clone();
+                crate::tray::set_status(app, &snapshot, "connected");
+            }
             relay_connected.store(true, Ordering::Relaxed);
             log::info!("restart_writer: new Writer started for relay={}", relay_url);
         }

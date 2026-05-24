@@ -439,6 +439,9 @@ pub fn run() {
                 let h = handle.clone();
                 tauri::async_runtime::spawn(async move {
                     crate::events::WsStatus("unconfigured".into()).emit(&h).ok();
+                    let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
+                    let snapshot = auth_handle.lock().unwrap().clone();
+                    crate::tray::set_status(&h, &snapshot, "unconfigured");
                 });
             }
 
