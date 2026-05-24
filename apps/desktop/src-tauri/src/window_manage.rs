@@ -183,12 +183,10 @@ pub(crate) fn register_send_shortcut(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let Some(shortcut_str) = app
-        .state::<Arc<store::db::Database>>()
-        .get_setting("send_shortcut")
-        .ok()
-        .flatten()
+        .try_state::<Arc<store::db::Database>>()
+        .and_then(|db| db.get_setting("send_shortcut").ok().flatten())
     else {
-        return; // unset → disabled (opt-in)
+        return; // unset (or DB not yet managed) → disabled (opt-in)
     };
 
     let handle = app.clone();
