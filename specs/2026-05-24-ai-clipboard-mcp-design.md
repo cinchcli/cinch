@@ -152,9 +152,11 @@ Per clip: `id`, `content` (text only — see image rule below), `content_type`
   behavior is a macOS-specific NSPasteboard concealed-type guard at *capture*
   time — it is not a universal guarantee that secrets are absent from the
   store.
-- Mitigation for v1: an **exposure-scope** option (e.g., "last N days only",
-  exclude specific sources/content types) so the surface is bounded by
-  default rather than exposing the full history.
+- Mitigation for v1: an opt-in **exposure-scope** lever — the
+  `CINCH_MCP_MAX_AGE_DAYS` env var caps how far back clips are exposed
+  (e.g. `90`). Default is full history so recall works out of the box; users
+  who want a tighter surface set the window. (Excluding specific
+  sources/content types is a later refinement.)
 
 ### 5.6 Code location & dependencies
 
@@ -214,10 +216,16 @@ Per clip: `id`, `content` (text only — see image rule below), `content_type`
 3. In the maintainer's own dogfooding, the number of manual copy/pastes
    done purely to carry context to an AI drops noticeably.
 
-## 9. Open questions for planning
+## 9. Resolved in the implementation plan
 
-- `rmcp` SDK vs hand-rolled JSON-RPC/stdio.
-- FTS sanitization approach (quote/tokenize vs `LIKE` fallback).
-- Preview truncation length and `byte_size` thresholds; limit default + max.
-- Exposure-scope default (full history vs last-N-days out of the box).
-- Where to centralize the CLI clipboard-write path for the v2 write tool.
+See `plans/2026-05-24-cinch-mcp.md`.
+
+- **Protocol:** hand-rolled sync newline-delimited JSON-RPC/stdio (no `rmcp`,
+  no async) — the tool surface is 3 read tools and the queries are sync.
+- **FTS sanitization:** per-token quoting (each whitespace token wrapped as a
+  quoted FTS5 string, internal `"` doubled), so punctuation never errors.
+- **Limits:** default 20, hard max 100; preview truncation at 280 chars.
+- **Exposure-scope:** opt-in `CINCH_MCP_MAX_AGE_DAYS`, default full history.
+
+Still open (v2): where to centralize the CLI clipboard-write path for the
+guarded write tool.
