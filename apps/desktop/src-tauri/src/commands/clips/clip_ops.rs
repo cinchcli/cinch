@@ -319,7 +319,7 @@ pub(crate) fn classify_for_send(content: crate::clipboard::backend::PollContent)
 #[tauri::command]
 #[specta::specta]
 pub async fn send_current_clipboard(
-    clipboard: State<'_, std::sync::Arc<ClipboardService>>,
+    clipboard: State<'_, Arc<ClipboardService>>,
     pusher: State<'_, LocalPusherHandle>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -485,6 +485,10 @@ mod send_current_tests {
         );
         assert_eq!(
             classify_for_send(PollContent::Text(String::new())),
+            SendAction::Nothing
+        );
+        assert_eq!(
+            classify_for_send(PollContent::ImagePng(vec![])),
             SendAction::Nothing
         );
         assert_eq!(classify_for_send(PollContent::Empty), SendAction::Nothing);
