@@ -65,6 +65,8 @@ export const commands = {
 	getWsStatus: () => __TAURI_INVOKE<string>("get_ws_status"),
 	getGlobalShortcut: () => typedError<string, string>(__TAURI_INVOKE("get_global_shortcut")),
 	setGlobalShortcut: (shortcut: string) => typedError<null, string>(__TAURI_INVOKE("set_global_shortcut", { shortcut })),
+	getSendShortcut: () => typedError<string | null, string>(__TAURI_INVOKE("get_send_shortcut")),
+	setSendShortcut: (shortcut: string | null) => typedError<null, string>(__TAURI_INVOKE("set_send_shortcut", { shortcut })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**

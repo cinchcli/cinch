@@ -84,6 +84,8 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::get_ws_status,
             commands::clips::get_global_shortcut,
             commands::clips::set_global_shortcut,
+            commands::clips::get_send_shortcut,
+            commands::clips::set_send_shortcut,
             commands::auth::get_auth_state,
             commands::auth::get_user_profile,
             commands::auth::set_display_name,
