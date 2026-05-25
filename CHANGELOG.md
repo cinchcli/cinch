@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and the 
 
 ## Unreleased
 
+### Added
+
+- Add `cinch mcp`: a read-only MCP stdio server exposing local clipboard
+  history (`search_clipboard`, `list_recent_clipboard`, `get_clipboard_item`)
+  to AI tools like Claude Code and Cursor.
+
 ### Changed (breaking)
 
 - Top-level command surface restructured into hierarchical groups. `cinch --help` now shows 11 commands (`push`, `pull`, `clip`, `pin`, `device`, `auth`, `account`, `admin`, `completion`, `self-update`, `help`) instead of 22. Mapping:

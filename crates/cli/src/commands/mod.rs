@@ -7,6 +7,7 @@ pub mod device;
 pub mod devices;
 pub mod get;
 pub mod list;
+pub mod mcp;
 pub mod nickname;
 pub mod pair;
 pub mod pin;
