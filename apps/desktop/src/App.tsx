@@ -710,6 +710,7 @@ function App() {
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}
+              currentDeviceId={currentDeviceID}
             />
             <ClipDetail
               clip={selectedClip}

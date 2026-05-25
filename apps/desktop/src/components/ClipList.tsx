@@ -1,4 +1,4 @@
-import { forwardRef, useState, type CSSProperties } from 'react';
+import { forwardRef, useState, useEffect, useRef, type CSSProperties } from 'react';
 import type { Device, LocalClip } from '../bindings';
 import { C, formatTime, formatBytes } from '../design';
 import { groupByTimeBucket } from '../lib/timeBuckets';
@@ -17,10 +17,11 @@ interface ClipListProps {
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
   now?: number;
+  currentDeviceId: string;
 }
 
 export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
-  ({ clips, selected, onSelect, onCopy, onSend, devices, query, deviceNicknames, tagColors = {}, now }, ref) => {
+  ({ clips, selected, onSelect, onCopy, onSend, devices, query, deviceNicknames, tagColors = {}, now, currentDeviceId }, ref) => {
     if (clips.length === 0) {
       return (
         <div style={S.col}>
@@ -54,6 +55,7 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
                 devices={devices}
                 nickname={deviceNicknames[clip.source]}
                 colorSlot={tagColors[clip.source]}
+                currentDeviceId={currentDeviceId}
               />
             ))}
           </section>
@@ -74,6 +76,7 @@ interface ClipRowProps {
   devices: Device[];
   nickname?: string;
   colorSlot?: MachineTagColorMap[string];
+  currentDeviceId: string;
 }
 
 function syncStateLabel(s: string): string {
@@ -86,15 +89,34 @@ function deviceLabel(device: Device): string {
   return device.nickname ?? device.hostname ?? device.id ?? 'Unknown device';
 }
 
-function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, devices, nickname, colorSlot }: ClipRowProps) {
+function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, devices, nickname, colorSlot, currentDeviceId }: ClipRowProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLSpanElement | null>(null);
   const isImage = clip.content_type === 'image';
   const recency = clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
   const preview = isImage
     ? `Image (${formatBytes(clip.byte_size)})`
     : clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
 
-  const targetableDevices = devices.filter((d) => d.id !== undefined);
+  const targetableDevices = devices.filter((d) => d.id !== undefined && d.id !== currentDeviceId);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pickerOpen]);
 
   return (
     <div
@@ -130,7 +152,7 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, devices, nick
         )}
       </span>
       <span data-testid="clip-preview" style={S.preview}>{preview || ' '}</span>
-      <span style={S.sendGroup}>
+      <span ref={pickerRef} style={S.sendGroup}>
         <button
           aria-label="Send clip"
           className="clip-row-send"
@@ -144,6 +166,8 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, devices, nick
         </button>
         <button
           aria-label="Send to a specific device"
+          aria-haspopup="menu"
+          aria-expanded={pickerOpen}
           className="clip-row-send-to"
           onClick={(e) => {
             e.stopPropagation();

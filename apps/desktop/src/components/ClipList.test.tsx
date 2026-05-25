@@ -30,7 +30,8 @@ describe('ClipList', () => {
   it('renders empty state when no clips and no query', () => {
     render(
       <ClipList clips={[]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByText(/no clips/i)).toBeInTheDocument();
   });
@@ -38,7 +39,8 @@ describe('ClipList', () => {
   it('renders search-miss empty state when query and no clips', () => {
     render(
       <ClipList clips={[]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="foo" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="foo" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByText(/no results/i)).toBeInTheDocument();
     expect(screen.getByText(/foo/)).toBeInTheDocument();
@@ -51,7 +53,8 @@ describe('ClipList', () => {
     ];
     render(
       <ClipList clips={clips} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByText('Today')).toBeInTheDocument();
     expect(screen.getByText('Yesterday')).toBeInTheDocument();
@@ -69,6 +72,7 @@ describe('ClipList', () => {
         query=""
         deviceNicknames={{}}
         now={NOW}
+        currentDeviceId="this-device"
       />
     );
     expect(screen.getByText('Today')).toBeInTheDocument();
@@ -79,7 +83,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'a' });
     render(
       <ClipList clips={[c]} selected={c} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     const row = screen.getByRole('button', { name: /hello world/i });
     expect(row).toHaveAttribute('aria-selected', 'true');
@@ -90,7 +95,8 @@ describe('ClipList', () => {
     const onSelect = vi.fn();
     render(
       <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     fireEvent.click(screen.getByRole('button', { name: /hello world/i }));
     expect(onSelect).toHaveBeenCalledWith(c);
@@ -101,7 +107,8 @@ describe('ClipList', () => {
     const onCopy = vi.fn();
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={onCopy}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     fireEvent.doubleClick(screen.getByRole('button', { name: /hello world/i }));
     expect(onCopy).toHaveBeenCalledWith(c);
@@ -111,7 +118,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'a', content: 'unique-preview-text', source: 'remote:host-x' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{ 'remote:host-x': 'host-x' }} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{ 'remote:host-x': 'host-x' }} now={NOW}
+                currentDeviceId="this-device" />
     );
     const row = screen.getByRole('button', { name: /unique-preview-text/i });
     const meta = row.querySelector('[data-testid="clip-meta"]');
@@ -127,7 +135,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'a', is_pinned: true });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByTestId('clip-pin-indicator')).toBeInTheDocument();
   });
@@ -136,7 +145,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'a', is_pinned: false });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.queryByTestId('clip-pin-indicator')).not.toBeInTheDocument();
   });
@@ -145,7 +155,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'img-row', content_type: 'image', byte_size: 245760, content: '' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     // media_path defaults to null via the factory — image preview must still render
     expect(screen.getByText(/Image \(240\.0 KB\)/)).toBeInTheDocument();
@@ -155,7 +166,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'a', content: 'line content' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     const preview = screen.getByTestId('clip-preview');
     const styleAttr = preview.getAttribute('style') || '';
@@ -167,7 +179,8 @@ describe('ClipList', () => {
     const c = clip({ id: 'p1', sync_state: 'pending' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByText('Sending…')).toBeInTheDocument();
   });
@@ -176,14 +189,16 @@ describe('ClipList', () => {
     const synced = clip({ id: 'syn', sync_state: 'synced' });
     const { rerender } = render(
       <ClipList clips={[synced]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.getByText('Sent')).toBeInTheDocument();
 
     const local = clip({ id: 'loc', sync_state: 'local' });
     rerender(
       <ClipList clips={[local]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     expect(screen.queryByTestId('clip-sync-state')).not.toBeInTheDocument();
   });
@@ -193,7 +208,8 @@ describe('ClipList', () => {
     const c = clip({ id: 's1', sync_state: 'local' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={onSend} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={onSend} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
     expect(onSend).toHaveBeenCalledWith(c, null);
@@ -204,10 +220,34 @@ describe('ClipList', () => {
     const c = clip({ id: 's2', sync_state: 'local' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
-                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW} />
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
     );
     fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not trigger row select when the Send to… button is clicked', () => {
+    const onSelect = vi.fn();
+    const c = clip({ id: 's3', sync_state: 'local' });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send to a specific device/i }));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('shows "No devices" in the picker when devices list is empty', () => {
+    const c = clip({ id: 'nd1', sync_state: 'local' });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={() => {}} devices={[]} query="" deviceNicknames={{}} now={NOW}
+                currentDeviceId="this-device" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /send to a specific device/i }));
+    expect(screen.getByText('No devices')).toBeInTheDocument();
   });
 
   it('sends to a chosen device via the picker', () => {
@@ -215,7 +255,7 @@ describe('ClipList', () => {
     const c = clip({ id: 't1', sync_state: 'local' });
     render(<ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
                      onSend={onSend} devices={[{ id: 'dev-9', nickname: 'laptop', online: true }]}
-                     query="" deviceNicknames={{}} now={NOW} />);
+                     query="" deviceNicknames={{}} now={NOW} currentDeviceId="this-device" />);
     fireEvent.click(screen.getByRole('button', { name: /send to/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /laptop/i }));
     expect(onSend).toHaveBeenCalledWith(c, 'dev-9');
@@ -225,7 +265,7 @@ describe('ClipList', () => {
     const c = clip({ id: 't2', sync_state: 'local' });
     render(<ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
                      onSend={() => {}} devices={[{ id: 'dev-5', hostname: 'workstation', online: false }]}
-                     query="" deviceNicknames={{}} now={NOW} />);
+                     query="" deviceNicknames={{}} now={NOW} currentDeviceId="this-device" />);
     fireEvent.click(screen.getByRole('button', { name: /send to/i }));
     expect(screen.getByText('(offline)')).toBeInTheDocument();
   });
@@ -235,7 +275,7 @@ describe('ClipList', () => {
     const c = clip({ id: 't3', sync_state: 'local' });
     render(<ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
                      onSend={onSend} devices={[{ id: 'dev-7', nickname: 'home-mac', online: true }]}
-                     query="" deviceNicknames={{}} now={NOW} />);
+                     query="" deviceNicknames={{}} now={NOW} currentDeviceId="this-device" />);
     fireEvent.click(screen.getByRole('button', { name: /send to/i }));
     expect(screen.getByRole('menuitem', { name: /home-mac/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('menuitem', { name: /home-mac/i }));
