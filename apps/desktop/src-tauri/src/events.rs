@@ -29,6 +29,12 @@ pub struct ClipReceived(pub LocalClip);
 #[derive(Clone, Serialize, Deserialize, Type, Event)]
 pub struct RemoteClipReceived(pub LocalClip);
 
+/// Emitted after an explicit "send current clipboard" attempt. `true` when a
+/// clip was sent, `false` when the clipboard had nothing to send. Drives the
+/// in-app toast.
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct ClipSent(pub bool);
+
 #[derive(Clone, Serialize, Deserialize, Type, Event)]
 pub struct ClipDeleted(pub String);
 

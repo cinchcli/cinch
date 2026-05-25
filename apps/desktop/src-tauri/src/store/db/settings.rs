@@ -27,6 +27,13 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_setting(&self, key: &str) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
+            .map_err(|e| format!("delete_setting failed: {}", e))?;
+        Ok(())
+    }
+
     pub fn is_source_auto_copy(&self, source: &str) -> Result<bool, String> {
         let key = format!("auto_copy:{}", source);
         match self.get_setting(&key)? {
@@ -114,6 +121,17 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::super::test_helpers::test_db;
+
+    #[test]
+    fn test_delete_setting() {
+        let db = test_db();
+        db.set_setting("foo", "bar").unwrap();
+        assert_eq!(db.get_setting("foo").unwrap(), Some("bar".to_string()));
+        db.delete_setting("foo").unwrap();
+        assert_eq!(db.get_setting("foo").unwrap(), None);
+        // deleting a non-existent key is a no-op, not an error
+        db.delete_setting("foo").unwrap();
+    }
 
     #[test]
     fn test_settings_crud() {

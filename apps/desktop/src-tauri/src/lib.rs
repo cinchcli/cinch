@@ -57,6 +57,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::get_sources,
             commands::clips::delete_clip,
             commands::clips::send_clip,
+            commands::clips::send_current_clipboard,
             commands::clips::get_clip_count,
             commands::clips::get_config_info,
             commands::clips::get_source_auto_copy,
@@ -83,6 +84,8 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::get_ws_status,
             commands::clips::get_global_shortcut,
             commands::clips::set_global_shortcut,
+            commands::clips::get_send_shortcut,
+            commands::clips::set_send_shortcut,
             commands::auth::get_auth_state,
             commands::auth::get_user_profile,
             commands::auth::set_display_name,
@@ -121,6 +124,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             events::DeviceCodePending,
             events::LatestVersionsUpdated,
             events::SnapGuideUpdate,
+            events::ClipSent,
         ])
 }
 
@@ -385,6 +389,8 @@ pub fn run() {
 
             // Register global shortcuts (⌘⇧V main window focus)
             window_manage::register_global_shortcuts(handle);
+            // Register the opt-in "send current clipboard" shortcut (no-op if unset)
+            window_manage::register_send_shortcut(handle);
 
             // Make the window movable by external window managers (Rectangle, Moom, etc.).
             // decorations:false sets NSWindowStyleMaskBorderless whose default is isMovable=false,

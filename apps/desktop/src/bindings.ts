@@ -21,6 +21,12 @@ export const commands = {
 	 *  to all of the user's devices; `Some(id)` restricts delivery to that device.
 	 */
 	sendClip: (id: string, targetDeviceId: string | null) => typedError<null, string>(__TAURI_INVOKE("send_clip", { id, targetDeviceId })),
+	/**
+	 *  Send whatever is currently on the system clipboard to the user's devices.
+	 *  Bound to the opt-in send shortcut. Returns Ok(()) on success, Err on
+	 *  empty/unsupported clipboard or push failure.
+	 */
+	sendCurrentClipboard: () => typedError<null, string>(__TAURI_INVOKE("send_current_clipboard")),
 	getClipCount: () => typedError<number, string>(__TAURI_INVOKE("get_clip_count")),
 	getConfigInfo: () => __TAURI_INVOKE<ConfigInfo>("get_config_info"),
 	getSourceAutoCopy: (source: string) => typedError<boolean, string>(__TAURI_INVOKE("get_source_auto_copy", { source })),
@@ -62,6 +68,8 @@ export const commands = {
 	getWsStatus: () => __TAURI_INVOKE<string>("get_ws_status"),
 	getGlobalShortcut: () => typedError<string, string>(__TAURI_INVOKE("get_global_shortcut")),
 	setGlobalShortcut: (shortcut: string) => typedError<null, string>(__TAURI_INVOKE("set_global_shortcut", { shortcut })),
+	getSendShortcut: () => typedError<string | null, string>(__TAURI_INVOKE("get_send_shortcut")),
+	setSendShortcut: (shortcut: string | null) => typedError<null, string>(__TAURI_INVOKE("set_send_shortcut", { shortcut })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**
@@ -191,6 +199,7 @@ export const events = {
 	clipDeleted: makeEvent<ClipDeleted>("clip-deleted"),
 	clipPinned: makeEvent<ClipPinned>("clip-pinned"),
 	clipReceived: makeEvent<ClipReceived>("clip-received"),
+	clipSent: makeEvent<ClipSent>("clip-sent"),
 	deviceCodePending: makeEvent<DeviceCodePending>("device-code-pending"),
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	imageDownloadComplete: makeEvent<ImageDownloadComplete>("image-download-complete"),
@@ -269,6 +278,13 @@ export type ClipPinned = {
 };
 
 export type ClipReceived = LocalClip;
+
+/**
+ *  Emitted after an explicit "send current clipboard" attempt. `true` when a
+ *  clip was sent, `false` when the clipboard had nothing to send. Drives the
+ *  in-app toast.
+ */
+export type ClipSent = boolean;
 
 export type ConfigInfo = {
 	relay_url: string,
