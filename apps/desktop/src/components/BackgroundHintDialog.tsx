@@ -73,7 +73,11 @@ export function BackgroundHintDialog() {
       position: "fixed",
       inset: 0,
       background: "rgba(0,0,0,0.55)",
-      zIndex: 200,
+      // Top-most: a decision modal about the window the user just tried to
+      // dismiss, so it must sit above every other overlay — including the
+      // always-present AddRelayDialog (300) in the unconfigured state and the
+      // SSH dialog (1000).
+      zIndex: 1100,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",

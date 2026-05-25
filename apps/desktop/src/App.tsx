@@ -27,7 +27,6 @@ import { AdoptedAuthToast } from './components/AdoptedAuthToast';
 import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast';
 import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
 import { SendToast } from './components/SendToast';
-import { BackgroundHintDialog } from './components/BackgroundHintDialog';
 import { AddRelayDialog } from './components/AddRelayDialog';
 import { Rail, type RailPanel } from './components/Rail';
 import { SearchBar, type DeviceOption } from './components/SearchBar';
@@ -625,7 +624,6 @@ function App() {
         <OfflineQueueDroppedToast />
         <ClipDecryptFailedToast />
         <SendToast />
-        <BackgroundHintDialog />
       </main>
     );
   }
@@ -776,7 +774,6 @@ function App() {
       <OfflineQueueDroppedToast />
       <ClipDecryptFailedToast />
       <SendToast />
-      <BackgroundHintDialog />
       {handoffDialog}
     </main>
   );
