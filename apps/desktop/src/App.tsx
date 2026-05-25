@@ -361,9 +361,12 @@ function App() {
     void commands.focusPreviousApp();
   }, [showToast, refreshClips]);
 
-  const sendClip = useCallback(async (clip: LocalClip) => {
+  // target === null broadcasts to all online devices; non-null targets a specific device.
+  // The relay rejects an offline target with a "device_offline" error — the catch below
+  // surfaces that message through the error toast.
+  const sendClip = useCallback(async (clip: LocalClip, target: string | null) => {
     try {
-      await unwrap(commands.sendClip(clip.id));
+      await unwrap(commands.sendClip(clip.id, target));
       refreshClips();
       showToast('Sent', 'copy');
     } catch (e) {
@@ -542,7 +545,7 @@ function App() {
         // don't both fire.
         if ((e.metaKey || e.ctrlKey) && key === 'Enter') {
           e.preventDefault();
-          void sendClip(selectedClip);
+          void sendClip(selectedClip, null);
         } else if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
           e.preventDefault();
           copyClip(selectedClip);
@@ -705,9 +708,11 @@ function App() {
               onSelect={setSelectedClip}
               onCopy={copyClip}
               onSend={sendClip}
+              devices={devices}
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}
+              currentDeviceId={currentDeviceID}
             />
             <ClipDetail
               clip={selectedClip}

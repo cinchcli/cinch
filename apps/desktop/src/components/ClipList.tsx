@@ -1,5 +1,5 @@
-import { forwardRef, type CSSProperties } from 'react';
-import type { LocalClip } from '../bindings';
+import { forwardRef, useState, useEffect, useRef, type CSSProperties } from 'react';
+import type { Device, LocalClip } from '../bindings';
 import { C, formatTime, formatBytes } from '../design';
 import { groupByTimeBucket } from '../lib/timeBuckets';
 import type { MachineTagColorMap } from '../lib/machineTagColors';
@@ -11,15 +11,17 @@ interface ClipListProps {
   selected: LocalClip | null;
   onSelect: (clip: LocalClip) => void;
   onCopy: (clip: LocalClip) => void;
-  onSend: (clip: LocalClip) => void;
+  onSend: (clip: LocalClip, targetDeviceId: string | null) => void;
+  devices: Device[];
   query: string;
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
   now?: number;
+  currentDeviceId: string;
 }
 
 export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
-  ({ clips, selected, onSelect, onCopy, onSend, query, deviceNicknames, tagColors = {}, now }, ref) => {
+  ({ clips, selected, onSelect, onCopy, onSend, devices, query, deviceNicknames, tagColors = {}, now, currentDeviceId }, ref) => {
     if (clips.length === 0) {
       return (
         <div style={S.col}>
@@ -49,9 +51,11 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
                 selected={selected?.id === clip.id}
                 onClick={() => onSelect(clip)}
                 onDoubleClick={() => onCopy(clip)}
-                onSend={() => onSend(clip)}
+                onSend={(targetDeviceId) => onSend(clip, targetDeviceId)}
+                devices={devices}
                 nickname={deviceNicknames[clip.source]}
                 colorSlot={tagColors[clip.source]}
+                currentDeviceId={currentDeviceId}
               />
             ))}
           </section>
@@ -68,9 +72,11 @@ interface ClipRowProps {
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
-  onSend: () => void;
+  onSend: (targetDeviceId: string | null) => void;
+  devices: Device[];
   nickname?: string;
   colorSlot?: MachineTagColorMap[string];
+  currentDeviceId: string;
 }
 
 function syncStateLabel(s: string): string {
@@ -79,12 +85,39 @@ function syncStateLabel(s: string): string {
   return ''; // local: no badge (private to this device)
 }
 
-function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, colorSlot }: ClipRowProps) {
+function deviceLabel(device: Device): string {
+  return device.nickname ?? device.hostname ?? device.id ?? 'Unknown device';
+}
+
+function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, devices, nickname, colorSlot, currentDeviceId }: ClipRowProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLSpanElement | null>(null);
   const isImage = clip.content_type === 'image';
   const recency = clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
   const preview = isImage
     ? `Image (${formatBytes(clip.byte_size)})`
     : clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
+
+  const targetableDevices = devices.filter((d) => d.id !== undefined && d.id !== currentDeviceId);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pickerOpen]);
+
   return (
     <div
       role="button"
@@ -119,17 +152,69 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, col
         )}
       </span>
       <span data-testid="clip-preview" style={S.preview}>{preview || ' '}</span>
-      <button
-        aria-label="Send clip"
-        className="clip-row-send"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSend();
-        }}
-        style={S.sendBtn}
-      >
-        Send
-      </button>
+      <span ref={pickerRef} style={S.sendGroup}>
+        <button
+          aria-label="Send clip"
+          className="clip-row-send"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSend(null);
+          }}
+          style={S.sendBtn}
+        >
+          Send
+        </button>
+        <button
+          aria-label="Send to a specific device"
+          aria-haspopup="menu"
+          aria-expanded={pickerOpen}
+          className="clip-row-send-to"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPickerOpen((open) => !open);
+          }}
+          style={S.sendToBtn}
+        >
+          Send to…
+        </button>
+        {pickerOpen && (
+          <div role="menu" style={S.picker}>
+            {targetableDevices.length === 0 ? (
+              <div style={S.pickerEmpty}>No devices</div>
+            ) : (
+              targetableDevices.map((device) => {
+                const label = deviceLabel(device);
+                const isOnline = device.online === true;
+                return (
+                  <button
+                    key={device.id}
+                    role="menuitem"
+                    aria-label={label}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPickerOpen(false);
+                      onSend(device.id!);
+                    }}
+                    style={S.pickerItem}
+                  >
+                    <span
+                      style={{
+                        ...S.onlineDot,
+                        background: isOnline ? '#34c759' : '#8e8e93',
+                      }}
+                      aria-hidden="true"
+                    />
+                    <span>{label}</span>
+                    {!isOnline && (
+                      <span style={S.offlineLabel}>(offline)</span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
+      </span>
     </div>
   );
 }
@@ -195,10 +280,15 @@ const S: Record<string, CSSProperties> = {
     alignItems: 'center',
     color: 'var(--accent)',
   },
-  sendBtn: {
+  sendGroup: {
     position: 'absolute',
     right: 'var(--sp-lg)',
     top: 'var(--sp-md)',
+    display: 'flex',
+    gap: 4,
+    alignItems: 'center',
+  },
+  sendBtn: {
     background: 'none',
     border: `1px solid ${C.border}`,
     borderRadius: 4,
@@ -206,6 +296,57 @@ const S: Record<string, CSSProperties> = {
     fontSize: 11,
     padding: '2px 8px',
     cursor: 'pointer',
+  },
+  sendToBtn: {
+    background: 'none',
+    border: `1px solid ${C.border}`,
+    borderRadius: 4,
+    color: C.t3,
+    fontSize: 11,
+    padding: '2px 8px',
+    cursor: 'pointer',
+  },
+  picker: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    background: C.card,
+    border: `1px solid ${C.border}`,
+    borderRadius: 6,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+    minWidth: 160,
+    zIndex: 100,
+    overflow: 'hidden',
+  },
+  pickerItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    padding: '6px 10px',
+    fontSize: 12,
+    color: C.t1,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  pickerEmpty: {
+    padding: '6px 10px',
+    fontSize: 12,
+    color: C.t3,
+  },
+  onlineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  offlineLabel: {
+    color: C.t3,
+    marginLeft: 2,
+    fontSize: 11,
   },
   empty: {
     padding: '40px var(--sp-xl)',
