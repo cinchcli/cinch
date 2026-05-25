@@ -101,3 +101,25 @@ pub fn focus_previous_app(
 
     Ok(())
 }
+
+/// Resolve the one-time background-running hint. Marks the hint seen (so it
+/// never shows again), then either quits the app (`quit = true`,
+/// `app.exit(0)` — the same path as the tray's "Quit Cinch", which passes the
+/// `ExitRequested { code: None }` guard in lib.rs) or hides the main window
+/// (`quit = false`, the normal menu-bar-agent dismissal).
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_background_hint(
+    app: tauri::AppHandle,
+    db: State<'_, Arc<crate::store::db::Database>>,
+    quit: bool,
+) -> Result<(), String> {
+    use tauri::Manager;
+    db.set_setting(crate::window_manage::BACKGROUND_HINT_SEEN_KEY, "1")?;
+    if quit {
+        app.exit(0);
+    } else if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    Ok(())
+}
