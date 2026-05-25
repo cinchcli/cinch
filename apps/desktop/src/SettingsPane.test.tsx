@@ -62,6 +62,12 @@ describe("SettingsPane", () => {
       if (cmd === "set_global_shortcut") {
         return Promise.resolve();
       }
+      if (cmd === "get_send_shortcut") {
+        return Promise.resolve(null);
+      }
+      if (cmd === "set_send_shortcut") {
+        return Promise.resolve(null);
+      }
       return Promise.resolve();
     });
   });
@@ -162,6 +168,17 @@ describe("SettingsPane", () => {
         altKey: false,
       });
       expect(await screen.findByText("Invalid shortcut")).toBeInTheDocument();
+    });
+  });
+
+  describe("Send shortcut field", () => {
+    it("shows 'Off' in the send shortcut input when getSendShortcut resolves to null", async () => {
+      render(<SettingsPane onClose={() => {}} clipCount={0} />);
+      fireEvent.click(screen.getByText("shortcuts"));
+      const input = await screen.findByLabelText("Send clipboard shortcut");
+      await waitFor(() => {
+        expect(input).toHaveValue("Off");
+      });
     });
   });
 
