@@ -302,7 +302,7 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
-                let _ = window.hide();
+                crate::window_manage::request_dismiss(window.app_handle());
             }
             tauri::WindowEvent::Moved(_) if window.label() == "main" => {
                 commands::window::on_window_moved(window.app_handle());
