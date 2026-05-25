@@ -34,11 +34,20 @@ pub(crate) fn should_prompt(flag: Option<&str>) -> bool {
 pub(crate) fn request_dismiss(app: &tauri::AppHandle) {
     use tauri_specta::Event as _;
 
-    let flag = app
-        .try_state::<Arc<store::db::Database>>()
-        .and_then(|db| db.get_setting(BACKGROUND_HINT_SEEN_KEY).ok().flatten());
+    // Only prompt when the settings DB is reachable and the flag is unset. If
+    // the DB is unavailable we can neither read whether the hint was seen nor
+    // record it, so fail safe to the plain hide behavior rather than re-prompt.
+    let prompt = match app.try_state::<Arc<store::db::Database>>() {
+        Some(db) => should_prompt(
+            db.get_setting(BACKGROUND_HINT_SEEN_KEY)
+                .ok()
+                .flatten()
+                .as_deref(),
+        ),
+        None => false,
+    };
 
-    if should_prompt(flag.as_deref()) {
+    if prompt {
         // Keep the window visible so the dialog renders over it.
         let _ = crate::events::BackgroundHint.emit(app);
     } else if let Some(window) = app.get_webview_window("main") {
