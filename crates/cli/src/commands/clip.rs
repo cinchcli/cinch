@@ -22,6 +22,8 @@ pub enum Cmd {
     Get(crate::commands::get::Args),
     /// Delete a clip by ID prefix (with TTY confirm unless --force).
     Rm(crate::commands::rm::Args),
+    /// Transform a clip's text content.
+    Transform(crate::commands::transform::Args),
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
@@ -30,5 +32,6 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         Cmd::Search(a) => crate::commands::search::run(a).await,
         Cmd::Get(a) => crate::commands::get::run(a).await,
         Cmd::Rm(a) => crate::commands::rm::run(a).await,
+        Cmd::Transform(a) => crate::commands::transform::run(a).await,
     }
 }
