@@ -141,7 +141,7 @@ pub fn apply_transform(
         TransformAction::MarkdownCodeBlock => Ok(markdown_code_block(input, content_type)),
         TransformAction::UrlEncode => Ok(percent_encode(input)),
         TransformAction::UrlDecode => percent_decode(input),
-        TransformAction::RedactSecrets => Ok(redact_secrets(input, content_type)),
+        TransformAction::RedactSecrets => Ok(redact_secrets(input)),
     }
 }
 
@@ -154,16 +154,6 @@ fn is_text_like(content_type: &str) -> bool {
 
     matches!(normalized.as_str(), "text" | "code" | "url" | "json")
         || normalized.starts_with("text/")
-}
-
-fn is_json_content_type(content_type: &str) -> bool {
-    let normalized = content_type
-        .split_once(';')
-        .map_or(content_type, |(value, _)| value)
-        .trim()
-        .to_ascii_lowercase();
-
-    matches!(normalized.as_str(), "json" | "text/json")
 }
 
 fn pretty_json(input: &str) -> Result<String, TransformError> {
@@ -395,17 +385,28 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn redact_secrets(input: &str, content_type: &str) -> String {
-    if is_json_content_type(content_type) {
-        if let Ok(mut value) = serde_json::from_str::<Value>(input) {
-            redact_json_value(&mut value);
-            if let Ok(out) = serde_json::to_string_pretty(&value) {
-                return out;
+fn redact_secrets(input: &str) -> String {
+    if let Ok(mut value) = serde_json::from_str::<Value>(input) {
+        redact_json_value(&mut value);
+        if let Ok(mut out) = serde_json::to_string_pretty(&value) {
+            if let Some(terminator) = trailing_line_terminator(input) {
+                out.push_str(terminator);
             }
+            return out;
         }
     }
 
     redact_text_secrets(input)
+}
+
+fn trailing_line_terminator(input: &str) -> Option<&'static str> {
+    if input.ends_with("\r\n") {
+        Some("\r\n")
+    } else if input.ends_with('\n') {
+        Some("\n")
+    } else {
+        None
+    }
 }
 
 fn redact_json_value(value: &mut Value) {
@@ -611,6 +612,20 @@ mod tests {
             assert_eq!(value["nested"]["keep"], "ok");
             assert_eq!(value["refresh_token"], "[REDACTED]");
         }
+    }
+
+    #[test]
+    fn redact_secrets_recurses_through_json_shaped_code() {
+        let out = apply_transform(
+            TransformAction::RedactSecrets,
+            "{\"nested\":{\"client_secret\":\"abc\",\"keep\":\"ok\"}}\n",
+            "code",
+        )
+        .unwrap();
+        assert!(out.ends_with('\n'));
+        let value: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(value["nested"]["client_secret"], "[REDACTED]");
+        assert_eq!(value["nested"]["keep"], "ok");
     }
 
     #[test]
