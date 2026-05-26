@@ -1,3 +1,5 @@
+use std::io::Write;
+
 #[derive(Debug, clap::Args)]
 pub struct Args {
     /// Clip id or unique id prefix.
@@ -19,7 +21,7 @@ pub(crate) fn transform_clip_from_store(
     action_id: &str,
 ) -> Result<String, crate::exit::ExitError> {
     let id = client_core::store::prefix::resolve_clip_id(store, clip_prefix)
-        .map_err(|e| crate::exit::ExitError::new(crate::exit::GENERIC_ERROR, e.to_string(), ""))?;
+        .map_err(crate::commands::get::render_resolve_error)?;
     let clip = client_core::store::queries::get_clip(store, &id)
         .map_err(|e| crate::exit::ExitError::new(crate::exit::GENERIC_ERROR, e.to_string(), ""))?
         .ok_or_else(|| {
@@ -74,9 +76,21 @@ pub async fn run(args: Args) -> Result<(), crate::exit::ExitError> {
     if args.copy {
         copy_text_to_clipboard(&out)?;
     } else {
-        print!("{out}");
+        write_to_stdout(out.as_bytes())?;
     }
     Ok(())
+}
+
+fn write_to_stdout(bytes: &[u8]) -> Result<(), crate::exit::ExitError> {
+    match std::io::stdout().write_all(bytes) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(crate::exit::ExitError::new(
+            crate::exit::GENERIC_ERROR,
+            e.to_string(),
+            "",
+        )),
+    }
 }
 
 fn copy_text_to_clipboard(text: &str) -> Result<(), crate::exit::ExitError> {
