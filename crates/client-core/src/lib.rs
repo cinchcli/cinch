@@ -23,6 +23,7 @@ pub mod recovery;
 pub mod rest;
 pub mod store;
 pub mod sync;
+pub mod transform;
 pub mod version;
 pub mod ws;
 
