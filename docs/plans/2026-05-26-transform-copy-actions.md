@@ -474,7 +474,7 @@ pub(crate) fn transform_clip_from_store(
     clip_prefix: &str,
     action_id: &str,
 ) -> Result<String, crate::exit::ExitError> {
-    let id = client_core::store::prefix::resolve_clip_prefix(store, clip_prefix)
+    let id = client_core::store::prefix::resolve_clip_id(store, clip_prefix)
         .map_err(|e| crate::exit::ExitError::new(crate::exit::GENERIC_ERROR, e.to_string(), ""))?;
     let clip = client_core::store::queries::get_clip(store, &id)
         .map_err(|e| crate::exit::ExitError::new(crate::exit::GENERIC_ERROR, e.to_string(), ""))?
