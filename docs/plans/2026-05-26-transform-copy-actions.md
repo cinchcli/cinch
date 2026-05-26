@@ -778,11 +778,13 @@ git commit -m "feat(desktop): expose transform copy commands"
 
 ---
 
-### Task 4: Add Desktop Transform Menu UI
+### Task 4: Add Desktop Copy-As Command Sheet
 
 **Files:**
 - Modify: `apps/desktop/src/App.tsx`
 - Modify: `apps/desktop/src/components/ClipDetail.tsx`
+- Create: `apps/desktop/src/components/TransformCopySheet.tsx`
+- Test: `apps/desktop/src/components/TransformCopySheet.test.tsx`
 - Test: `apps/desktop/src/components/ClipDetail.test.tsx`
 - Test: `apps/desktop/src/App.test.tsx`
 
@@ -791,36 +793,70 @@ git commit -m "feat(desktop): expose transform copy commands"
 In `ClipDetail.test.tsx`, add:
 
 ```tsx
-it('shows transform menu for text clips', () => {
+it('shows Copy As trigger for text clips', () => {
   render(
     <ClipDetail
       clip={textClip}
       onCopy={() => {}}
-      onCopyTransform={() => {}}
-      transformActions={[{ id: 'pretty-json', label: 'Pretty JSON' }]}
+      onOpenCopyAs={() => {}}
+      canCopyAs
       onPin={() => {}}
       onDelete={() => {}}
       onSaveImage={() => {}}
     />
   );
-  expect(screen.getByRole('button', { name: /transform copy/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /copy as/i })).toBeInTheDocument();
 });
 
-it('does not show transform menu for image clips', () => {
+it('does not show Copy As trigger for image clips', () => {
   render(
     <ClipDetail
       clip={imageClip}
       onCopy={() => {}}
-      onCopyTransform={() => {}}
-      transformActions={[{ id: 'pretty-json', label: 'Pretty JSON' }]}
+      onOpenCopyAs={() => {}}
+      canCopyAs={false}
       onPin={() => {}}
       onDelete={() => {}}
       onSaveImage={() => {}}
     />
   );
-  expect(screen.queryByRole('button', { name: /transform copy/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /copy as/i })).not.toBeInTheDocument();
 });
 ```
+
+Create `TransformCopySheet.test.tsx`:
+
+```tsx
+import { fireEvent, render, screen } from '@testing-library/react';
+import { TransformCopySheet } from './TransformCopySheet';
+
+const actions = [
+  { id: 'pretty-json', label: 'Pretty JSON' },
+  { id: 'redact-secrets', label: 'Redact Secrets' },
+  { id: 'shell-single-quote', label: 'Shell Quote' },
+];
+
+it('filters actions and confirms the highlighted action', () => {
+  const onSelect = vi.fn();
+  render(<TransformCopySheet actions={actions} onSelect={onSelect} onClose={() => {}} />);
+  fireEvent.change(screen.getByRole('textbox', { name: /copy as/i }), {
+    target: { value: 'redact' },
+  });
+  expect(screen.getByText('Redact Secrets')).toBeInTheDocument();
+  expect(screen.queryByText('Pretty JSON')).not.toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole('textbox', { name: /copy as/i }), { key: 'Enter' });
+  expect(onSelect).toHaveBeenCalledWith('redact-secrets');
+});
+
+it('closes on Escape', () => {
+  const onClose = vi.fn();
+  render(<TransformCopySheet actions={actions} onSelect={() => {}} onClose={onClose} />);
+  fireEvent.keyDown(screen.getByRole('textbox', { name: /copy as/i }), { key: 'Escape' });
+  expect(onClose).toHaveBeenCalled();
+});
+```
+
+In `App.test.tsx`, add or extend the keyboard test so `Cmd+K` opens the sheet when a text clip is selected.
 
 **Step 2: Run tests to verify failure**
 
@@ -828,67 +864,170 @@ Run:
 
 ```bash
 cd apps/desktop
-pnpm test -- ClipDetail.test.tsx
+pnpm test -- ClipDetail.test.tsx TransformCopySheet.test.tsx App.test.tsx
 ```
 
 Expected: TypeScript/React test failure because props and UI do not exist.
 
-**Step 3: Implement UI props and menu**
+**Step 3: Implement `TransformCopySheet`**
 
-Add a local type in `ClipDetail.tsx`:
+Create `apps/desktop/src/components/TransformCopySheet.tsx`:
 
 ```tsx
-interface TransformAction {
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { C } from '../design';
+
+export interface TransformAction {
   id: string;
   label: string;
 }
+
+interface TransformCopySheetProps {
+  actions: TransformAction[];
+  onSelect: (actionId: string) => void;
+  onClose: () => void;
+}
+
+export function TransformCopySheet({ actions, onSelect, onClose }: TransformCopySheetProps) {
+  const [query, setQuery] = useState('');
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return actions;
+    return actions.filter((a) => a.label.toLowerCase().includes(q) || a.id.includes(q));
+  }, [actions, query]);
+
+  useEffect(() => { setHighlight(0); }, [query]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Copy As" style={S.backdrop}>
+      <div style={S.sheet}>
+        <input
+          ref={inputRef}
+          aria-label="Copy As"
+          value={query}
+          onChange={(e) => setQuery(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setHighlight((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setHighlight((i) => Math.max(i - 1, 0));
+              return;
+            }
+            if (e.key === 'Enter' && filtered[highlight]) {
+              e.preventDefault();
+              onSelect(filtered[highlight].id);
+            }
+          }}
+          placeholder="Copy as..."
+          style={S.input}
+        />
+        <div role="listbox" style={S.list}>
+          {filtered.map((action, index) => (
+            <button
+              key={action.id}
+              role="option"
+              aria-selected={index === highlight}
+              type="button"
+              onMouseEnter={() => setHighlight(index)}
+              onClick={() => onSelect(action.id)}
+              style={{ ...S.row, ...(index === highlight ? S.rowActive : null) }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const S: Record<string, CSSProperties> = {
+  backdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.22)',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingTop: 72,
+    zIndex: 50,
+  },
+  sheet: {
+    width: 360,
+    maxWidth: 'calc(100vw - 32px)',
+    background: C.card,
+    border: `1px solid ${C.border}`,
+    borderRadius: 8,
+    boxShadow: '0 18px 48px rgba(0,0,0,0.28)',
+    overflow: 'hidden',
+  },
+  input: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: 'none',
+    borderBottom: `1px solid ${C.border}`,
+    background: C.card,
+    color: C.t1,
+    fontSize: 14,
+    padding: '12px 14px',
+    outline: 'none',
+  },
+  list: { padding: 6, display: 'flex', flexDirection: 'column', gap: 2 },
+  row: {
+    border: 'none',
+    background: 'transparent',
+    color: C.t1,
+    textAlign: 'left',
+    padding: '9px 10px',
+    borderRadius: 6,
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+  rowActive: { background: C.hover },
+};
 ```
+
+**Step 4: Add Copy As trigger to `ClipDetail`**
 
 Extend props:
 
 ```tsx
-onCopyTransform: (clip: LocalClip, actionId: string) => void;
-transformActions: TransformAction[];
+onOpenCopyAs: (clip: LocalClip) => void;
+canCopyAs: boolean;
 ```
 
-Render next to Copy for non-image clips:
+Render next to Copy for text-like clips:
 
 ```tsx
-{!isImage && transformActions.length > 0 && (
-  <select
-    aria-label="Transform copy"
-    onChange={(e) => {
-      const actionId = e.currentTarget.value;
-      e.currentTarget.value = "";
-      if (actionId) onCopyTransform(clip, actionId);
-    }}
+{!isImage && canCopyAs && (
+  <button
+    type="button"
+    onClick={() => onOpenCopyAs(clip)}
     className="btn-ghost"
-    style={S.transformSelect}
-    defaultValue=""
+    style={S.btnGhost}
   >
-    <option value="" disabled>Transform</option>
-    {transformActions.map((a) => (
-      <option key={a.id} value={a.id}>{a.label}</option>
-    ))}
-  </select>
+    Copy As... <span style={S.kbdHint}>⌘K</span>
+  </button>
 )}
 ```
 
-Add compact style:
-
-```tsx
-transformSelect: {
-  ...S.btnGhost,
-  maxWidth: 180,
-}
-```
-
-**Step 4: Wire App handlers**
+**Step 5: Wire App handlers and default `Cmd+K` shortcut**
 
 In `App.tsx`, add state:
 
 ```tsx
 const [transformActions, setTransformActions] = useState<{ id: string; label: string }[]>([]);
+const [copyAsOpen, setCopyAsOpen] = useState(false);
 ```
 
 Load once:
@@ -922,32 +1061,67 @@ const copyTransformedClip = useCallback(async (clip: LocalClip, actionId: string
 }, [showToast, refreshClips]);
 ```
 
+Add helper:
+
+```tsx
+const canCopyAsSelected =
+  selectedClip !== null &&
+  selectedClip.content_type !== 'image' &&
+  transformActions.length > 0;
+```
+
+Update the window keydown handler before the plain copy branch:
+
+```tsx
+if ((e.metaKey || e.ctrlKey) && key === 'K') {
+  e.preventDefault();
+  if (canCopyAsSelected) setCopyAsOpen(true);
+  return;
+}
+```
+
 Pass props to `ClipDetail`:
 
 ```tsx
-onCopyTransform={copyTransformedClip}
-transformActions={transformActions}
+onOpenCopyAs={() => setCopyAsOpen(true)}
+canCopyAs={transformActions.length > 0}
 ```
 
-**Step 5: Run UI tests**
+Render the sheet:
+
+```tsx
+{copyAsOpen && selectedClip && (
+  <TransformCopySheet
+    actions={transformActions}
+    onClose={() => setCopyAsOpen(false)}
+    onSelect={(actionId) => {
+      const clip = selectedClip;
+      setCopyAsOpen(false);
+      void copyTransformedClip(clip, actionId);
+    }}
+  />
+)}
+```
+
+**Step 6: Run UI tests**
 
 Run:
 
 ```bash
 cd apps/desktop
-pnpm test -- ClipDetail.test.tsx App.test.tsx
+pnpm test -- ClipDetail.test.tsx TransformCopySheet.test.tsx App.test.tsx
 pnpm build
 ```
 
 Expected: tests and TypeScript build pass.
 
-**Step 6: Commit**
+**Step 7: Commit**
 
 Run:
 
 ```bash
-git add apps/desktop/src/App.tsx apps/desktop/src/components/ClipDetail.tsx apps/desktop/src/components/ClipDetail.test.tsx apps/desktop/src/App.test.tsx
-git commit -m "feat(desktop): add transform copy menu"
+git add apps/desktop/src/App.tsx apps/desktop/src/components/ClipDetail.tsx apps/desktop/src/components/TransformCopySheet.tsx apps/desktop/src/components/TransformCopySheet.test.tsx apps/desktop/src/components/ClipDetail.test.tsx apps/desktop/src/App.test.tsx
+git commit -m "feat(desktop): add Copy As transform sheet"
 ```
 
 ---

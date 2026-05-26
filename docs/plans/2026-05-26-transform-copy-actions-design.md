@@ -52,8 +52,10 @@ CLI adds `cinch clip transform <CLIP> --action <ACTION> [--copy]`. Without `--co
 Desktop:
 
 - Keep the primary Copy button and Enter behavior as original-copy.
-- Add a compact transform menu next to Copy in the detail view.
-- Add a context/action menu affordance in clip cards only if it fits without clutter; otherwise v1 can expose transforms from the detail pane only.
+- Add a `Copy As...` trigger next to Copy in the detail view.
+- `Cmd+K` opens `Copy As...` for the selected text-like clip by default.
+- `Copy As...` opens a small command sheet with a search field and keyboard navigation.
+- The command sheet lists transform actions by label and filters by typed text.
 - Show success toast using the action label, e.g. `Copied as Pretty JSON`.
 - On transform failure, show an error toast and do not copy original content as a fallback.
 
