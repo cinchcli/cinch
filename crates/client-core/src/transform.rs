@@ -141,7 +141,7 @@ pub fn apply_transform(
         TransformAction::MarkdownCodeBlock => Ok(markdown_code_block(input, content_type)),
         TransformAction::UrlEncode => Ok(percent_encode(input)),
         TransformAction::UrlDecode => percent_decode(input),
-        TransformAction::RedactSecrets => Ok(redact_secrets(input)),
+        TransformAction::RedactSecrets => Ok(redact_secrets(input, content_type)),
     }
 }
 
@@ -154,6 +154,16 @@ fn is_text_like(content_type: &str) -> bool {
 
     matches!(normalized.as_str(), "text" | "code" | "url" | "json")
         || normalized.starts_with("text/")
+}
+
+fn is_json_content_type(content_type: &str) -> bool {
+    let normalized = content_type
+        .split_once(';')
+        .map_or(content_type, |(value, _)| value)
+        .trim()
+        .to_ascii_lowercase();
+
+    matches!(normalized.as_str(), "json" | "text/json")
 }
 
 fn pretty_json(input: &str) -> Result<String, TransformError> {
@@ -289,11 +299,30 @@ fn shell_single_quote(input: &str) -> String {
 }
 
 fn markdown_code_block(input: &str, content_type: &str) -> String {
+    let fence = markdown_backtick_fence(input);
     format!(
-        "```{}\n{}\n```",
+        "{}{}\n{}\n{}",
+        fence,
         markdown_language_hint(content_type),
-        input
+        input,
+        fence
     )
+}
+
+fn markdown_backtick_fence(input: &str) -> String {
+    let mut longest_run = 0usize;
+    let mut current_run = 0usize;
+
+    for ch in input.chars() {
+        if ch == '`' {
+            current_run += 1;
+            longest_run = longest_run.max(current_run);
+        } else {
+            current_run = 0;
+        }
+    }
+
+    "`".repeat(3usize.max(longest_run + 1))
 }
 
 fn markdown_language_hint(content_type: &str) -> &'static str {
@@ -366,12 +395,72 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn redact_secrets(input: &str) -> String {
-    input
-        .lines()
-        .map(redact_secret_line)
-        .collect::<Vec<_>>()
-        .join("\n")
+fn redact_secrets(input: &str, content_type: &str) -> String {
+    if is_json_content_type(content_type) {
+        if let Ok(mut value) = serde_json::from_str::<Value>(input) {
+            redact_json_value(&mut value);
+            if let Ok(out) = serde_json::to_string_pretty(&value) {
+                return out;
+            }
+        }
+    }
+
+    redact_text_secrets(input)
+}
+
+fn redact_json_value(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, value) in map {
+                if is_secret_key(&normalize_secret_key(key)) {
+                    *value = Value::String("[REDACTED]".to_string());
+                } else {
+                    redact_json_value(value);
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                redact_json_value(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn redact_text_secrets(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut start = 0usize;
+
+    for (index, ch) in input.char_indices() {
+        if ch == '\n' {
+            out.push_str(&redact_secret_segment(&input[start..=index]));
+            start = index + 1;
+        }
+    }
+
+    if start < input.len() {
+        out.push_str(&redact_secret_segment(&input[start..]));
+    }
+
+    out
+}
+
+fn redact_secret_segment(segment: &str) -> String {
+    let (line, terminator) = split_line_terminator(segment);
+    let mut out = redact_secret_line(line);
+    out.push_str(terminator);
+    out
+}
+
+fn split_line_terminator(segment: &str) -> (&str, &str) {
+    if let Some(line) = segment.strip_suffix("\r\n") {
+        (line, "\r\n")
+    } else if let Some(line) = segment.strip_suffix('\n') {
+        (line, "\n")
+    } else {
+        (segment, "")
+    }
 }
 
 fn redact_secret_line(line: &str) -> String {
@@ -401,6 +490,7 @@ fn find_assignment_separator(line: &str) -> Option<(usize, char)> {
 
 fn normalize_secret_key(key: &str) -> String {
     key.trim()
+        .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | '{' | '}' | '[' | ']' | '(' | ')'))
         .chars()
         .map(|ch| match ch {
             '-' | ' ' => '_',
@@ -416,9 +506,13 @@ fn is_secret_key(key: &str) -> bool {
             | "apikey"
             | "token"
             | "access_token"
+            | "refresh_token"
+            | "client_secret"
             | "secret"
             | "password"
             | "passwd"
+            | "private_key"
+            | "x_api_key"
             | "authorization"
     )
 }
@@ -473,6 +567,17 @@ mod tests {
     }
 
     #[test]
+    fn markdown_code_block_uses_longer_fence_than_input_backticks() {
+        let out = apply_transform(
+            TransformAction::MarkdownCodeBlock,
+            "before ``` after",
+            "text",
+        )
+        .unwrap();
+        assert_eq!(out, "````text\nbefore ``` after\n````");
+    }
+
+    #[test]
     fn url_encode_and_decode_roundtrip_utf8() {
         let enc = apply_transform(TransformAction::UrlEncode, "hello world/한글", "text").unwrap();
         assert_eq!(enc, "hello%20world%2F%ED%95%9C%EA%B8%80");
@@ -490,6 +595,46 @@ mod tests {
         .unwrap();
         assert!(out.contains("api_key = [REDACTED]"));
         assert!(out.contains("password: [REDACTED]"));
+    }
+
+    #[test]
+    fn redact_secrets_recurses_through_json_objects() {
+        for content_type in ["json", "text/json"] {
+            let out = apply_transform(
+                TransformAction::RedactSecrets,
+                r#"{"nested":{"client_secret":"abc","keep":"ok"},"refresh_token":"def"}"#,
+                content_type,
+            )
+            .unwrap();
+            let value: Value = serde_json::from_str(&out).unwrap();
+            assert_eq!(value["nested"]["client_secret"], "[REDACTED]");
+            assert_eq!(value["nested"]["keep"], "ok");
+            assert_eq!(value["refresh_token"], "[REDACTED]");
+        }
+    }
+
+    #[test]
+    fn redact_secrets_masks_quoted_and_variant_text_keys() {
+        let out = apply_transform(
+            TransformAction::RedactSecrets,
+            "\"client_secret\": \"abc\"\n{x-api-key} = key\nprivate-key: -----BEGIN KEY-----",
+            "text",
+        )
+        .unwrap();
+        assert!(out.contains("\"client_secret\": [REDACTED]"));
+        assert!(out.contains("{x-api-key} = [REDACTED]"));
+        assert!(out.contains("private-key: [REDACTED]"));
+    }
+
+    #[test]
+    fn redact_secrets_preserves_line_terminators() {
+        let out = apply_transform(
+            TransformAction::RedactSecrets,
+            "plain\r\npassword: hunter2\nlast\n",
+            "text",
+        )
+        .unwrap();
+        assert_eq!(out, "plain\r\npassword: [REDACTED]\nlast\n");
     }
 
     #[test]
