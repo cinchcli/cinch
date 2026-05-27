@@ -257,7 +257,7 @@ mod tests {
             anchored: true,
         };
         let win = WinSize { w: 960, h: 600 };
-        let got = choose_placement(Some(&saved), &[m.clone()], (10.0, 10.0), win);
+        let got = choose_placement(Some(&saved), std::slice::from_ref(&m), (10.0, 10.0), win);
         // anchored:true → recompute anchor, ignore stale saved x/y
         assert_eq!(got, anchor_for(&m, win));
     }
@@ -302,7 +302,12 @@ mod tests {
             anchored: false,
         };
         // cursor at (2500,300) → inside monitor B
-        let got = choose_placement(Some(&saved), &[cur.clone()], (2500.0, 300.0), win);
+        let got = choose_placement(
+            Some(&saved),
+            std::slice::from_ref(&cur),
+            (2500.0, 300.0),
+            win,
+        );
         assert_eq!(got, anchor_for(&cur, win));
     }
 
@@ -317,7 +322,7 @@ mod tests {
             scale: 2.0,
         };
         let win = WinSize { w: 960, h: 600 };
-        let got = choose_placement(None, &[cur.clone()], (100.0, 100.0), win);
+        let got = choose_placement(None, std::slice::from_ref(&cur), (100.0, 100.0), win);
         assert_eq!(got, anchor_for(&cur, win));
     }
 

@@ -456,7 +456,7 @@ mod tests {
         // 3. Verify it's pinned
         let pinned = db.list_pinned_clips().unwrap();
         assert_eq!(pinned.len(), 1);
-        assert_eq!(pinned[0].is_pinned, true);
+        assert!(pinned[0].is_pinned);
         assert_eq!(pinned[0].pin_note, Some("my important note".to_string()));
 
         // 4. Upsert the same clip with different content (simulating relay re-delivery)
@@ -474,8 +474,8 @@ mod tests {
             clips[0].content, "updated content",
             "mutable fields should be updated"
         );
-        assert_eq!(
-            clips[0].is_pinned, true,
+        assert!(
+            clips[0].is_pinned,
             "is_pinned should be preserved from local state"
         );
         assert_eq!(
@@ -487,7 +487,7 @@ mod tests {
         // 6. Verify pinned list still shows it
         let pinned = db.list_pinned_clips().unwrap();
         assert_eq!(pinned.len(), 1);
-        assert_eq!(pinned[0].is_pinned, true);
+        assert!(pinned[0].is_pinned);
     }
 
     #[test]
@@ -502,7 +502,7 @@ mod tests {
         // 2. Verify it's unsynced
         let unsynced = db.list_unsynced_clips().unwrap();
         assert_eq!(unsynced.len(), 1);
-        assert_eq!(unsynced[0].synced, false);
+        assert!(!unsynced[0].synced);
 
         // 3. Upsert with new content but incoming synced=true (relay doesn't set our synced flag)
         let mut relay_clip =
@@ -513,8 +513,8 @@ mod tests {
         // 4. Verify synced flag is STILL false (preserved)
         let clips = db.list_clips(None, None, 50).unwrap();
         assert_eq!(clips.len(), 1);
-        assert_eq!(
-            clips[0].synced, false,
+        assert!(
+            !clips[0].synced,
             "synced should be preserved from local state"
         );
         assert_eq!(

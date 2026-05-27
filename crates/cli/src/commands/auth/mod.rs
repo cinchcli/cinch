@@ -117,8 +117,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
 pub(crate) mod test_helpers {
     /// Serializes tests that mutate the HOME environment variable.
     /// `std::env::set_var` is process-wide; concurrent tests can stomp each
-    /// other's HOME → config-file path → loaded credentials. Acquire this lock
+    /// other's HOME -> config-file path -> loaded credentials. Acquire this lock
     /// before set_var / load_config / save_config calls in any test that needs
     /// a clean HOME environment.
-    pub static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub static HOME_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 }

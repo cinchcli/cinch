@@ -11,6 +11,7 @@ use tauri::Manager;
 
 use crate::commands;
 use crate::store;
+#[cfg(target_os = "macos")]
 use crate::PreviousAppPid;
 
 /// Settings-DB key recording that the user has seen the one-time
@@ -263,19 +264,6 @@ pub(crate) fn register_send_shortcut(app: &tauri::AppHandle) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::should_prompt;
-
-    #[test]
-    fn test_should_prompt_gates_on_flag() {
-        assert!(should_prompt(None), "never seen → prompt");
-        assert!(should_prompt(Some("")), "empty → prompt");
-        assert!(should_prompt(Some("0")), "not yet acknowledged → prompt");
-        assert!(!should_prompt(Some("1")), "acknowledged → do not prompt");
-    }
-}
-
 pub(crate) fn register_global_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -302,5 +290,18 @@ pub(crate) fn register_global_shortcuts(app: &tauri::AppHandle) {
             shortcut_str,
             e
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_prompt;
+
+    #[test]
+    fn test_should_prompt_gates_on_flag() {
+        assert!(should_prompt(None), "never seen -> prompt");
+        assert!(should_prompt(Some("")), "empty -> prompt");
+        assert!(should_prompt(Some("0")), "not yet acknowledged -> prompt");
+        assert!(!should_prompt(Some("1")), "acknowledged -> do not prompt");
     }
 }

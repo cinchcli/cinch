@@ -85,6 +85,10 @@ pub struct PairWithTokenResult {
 
 /// Pair with a relay using a master token obtained from `cinch auth login`.
 /// Clears any existing relay and replaces it with the new one.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri injects command state via parameters"
+)]
 #[tauri::command]
 #[specta::specta]
 pub async fn pair_with_token(

@@ -86,7 +86,7 @@ mod tests {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.lock().await;
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var("HOME", tmp.path());
 
