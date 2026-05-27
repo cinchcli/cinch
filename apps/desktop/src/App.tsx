@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { commands, events } from './bindings';
-import type { LocalClip, SourceInfo, Device } from './bindings';
+import type { LocalClip, SourceInfo, Device, TransformActionDto } from './bindings';
 import { unwrap } from './lib/tauri';
 import { buildTargets, fuzzySearch, parseFromToken } from './lib/fuzzy';
 import { groupByTimeBucket } from './lib/timeBuckets';
@@ -38,6 +38,7 @@ import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { dialogStyles } from './components/dialogPrimitives';
+import { TransformCopySheet } from './components/TransformCopySheet';
 import { IconCopy, IconTrash, IconX } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
@@ -164,6 +165,8 @@ function App() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [transformActions, setTransformActions] = useState<TransformActionDto[]>([]);
+  const [copyAsOpen, setCopyAsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [devices, setDevices] = useState<Device[]>([]);
@@ -241,6 +244,15 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    void unwrap(commands.listTransformActions('text'))
+      .then(setTransformActions)
+      .catch((e) => {
+        console.error('failed to load transform actions:', e);
+        setTransformActions([]);
+      });
+  }, []);
+
   const handleNewSourceResponse = async (source: string, enable: boolean) => {
     await unwrap(commands.setSourceAutoCopy(source, enable));
     setNewSourcePrompt(null);
@@ -263,6 +275,10 @@ function App() {
     if (!selectedClip || !clipListRef.current) return;
     const el = clipListRef.current.querySelector<HTMLElement>(`[data-id="${selectedClip.id}"]`);
     el?.scrollIntoView({ block: 'nearest' });
+  }, [selectedClip]);
+
+  useEffect(() => {
+    if (!selectedClip) setCopyAsOpen(false);
   }, [selectedClip]);
 
   useEffect(() => {
@@ -344,22 +360,39 @@ function App() {
     }
   }, []);
 
-  const copyClip = useCallback((clip: LocalClip) => {
-    if (clip.content_type === 'image') {
-      unwrap(commands.copyImageToClipboard(clip.id));
-      showToast('Copied image to clipboard', 'copy');
-    } else {
-      unwrap(commands.copyClipToClipboard(clip.content));
-      showToast('Copied to clipboard', 'copy');
-    }
+  const finishCopy = useCallback((clip: LocalClip, message: string) => {
+    showToast(message, 'copy');
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);
+    setCopyAsOpen(false);
     void unwrap(commands.markClipCopied(clip.id))
       .then(refreshClips)
       .catch((e) => console.error('failed to mark clip copied:', e));
     void commands.focusPreviousApp();
-  }, [showToast, refreshClips]);
+  }, [refreshClips, showToast]);
+
+  const copyClip = useCallback((clip: LocalClip) => {
+    if (clip.content_type === 'image') {
+      void unwrap(commands.copyImageToClipboard(clip.id))
+        .catch((e) => console.error('copy image failed:', e));
+      finishCopy(clip, 'Copied image to clipboard');
+    } else {
+      void unwrap(commands.copyClipToClipboard(clip.content))
+        .catch((e) => console.error('copy clip failed:', e));
+      finishCopy(clip, 'Copied to clipboard');
+    }
+  }, [finishCopy]);
+
+  const copyTransformedClip = useCallback(async (clip: LocalClip, actionId: string) => {
+    try {
+      const result = await unwrap(commands.copyTransformedClipToClipboard(clip.id, actionId));
+      finishCopy(clip, `Copied as ${result.label}`);
+    } catch (e) {
+      console.error('transform copy failed:', e);
+      showToast(e instanceof Error ? e.message : 'Transform failed', 'error');
+    }
+  }, [finishCopy, showToast]);
 
   // target === null broadcasts to all online devices; non-null targets a specific device.
   // The relay rejects an offline target with a "device_offline" error — the catch below
@@ -457,6 +490,11 @@ function App() {
     return groupByTimeBucket(typeFilteredClips).flatMap((g) => g.items);
   }, [filteredClips, typeFilteredClips, activePanel]);
 
+  const canCopyAsSelected =
+    selectedClip !== null &&
+    selectedClip.content_type !== 'image' &&
+    transformActions.length > 0;
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -500,6 +538,13 @@ function App() {
         e.preventDefault();
         setShowSettings(v => !v);
         return;
+      }
+      if ((e.metaKey || e.ctrlKey) && key === 'K') {
+        if (canCopyAsSelected) {
+          e.preventDefault();
+          setCopyAsOpen(true);
+          return;
+        }
       }
       if ((e.metaKey || e.ctrlKey) && (key === '1' || key === '2' || key === '3')) {
         e.preventDefault();
@@ -581,7 +626,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, canCopyAsSelected]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -717,9 +762,11 @@ function App() {
             <ClipDetail
               clip={selectedClip}
               onCopy={copyClip}
+              onOpenCopyAs={() => setCopyAsOpen(true)}
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
               onSaveImage={handleSaveImage}
+              canCopyAs={canCopyAsSelected}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
@@ -735,6 +782,7 @@ function App() {
         hints={selectedClip
           ? [
               { keys: '↵', label: 'copy' },
+              { keys: '⌘K', label: 'copy as' },
               { keys: '?', label: 'shortcuts' },
             ]
           : [
@@ -749,6 +797,18 @@ function App() {
         <HiddenActions
           onCopy={() => copyClip(selectedClip)}
           onDelete={() => handleDelete(selectedClip.id)}
+        />
+      )}
+
+      {copyAsOpen && selectedClip && (
+        <TransformCopySheet
+          actions={transformActions}
+          onClose={() => setCopyAsOpen(false)}
+          onSelect={(actionId) => {
+            const clip = selectedClip;
+            setCopyAsOpen(false);
+            void copyTransformedClip(clip, actionId);
+          }}
         />
       )}
 
