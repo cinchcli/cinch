@@ -157,17 +157,11 @@ pub fn get_clip_count(store: State<'_, SharedStore>) -> Result<i64, String> {
 
 /// Explicitly send an already-captured local clip to the relay (and thus to
 /// the user's other devices). This is the ONLY path by which a clip leaves
-/// the device — the clipboard monitor never pushes.
-///
-/// `target_device_id` is optional: `None` (null from TypeScript) broadcasts
-/// to all of the user's devices; `Some(id)` restricts delivery to that device.
+/// the device — the clipboard monitor never pushes. The clip is broadcast to
+/// all of the user's devices.
 #[tauri::command]
 #[specta::specta]
-pub async fn send_clip(
-    pusher: State<'_, LocalPusherHandle>,
-    id: String,
-    target_device_id: Option<String>,
-) -> Result<(), String> {
+pub async fn send_clip(pusher: State<'_, LocalPusherHandle>, id: String) -> Result<(), String> {
     let pusher = {
         let guard = pusher
             .lock()
@@ -178,7 +172,7 @@ pub async fn send_clip(
             .ok_or_else(|| "not signed in — sign in to enable sending".to_string())?
     };
     pusher
-        .send_stored(&id, target_device_id.as_deref())
+        .send_stored(&id)
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -483,7 +477,7 @@ mod send_clip_tests {
         );
         let pusher =
             client_core::sync::LocalPusher::new(store.clone(), client.clone(), Some([7u8; 32]));
-        pusher.send_stored(&id, None).await.unwrap();
+        pusher.send_stored(&id).await.unwrap();
 
         // Transient failure → the clip is queued (Pending), no longer Local.
         assert_eq!(

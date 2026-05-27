@@ -116,7 +116,6 @@ pub(crate) fn build_push_request(
         media_path: clip.media_path.clone(),
         byte_size: clip.byte_size,
         encrypted: payload.encrypted,
-        target_device_id: None,
         client_created_at: None,
         idempotency_key: None,
     }

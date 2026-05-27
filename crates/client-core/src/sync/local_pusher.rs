@@ -152,13 +152,8 @@ impl LocalPusher {
     /// (the backlog flusher retries); on a permanent error it reverts to
     /// `Local` so it is never stuck retrying.
     ///
-    /// `target_device_id`: `Some(id)` asks the relay to deliver the clip only
-    /// to that device; `None` broadcasts to all of the user's devices.
-    pub async fn send_stored(
-        &self,
-        clip_id: &str,
-        target_device_id: Option<&str>,
-    ) -> Result<PushOutcome, IngestError> {
+    /// Broadcasts the clip to all of the user's devices.
+    pub async fn send_stored(&self, clip_id: &str) -> Result<PushOutcome, IngestError> {
         let clip = queries::get_clip(&self.store, clip_id)?
             .ok_or_else(|| IngestError::NotFound(clip_id.to_string()))?;
         let plaintext = clip
@@ -182,7 +177,6 @@ impl LocalPusher {
             media_path: None,
             byte_size: clip.byte_size,
             encrypted: true,
-            target_device_id: target_device_id.map(|s| s.to_string()),
             client_created_at: Some(crate::sync::backlog_flusher::format_rfc3339_millis(
                 clip.created_at,
             )),
@@ -223,7 +217,6 @@ impl LocalPusher {
             media_path: None,
             byte_size: original_size,
             encrypted: true,
-            target_device_id: None,
             client_created_at: None,
             idempotency_key: None,
         };
@@ -249,7 +242,6 @@ impl LocalPusher {
             media_path: None,
             byte_size: original_size,
             encrypted: true,
-            target_device_id: None,
             client_created_at: None,
             idempotency_key: None,
         };
@@ -410,7 +402,7 @@ mod tests {
         let client = std::sync::Arc::new(RestClient::for_test_recording());
         let pusher = LocalPusher::new(store.clone(), client.clone(), Some([9u8; 32]));
 
-        let outcome = pusher.send_stored(&id, None).await.expect("send_stored");
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
         assert!(matches!(outcome, PushOutcome::Synced(_)));
         assert_eq!(client.recorded_pushes().len(), 1, "exactly one relay push");
         // The local id was swapped for the relay id; old id is gone.
@@ -431,7 +423,7 @@ mod tests {
         ]));
         let pusher = LocalPusher::new(store.clone(), client, Some([9u8; 32]));
 
-        let res = pusher.send_stored(&id, None).await;
+        let res = pusher.send_stored(&id).await;
         assert!(matches!(res, Err(IngestError::Push(_))));
         assert_eq!(
             queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
@@ -448,7 +440,7 @@ mod tests {
             crate::sync::capture::capture_local(&store, "s", "text", b"hi".to_vec(), 2).unwrap();
         let pusher = LocalPusher::new(store.clone(), offline_client(), Some([9u8; 32]));
 
-        let outcome = pusher.send_stored(&id, None).await.expect("send_stored");
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
         assert!(matches!(outcome, PushOutcome::Queued(_)));
         assert_eq!(
             queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
@@ -461,12 +453,12 @@ mod tests {
     async fn send_stored_unknown_id_is_not_found() {
         let store = fresh_store();
         let pusher = LocalPusher::new(store.clone(), offline_client(), Some([9u8; 32]));
-        let res = pusher.send_stored("does-not-exist", None).await;
+        let res = pusher.send_stored("does-not-exist").await;
         assert!(matches!(res, Err(IngestError::NotFound(_))));
     }
 
     #[tokio::test]
-    async fn send_stored_sets_target_device_id() {
+    async fn send_stored_broadcasts() {
         let store = fresh_store();
         let id =
             crate::sync::capture::capture_local(&store, "remote:host", "text", b"hi".to_vec(), 2)
@@ -474,13 +466,9 @@ mod tests {
         let client = std::sync::Arc::new(RestClient::for_test_recording());
         let pusher = LocalPusher::new(store.clone(), client.clone(), Some([9u8; 32]));
 
-        let outcome = pusher
-            .send_stored(&id, Some("dev-123"))
-            .await
-            .expect("send_stored");
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
         assert!(matches!(outcome, PushOutcome::Synced(_)));
         let pushes = client.recorded_pushes();
         assert_eq!(pushes.len(), 1);
-        assert_eq!(pushes[0].target_device_id.as_deref(), Some("dev-123"));
     }
 }

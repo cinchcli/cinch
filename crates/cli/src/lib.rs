@@ -76,8 +76,8 @@ fn print_completion_override(shell: Shell) {
 }
 
 // Appended after clap_complete's static output.
-// Teaches the shell to complete device-name values (`pull --from`,
-// `push --to`) with `cinch device list --names`.
+// Teaches the shell to complete device-name values (`pull --from`)
+// with `cinch device list --names`.
 
 const ZSH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
@@ -100,12 +100,6 @@ _cinch() {
     _cinch_devices_names
     return
   fi
-  if [[ ${words[2]} == push ]] && \
-     [[ ${words[CURRENT-1]} == --to || ${words[CURRENT]} == --to=* ]]; then
-    compset -P '--to='
-    _cinch_devices_names
-    return
-  fi
   _cinch_generated "$@"
 }
 "#;
@@ -124,11 +118,11 @@ _cinch_with_from() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   prev2="${COMP_WORDS[COMP_CWORD-2]:-}"
-  if [[ "$prev" == "--from" || "$prev" == "--to" ]]; then
+  if [[ "$prev" == "--from" ]]; then
     _cinch_devices_names
     return
   fi
-  if [[ "$prev" == "=" && ( "$prev2" == "--from" || "$prev2" == "--to" ) ]]; then
+  if [[ "$prev" == "=" && "$prev2" == "--from" ]]; then
     _cinch_devices_names
     return
   fi
@@ -140,9 +134,6 @@ complete -F _cinch_with_from cinch
 const FISH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
 complete -c cinch -n '__fish_seen_subcommand_from pull' -l from -f \
-  -d 'Device nickname or hostname' \
-  -a '(cinch device list --names 2>/dev/null)'
-complete -c cinch -n '__fish_seen_subcommand_from push' -l to -f \
   -d 'Device nickname or hostname' \
   -a '(cinch device list --names 2>/dev/null)'
 "#;

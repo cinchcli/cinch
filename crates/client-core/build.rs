@@ -209,7 +209,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         // clip optionals
         ".cinch.v1.Clip.media_path",
         ".cinch.v1.Clip.pin_note",
-        ".cinch.v1.PushClipRequest.target_device_id",
         ".cinch.v1.PushClipRequest.media_path",
         ".cinch.v1.PushClipRequest.client_created_at",
         ".cinch.v1.PushClipRequest.idempotency_key",

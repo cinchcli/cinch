@@ -92,7 +92,6 @@ pub async fn flush_once(
             media_path: None,
             byte_size: clip.byte_size,
             encrypted: true,
-            target_device_id: None,
             client_created_at: Some(format_rfc3339_millis(clip.created_at)),
             idempotency_key: Some(clip.id.clone()),
         };

@@ -41,7 +41,6 @@ impl RestClient {
         content_type: &str,
         source: &str,
         label: Option<&str>,
-        target_device_id: Option<&str>,
     ) -> Result<PushResponse, HttpError> {
         let url = format!("{}/clips/binary", self.base_url);
         let mut last_err: Option<HttpError> = None;
@@ -60,9 +59,6 @@ impl RestClient {
                 .text("source", source.to_string());
             if let Some(l) = label.filter(|s| !s.is_empty()) {
                 form = form.text("label", l.to_string());
-            }
-            if let Some(d) = target_device_id.filter(|s| !s.is_empty()) {
-                form = form.text("target_device_id", d.to_string());
             }
             let resp = self
                 .client

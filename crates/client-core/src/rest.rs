@@ -58,7 +58,6 @@ mod tests {
             media_path: None,
             byte_size: 2,
             encrypted: false,
-            target_device_id: None,
             client_created_at: None,
             idempotency_key: None,
         };
@@ -82,7 +81,6 @@ mod tests {
             media_path: None,
             byte_size: 1234,
             encrypted: true,
-            target_device_id: Some("dev1".into()),
             client_created_at: None,
             idempotency_key: None,
         };
@@ -91,7 +89,7 @@ mod tests {
         assert!(json.contains(r#""label":"logo""#));
         assert!(!json.contains("ttl"));
         assert!(json.contains(r#""encrypted":true"#));
-        assert!(json.contains(r#""target_device_id":"dev1""#));
+        assert!(!json.contains("target_device_id"));
     }
 
     #[test]

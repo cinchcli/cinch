@@ -50,13 +50,6 @@ pub struct Args {
     /// Override relay URL (or set CINCH_RELAY_URL env var).
     #[arg(long)]
     pub relay: Option<String>,
-
-    /// Send only to the device with this nickname or hostname (resolved
-    /// via GET /devices to a target_device_id). The relay rejects the
-    /// push with `device_offline` if the resolved device is not currently
-    /// connected.
-    #[arg(long)]
-    pub to: Option<String>,
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
@@ -143,77 +136,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     // `cinch auth retry-key` between every fresh-login and first push.
     crate::key_state::ensure_master_key(&cfg, &client).await?;
 
-    let target_device_id = match args.to.as_deref().filter(|s| !s.is_empty()) {
-        Some(name) => Some(resolve_target_device_id(&client, name).await?),
-        None => None,
-    };
-
     let start = Instant::now();
     let original_size = data.len() as i64;
-
-    // Targeted pushes (`--to <device>`) keep the bespoke flow because
-    // `LocalPusher::push_text` does not carry `target_device_id` today.
-    if let Some(target) = target_device_id.as_deref() {
-        let data_for_store = data.clone();
-        let resp = if is_binary {
-            push_binary(
-                &client,
-                &cfg,
-                data,
-                &source,
-                args.label.as_deref(),
-                Some(target),
-            )
-            .await?
-        } else {
-            push_text(
-                &client,
-                &cfg,
-                data,
-                &source,
-                args.label.as_deref(),
-                wire_type,
-                Some(target),
-            )
-            .await?
-        };
-
-        // Best-effort local write-through. We never fail the command on a store
-        // error — the relay already accepted the push, and the next backfill
-        // reconciles. `synced=true` because we only reach this branch after
-        // the relay returned 200.
-        if let Ok(ctx) = crate::runtime::open_ctx() {
-            let content_type = wire_type.as_wire().to_string();
-            let created_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as i64;
-            let stored = client_core::store::models::StoredClip {
-                id: resp.clip_id.clone(),
-                source: source.clone(),
-                source_key: None,
-                content_type,
-                content: Some(data_for_store),
-                media_path: None,
-                byte_size: resp.byte_size,
-                created_at,
-                pinned: false,
-                pinned_at: None,
-                sync_state: client_core::store::models::SyncState::Synced,
-            };
-            let _ = client_core::store::queries::insert_clip(&ctx.store, &stored);
-            let _ = client_core::store::queries::set_watermark(&ctx.store, &resp.clip_id);
-        }
-
-        if !args.silent {
-            eprintln!(
-                "\u{2713} Pushed {} \u{00B7} {} ms",
-                format_bytes(resp.byte_size),
-                start.elapsed().as_millis()
-            );
-        }
-        return Ok(());
-    }
 
     // Untargeted path — route through `LocalPusher` so transient relay errors
     // (or a missing enc_key) enqueue the clip locally with `synced=false`.
@@ -270,7 +194,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     // store there is no write-through and no enqueue — the relay push is
     // the only durable hop.
     let resp = if is_binary {
-        push_binary(&client, &cfg, data, &source, args.label.as_deref(), None).await?
+        push_binary(&client, &cfg, data, &source, args.label.as_deref()).await?
     } else {
         push_text(
             &client,
@@ -279,7 +203,6 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
             &source,
             args.label.as_deref(),
             wire_type,
-            None,
         )
         .await?
     };
@@ -412,7 +335,6 @@ async fn push_text(
     source: &str,
     label: Option<&str>,
     content_type: ContentType,
-    target_device_id: Option<&str>,
 ) -> Result<client_core::rest::PushResponse, ExitError> {
     let original_size = data.len() as i64;
     let key = require_key(cfg)?;
@@ -431,7 +353,6 @@ async fn push_text(
         media_path: None,
         byte_size: original_size,
         encrypted: true,
-        target_device_id: target_device_id.map(|s| s.to_string()),
         client_created_at: None,
         idempotency_key: None,
     };
@@ -444,7 +365,6 @@ async fn push_binary(
     data: Vec<u8>,
     source: &str,
     label: Option<&str>,
-    target_device_id: Option<&str>,
 ) -> Result<client_core::rest::PushResponse, ExitError> {
     let key = require_key(cfg)?;
     let ciphertext = crypto::encrypt(&key, &data).map_err(|e| {
@@ -462,55 +382,10 @@ async fn push_binary(
         media_path: None,
         byte_size: data.len() as i64,
         encrypted: true,
-        target_device_id: target_device_id.map(|s| s.to_string()),
         client_created_at: None,
         idempotency_key: None,
     };
     Ok(client.push_clip_json(&req).await?)
-}
-
-/// Resolve a user-supplied `--to <name>` to a target device_id.
-///
-/// Matches `name` case-insensitively against each device's nickname, then
-/// hostname. If neither matches, returns a `GENERIC_ERROR` with the list
-/// of known names so the user can correct the typo without round-tripping
-/// to `cinch device list`.
-async fn resolve_target_device_id(client: &RestClient, name: &str) -> Result<String, ExitError> {
-    let devices = client.list_devices().await.map_err(|e| {
-        ExitError::new(
-            GENERIC_ERROR,
-            format!("Could not list devices: {}", e),
-            "Check connectivity and retry; or omit --to.",
-        )
-    })?;
-    let lower = name.to_lowercase();
-    for d in &devices {
-        let nick_match = !d.nickname.is_empty() && d.nickname.to_lowercase() == lower;
-        let host_match = d.hostname.to_lowercase() == lower;
-        if nick_match || host_match {
-            return Ok(d.id.clone());
-        }
-    }
-    let known: Vec<String> = devices
-        .iter()
-        .map(|d| {
-            if d.nickname.is_empty() {
-                d.hostname.clone()
-            } else {
-                format!("{} ({})", d.nickname, d.hostname)
-            }
-        })
-        .collect();
-    let hint = if known.is_empty() {
-        "No devices paired yet. Run: cinch auth login on the target machine.".to_string()
-    } else {
-        format!("Known devices: {}", known.join(", "))
-    };
-    Err(ExitError::new(
-        GENERIC_ERROR,
-        format!("No device matches '{}'.", name),
-        hint,
-    ))
 }
 
 /// `--type` accepts either canonical `image` or any `image/*` MIME for
@@ -559,7 +434,6 @@ mod tests {
             text: false,
             token: token.map(String::from),
             relay: relay.map(String::from),
-            to: None,
         }
     }
 
