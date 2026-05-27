@@ -35,6 +35,7 @@ export const commands = {
 	getAllSourceAlertSettings: () => typedError<SourceAlertSetting[], string>(__TAURI_INVOKE("get_all_source_alert_settings")),
 	markClipCopied: (id: string) => typedError<null, string>(__TAURI_INVOKE("mark_clip_copied", { id })),
 	copyClipToClipboard: (content: string) => typedError<null, string>(__TAURI_INVOKE("copy_clip_to_clipboard", { content })),
+	copyPromptPackToClipboard: (primaryClipId: string, contextClipIds: string[], recipeId: string) => typedError<PromptPackResult, string>(__TAURI_INVOKE("copy_prompt_pack_to_clipboard", { primaryClipId, contextClipIds, recipeId })),
 	copyTransformedClipToClipboard: (clipId: string, actionId: string) => typedError<TransformCopyResult, string>(__TAURI_INVOKE("copy_transformed_clip_to_clipboard", { clipId, actionId })),
 	copyImageToClipboard: (clipId: string) => typedError<null, string>(__TAURI_INVOKE("copy_image_to_clipboard", { clipId })),
 	saveImageToFile: (clipId: string) => typedError<string | null, string>(__TAURI_INVOKE("save_image_to_file", { clipId })),
@@ -77,6 +78,7 @@ export const commands = {
 	 *  (`quit = false`, the normal menu-bar-agent dismissal).
 	 */
 	resolveBackgroundHint: (quit: boolean) => typedError<null, string>(__TAURI_INVOKE("resolve_background_hint", { quit })),
+	listPromptRecipes: () => typedError<PromptRecipeDto[], string>(__TAURI_INVOKE("list_prompt_recipes")),
 	listTransformActions: (contentType: string) => typedError<TransformActionDto[], string>(__TAURI_INVOKE("list_transform_actions", { contentType })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
@@ -425,6 +427,18 @@ export type PendingDeviceCode = {
 	source_region: string,
 	// Unix timestamp (seconds) when the request arrived at the relay.
 	requested_at: number,
+};
+
+export type PromptPackResult = {
+	recipe_id: string,
+	label: string,
+	clip_count: number,
+};
+
+export type PromptRecipeDto = {
+	id: string,
+	label: string,
+	description: string,
 };
 
 /**

@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { commands, events } from './bindings';
-import type { LocalClip, SourceInfo, Device, TransformActionDto } from './bindings';
+import type { LocalClip, SourceInfo, Device, PromptRecipeDto } from './bindings';
 import { unwrap } from './lib/tauri';
 import { buildTargets, fuzzySearch, parseFromToken } from './lib/fuzzy';
 import { groupByTimeBucket } from './lib/timeBuckets';
@@ -37,7 +37,7 @@ import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { dialogStyles } from './components/dialogPrimitives';
-import { TransformCopySheet } from './components/TransformCopySheet';
+import { PromptPackSheet } from './components/PromptPackSheet';
 import { IconCopy, IconTrash, IconX } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
@@ -163,8 +163,8 @@ function App() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [transformActions, setTransformActions] = useState<TransformActionDto[]>([]);
-  const [copyAsOpen, setCopyAsOpen] = useState(false);
+  const [promptRecipes, setPromptRecipes] = useState<PromptRecipeDto[]>([]);
+  const [promptPackOpen, setPromptPackOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [devices, setDevices] = useState<Device[]>([]);
@@ -243,11 +243,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void unwrap(commands.listTransformActions('text'))
-      .then(setTransformActions)
+    void unwrap(commands.listPromptRecipes())
+      .then(setPromptRecipes)
       .catch((e) => {
-        console.error('failed to load transform actions:', e);
-        setTransformActions([]);
+        console.error('failed to load prompt recipes:', e);
+        setPromptRecipes([]);
       });
   }, []);
 
@@ -276,7 +276,7 @@ function App() {
   }, [selectedClip]);
 
   useEffect(() => {
-    if (!selectedClip) setCopyAsOpen(false);
+    if (!selectedClip) setPromptPackOpen(false);
   }, [selectedClip]);
 
   useEffect(() => {
@@ -361,7 +361,7 @@ function App() {
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);
-    setCopyAsOpen(false);
+    setPromptPackOpen(false);
     void unwrap(commands.markClipCopied(clip.id))
       .then(refreshClips)
       .catch((e) => console.error('failed to mark clip copied:', e));
@@ -380,13 +380,21 @@ function App() {
     }
   }, [finishCopy]);
 
-  const copyTransformedClip = useCallback(async (clip: LocalClip, actionId: string) => {
+  const copyPromptPack = useCallback(async (
+    clip: LocalClip,
+    recipeId: string,
+    contextClipIds: string[],
+  ) => {
     try {
-      const result = await unwrap(commands.copyTransformedClipToClipboard(clip.id, actionId));
-      finishCopy(clip, `Copied as ${result.label}`);
+      const result = await unwrap(commands.copyPromptPackToClipboard(
+        clip.id,
+        contextClipIds,
+        recipeId,
+      ));
+      finishCopy(clip, `Copied prompt: ${result.label}`);
     } catch (e) {
-      console.error('transform copy failed:', e);
-      showToast(e instanceof Error ? e.message : 'Transform failed', 'error');
+      console.error('prompt pack failed:', e);
+      showToast(e instanceof Error ? e.message : 'Prompt pack failed', 'error');
     }
   }, [finishCopy, showToast]);
 
@@ -484,10 +492,10 @@ function App() {
     return groupByTimeBucket(typeFilteredClips).flatMap((g) => g.items);
   }, [filteredClips, typeFilteredClips, activePanel]);
 
-  const canCopyAsSelected =
+  const canPromptPackSelected =
     selectedClip !== null &&
     selectedClip.content_type !== 'image' &&
-    transformActions.length > 0;
+    promptRecipes.length > 0;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -534,9 +542,9 @@ function App() {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === 'K') {
-        if (canCopyAsSelected) {
+        if (canPromptPackSelected) {
           e.preventDefault();
-          setCopyAsOpen(true);
+          setPromptPackOpen(true);
           return;
         }
       }
@@ -620,7 +628,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, canCopyAsSelected]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, canPromptPackSelected]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -754,11 +762,11 @@ function App() {
             <ClipDetail
               clip={selectedClip}
               onCopy={copyClip}
-              onOpenCopyAs={() => setCopyAsOpen(true)}
+              onOpenPromptPack={() => setPromptPackOpen(true)}
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
               onSaveImage={handleSaveImage}
-              canCopyAs={canCopyAsSelected}
+              canPromptPack={canPromptPackSelected}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
@@ -774,14 +782,16 @@ function App() {
         />
       )}
 
-      {copyAsOpen && selectedClip && (
-        <TransformCopySheet
-          actions={transformActions}
-          onClose={() => setCopyAsOpen(false)}
-          onSelect={(actionId) => {
+      {promptPackOpen && selectedClip && (
+        <PromptPackSheet
+          primaryClip={selectedClip}
+          clips={clips}
+          recipes={promptRecipes}
+          onClose={() => setPromptPackOpen(false)}
+          onBuild={(recipeId, contextClipIds) => {
             const clip = selectedClip;
-            setCopyAsOpen(false);
-            void copyTransformedClip(clip, actionId);
+            setPromptPackOpen(false);
+            void copyPromptPack(clip, recipeId, contextClipIds);
           }}
         />
       )}

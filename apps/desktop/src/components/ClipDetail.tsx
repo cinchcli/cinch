@@ -9,11 +9,11 @@ import { SourcePill } from './SourcePill';
 interface ClipDetailProps {
   clip: LocalClip | null;
   onCopy: (clip: LocalClip) => void;
-  onOpenCopyAs: (clip: LocalClip) => void;
+  onOpenPromptPack: (clip: LocalClip) => void;
   onPin: (clip: LocalClip) => void;
   onDelete: (clip: LocalClip) => void;
   onSaveImage: (clip: LocalClip) => void;
-  canCopyAs?: boolean;
+  canPromptPack?: boolean;
   searchQuery?: string;
   tagColors?: MachineTagColorMap;
   sourceDisplayNames?: Record<string, string>;
@@ -22,11 +22,11 @@ interface ClipDetailProps {
 export function ClipDetail({
   clip,
   onCopy,
-  onOpenCopyAs,
+  onOpenPromptPack,
   onPin,
   onDelete,
   onSaveImage,
-  canCopyAs = false,
+  canPromptPack = false,
   searchQuery,
   tagColors = {},
   sourceDisplayNames = {},
@@ -101,14 +101,14 @@ export function ClipDetail({
           <button type="button" onClick={() => onCopy(clip)} className="btn-primary" style={S.btnPrimary}>
             Copy <span style={S.kbdHint}>↵</span>
           </button>
-          {!isImage && canCopyAs && (
+          {!isImage && canPromptPack && (
             <button
               type="button"
-              onClick={() => onOpenCopyAs(clip)}
+              onClick={() => onOpenPromptPack(clip)}
               className="btn-ghost"
               style={S.btnGhost}
             >
-              Copy As <span style={S.kbdHint}>⌘K</span>
+              Prompt <span style={S.kbdHint}>⌘K</span>
             </button>
           )}
           <button type="button" onClick={() => onPin(clip)} className="btn-ghost" style={S.btnGhost}>

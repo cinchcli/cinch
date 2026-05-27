@@ -25,10 +25,10 @@ vi.mock('@tauri-apps/api/core', () => ({
         if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
             return Promise.resolve([]);
         }
-        if (cmd === 'list_transform_actions') {
+        if (cmd === 'list_prompt_recipes') {
             return Promise.resolve([
-                { id: 'pretty-json', label: 'Pretty JSON' },
-                { id: 'redact-secrets', label: 'Redact Secrets' },
+                { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
             ]);
         }
         return Promise.resolve();
@@ -55,10 +55,10 @@ describe('App', () => {
             if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
                 return Promise.resolve([]);
             }
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             return Promise.resolve();
@@ -144,17 +144,18 @@ describe('App', () => {
             media_path: null,
             created_at: 1_777_614_529,
             synced: true,
-            is_pinned: false,
+sync_state: 'synced',
+is_pinned: false,
             pin_note: null,
             received_at: 1_777_614_529,
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             return Promise.resolve();
@@ -176,7 +177,7 @@ describe('App', () => {
         expect(invoke).toHaveBeenCalledWith('mark_clip_copied', { id: 'c1' });
     });
 
-    it('opens the Copy As sheet with Cmd+K for a selected text clip', async () => {
+    it('opens the Prompt Pack sheet with Cmd+K for a selected text clip', async () => {
         const clip: LocalClip = {
             id: 'c1',
             user_id: 'u1',
@@ -188,17 +189,18 @@ describe('App', () => {
             media_path: null,
             created_at: 1_777_614_529,
             synced: true,
-            is_pinned: false,
+sync_state: 'synced',
+is_pinned: false,
             pin_note: null,
             received_at: 1_777_614_529,
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             return Promise.resolve();
@@ -213,10 +215,85 @@ describe('App', () => {
         const row = await screen.findByRole('button', { name: /pretty me/i });
         fireEvent.click(row);
 
-        await screen.findByRole('button', { name: /copy as/i });
+        await screen.findByRole('button', { name: /prompt/i });
         fireEvent.keyDown(window, { key: 'k', metaKey: true, code: 'KeyK' });
 
-        expect(await screen.findByRole('dialog', { name: /copy as/i })).toBeInTheDocument();
+        expect(await screen.findByRole('dialog', { name: /prompt pack/i })).toBeInTheDocument();
+    });
+
+    it('copies a prompt pack with the selected clip and optional context', async () => {
+        const primary: LocalClip = {
+            id: 'c1',
+            user_id: 'u1',
+            content: 'latest copied requirement',
+            content_type: 'text',
+            source: 'local',
+            label: '',
+            byte_size: 25,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            sync_state: 'synced',
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        const context: LocalClip = {
+            id: 'c2',
+            user_id: 'u1',
+            content: 'prior AI answer',
+            content_type: 'text',
+            source: 'local',
+            label: '',
+            byte_size: 15,
+            media_path: null,
+            created_at: 1_777_614_528,
+            synced: true,
+            sync_state: 'synced',
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_528,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([primary, context]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_prompt_recipes') {
+                return Promise.resolve([
+                    {
+                        id: 'better-final-answer',
+                        label: 'Better Final Answer',
+                        description: 'Combine answers into one stronger response.',
+                    },
+                ]);
+            }
+            if (cmd === 'copy_prompt_pack_to_clipboard') {
+                return Promise.resolve({
+                    recipe_id: 'better-final-answer',
+                    label: 'Better Final Answer',
+                    clip_count: 2,
+                });
+            }
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        fireEvent.click(await screen.findByRole('button', { name: /latest copied requirement/i }));
+        fireEvent.click(await screen.findByRole('button', { name: /prompt/i }));
+        fireEvent.click((await screen.findAllByLabelText(/prior ai answer/i))[0]);
+        fireEvent.click(await screen.findByRole('option', { name: /better final answer/i }));
+
+        await waitFor(() => {
+            expect(invoke).toHaveBeenCalledWith('copy_prompt_pack_to_clipboard', {
+                primaryClipId: 'c1',
+                contextClipIds: ['c2'],
+                recipeId: 'better-final-answer',
+            });
+        });
     });
 
     it('copies an image clip via copy_image_to_clipboard (no media_path) instead of copy_clip_to_clipboard', async () => {
@@ -231,17 +308,18 @@ describe('App', () => {
             media_path: null,
             created_at: 1_777_614_529,
             synced: true,
-            is_pinned: false,
+sync_state: 'synced',
+is_pinned: false,
             pin_note: null,
             received_at: 1_777_614_529,
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             return Promise.resolve();
@@ -275,7 +353,8 @@ describe('App', () => {
             media_path: null,
             created_at: 1_777_614_529,
             synced: true,
-            is_pinned: false,
+sync_state: 'synced',
+is_pinned: false,
             pin_note: null,
             received_at: 1_777_614_529,
         };
@@ -284,10 +363,10 @@ describe('App', () => {
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
                 return Promise.resolve([]);
             }
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
@@ -325,17 +404,18 @@ describe('App', () => {
             media_path: null,
             created_at: 1_777_614_529,
             synced: true,
-            is_pinned: false,
+sync_state: 'synced',
+is_pinned: false,
             pin_note: null,
             received_at: 1_777_614_529,
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
+            if (cmd === 'list_prompt_recipes') {
                 return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
+                    { id: 'better-final-answer', label: 'Better Final Answer', description: 'Combine answers into one stronger response.' },
+                    { id: 'html-mockup', label: 'HTML Mockup', description: 'Create a self-contained HTML mockup.' },
                 ]);
             }
             return Promise.resolve();

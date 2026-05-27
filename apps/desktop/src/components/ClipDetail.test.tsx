@@ -14,7 +14,8 @@ const baseClip: LocalClip = {
   media_path: null,
   created_at: 1_777_614_529,
   synced: false,
-  is_pinned: false,
+sync_state: 'local',
+is_pinned: false,
   pin_note: null,
 };
 
@@ -22,17 +23,17 @@ const noOp = () => {};
 
 describe('ClipDetail', () => {
   it('renders empty placeholder when no clip selected', () => {
-    render(<ClipDetail clip={null} onCopy={noOp} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    render(<ClipDetail clip={null} onCopy={noOp} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     expect(screen.getByText(/select a clip/i)).toBeInTheDocument();
   });
 
   it('renders clip content for selected clip', () => {
-    render(<ClipDetail clip={baseClip} onCopy={noOp} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    render(<ClipDetail clip={baseClip} onCopy={noOp} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     expect(screen.getByText(/hello world/i)).toBeInTheDocument();
   });
 
   it('shows Copy / Pin / Delete buttons with kbd hints', () => {
-    render(<ClipDetail clip={baseClip} onCopy={noOp} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    render(<ClipDetail clip={baseClip} onCopy={noOp} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     expect(screen.getByRole('button', { name: /^copy/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^pin/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^delete/i })).toBeInTheDocument();
@@ -40,7 +41,7 @@ describe('ClipDetail', () => {
 
   it('calls onCopy when Copy clicked', () => {
     const onCopy = vi.fn();
-    render(<ClipDetail clip={baseClip} onCopy={onCopy} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    render(<ClipDetail clip={baseClip} onCopy={onCopy} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     fireEvent.click(screen.getByRole('button', { name: /^copy/i }));
     expect(onCopy).toHaveBeenCalledWith(baseClip);
   });
@@ -48,14 +49,14 @@ describe('ClipDetail', () => {
   it('renders the image (cinch://media) for an image clip with no media_path', () => {
     // baseClip already has media_path: null — the image branch must still render.
     const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
-    const { container } = render(<ClipDetail clip={imageClip} onCopy={noOp} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    const { container } = render(<ClipDetail clip={imageClip} onCopy={noOp} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     const img = container.querySelector('img');
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', 'cinch://media/cimg');
   });
 
   it('shows "Unpin" button when clip is_pinned', () => {
-    render(<ClipDetail clip={{ ...baseClip, is_pinned: true }} onCopy={noOp} onOpenCopyAs={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+    render(<ClipDetail clip={{ ...baseClip, is_pinned: true }} onCopy={noOp} onOpenPromptPack={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     expect(screen.getByRole('button', { name: /^unpin/i })).toBeInTheDocument();
   });
 
@@ -64,7 +65,7 @@ describe('ClipDetail', () => {
       <ClipDetail
         clip={baseClip}
         onCopy={noOp}
-        onOpenCopyAs={noOp}
+        onOpenPromptPack={noOp}
         onPin={noOp}
         onDelete={noOp}
         onSaveImage={noOp}
@@ -79,7 +80,7 @@ describe('ClipDetail', () => {
       <ClipDetail
         clip={imageClip}
         onCopy={noOp}
-        onOpenCopyAs={noOp}
+        onOpenPromptPack={noOp}
         onPin={noOp}
         onDelete={noOp}
         onSaveImage={noOp}
@@ -95,7 +96,7 @@ describe('ClipDetail', () => {
       <ClipDetail
         clip={imageClip}
         onCopy={noOp}
-        onOpenCopyAs={noOp}
+        onOpenPromptPack={noOp}
         onPin={noOp}
         onDelete={noOp}
         onSaveImage={onSaveImage}
@@ -105,34 +106,34 @@ describe('ClipDetail', () => {
     expect(onSaveImage).toHaveBeenCalledWith(imageClip);
   });
 
-  it('shows Copy As trigger for text clips when enabled', () => {
+  it('shows Prompt Pack trigger for text clips when enabled', () => {
     render(
       <ClipDetail
         clip={baseClip}
         onCopy={noOp}
-        onOpenCopyAs={noOp}
-        canCopyAs
+        onOpenPromptPack={noOp}
+        canPromptPack
         onPin={noOp}
         onDelete={noOp}
         onSaveImage={noOp}
       />,
     );
-    expect(screen.getByRole('button', { name: /copy as/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /prompt/i })).toBeInTheDocument();
   });
 
-  it('does not show Copy As trigger for image clips', () => {
+  it('does not show Prompt Pack trigger for image clips', () => {
     const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
     render(
       <ClipDetail
         clip={imageClip}
         onCopy={noOp}
-        onOpenCopyAs={noOp}
-        canCopyAs
+        onOpenPromptPack={noOp}
+        canPromptPack
         onPin={noOp}
         onDelete={noOp}
         onSaveImage={noOp}
       />,
     );
-    expect(screen.queryByRole('button', { name: /copy as/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /prompt/i })).not.toBeInTheDocument();
   });
 });
