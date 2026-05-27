@@ -194,6 +194,7 @@ export const commands = {
 	 *  Shows the overlay on the current monitor and spawns a drag-end poll.
 	 */
 	snapDragStart: () => typedError<null, string>(__TAURI_INVOKE("snap_drag_start")),
+	showCopyToast: (message: string) => typedError<null, string>(__TAURI_INVOKE("show_copy_toast", { message })),
 };
 
 /** Events */
@@ -207,6 +208,7 @@ export const events = {
 	clipPinned: makeEvent<ClipPinned>("clip-pinned"),
 	clipReceived: makeEvent<ClipReceived>("clip-received"),
 	clipSent: makeEvent<ClipSent>("clip-sent"),
+	copyToastRequested: makeEvent<CopyToastRequested>("copy-toast-requested"),
 	deviceCodePending: makeEvent<DeviceCodePending>("device-code-pending"),
 	devicesChanged: makeEvent<DevicesChanged>("devices-changed"),
 	imageDownloadComplete: makeEvent<ImageDownloadComplete>("image-download-complete"),
@@ -306,6 +308,15 @@ export type ConfigInfo = {
 	relay_url: string,
 	user_id: string,
 	hostname: string,
+};
+
+/**
+ *  Sent to the dedicated transparent `copy-toast` window. This lets copy
+ *  feedback stay visible after the main dashboard has hidden itself.
+ */
+export type CopyToastRequested = {
+	message: string,
+	duration_ms: number,
 };
 
 export type Device = {
