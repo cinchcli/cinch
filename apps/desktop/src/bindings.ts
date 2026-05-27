@@ -70,6 +70,14 @@ export const commands = {
 	setGlobalShortcut: (shortcut: string) => typedError<null, string>(__TAURI_INVOKE("set_global_shortcut", { shortcut })),
 	getSendShortcut: () => typedError<string | null, string>(__TAURI_INVOKE("get_send_shortcut")),
 	setSendShortcut: (shortcut: string | null) => typedError<null, string>(__TAURI_INVOKE("set_send_shortcut", { shortcut })),
+	/**
+	 *  Resolve the one-time background-running hint. Marks the hint seen (so it
+	 *  never shows again), then either quits the app (`quit = true`,
+	 *  `app.exit(0)` — the same path as the tray's "Quit Cinch", which passes the
+	 *  `ExitRequested { code: None }` guard in lib.rs) or hides the main window
+	 *  (`quit = false`, the normal menu-bar-agent dismissal).
+	 */
+	resolveBackgroundHint: (quit: boolean) => typedError<null, string>(__TAURI_INVOKE("resolve_background_hint", { quit })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**
@@ -194,6 +202,7 @@ export const commands = {
 export const events = {
 	authAdoptedFromCli: makeEvent<AuthAdoptedFromCli>("auth-adopted-from-cli"),
 	authStateChanged: makeEvent<AuthStateChanged>("auth-state-changed"),
+	backgroundHint: makeEvent<BackgroundHint>("background-hint"),
 	cliHandoffRequested: makeEvent<CliHandoffRequested>("cli-handoff-requested"),
 	clipDecryptFailed: makeEvent<ClipDecryptFailed>("clip-decrypt-failed"),
 	clipDeleted: makeEvent<ClipDeleted>("clip-deleted"),
@@ -244,6 +253,15 @@ export type AuthState = { variant: "LocalOnly" } | { variant: "Authenticating"; 
 } };
 
 export type AuthStateChanged = AuthState;
+
+/**
+ *  Fired exactly once — the first time the user dismisses the window (close
+ *  box / Cmd+W / Cmd+Q) before the background-running hint has been
+ *  acknowledged. The Rust side gates emission on the `background_hint_seen`
+ *  flag (see `window_manage::request_dismiss`); the React `BackgroundHintDialog`
+ *  listens and shows the one-time dialog.
+ */
+export type BackgroundHint = null;
 
 /**
  *  Fired when the desktop receives a `cinch://login?relay=…&from=cli` deep

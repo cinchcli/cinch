@@ -86,6 +86,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::set_global_shortcut,
             commands::clips::get_send_shortcut,
             commands::clips::set_send_shortcut,
+            commands::clips::resolve_background_hint,
             commands::auth::get_auth_state,
             commands::auth::get_user_profile,
             commands::auth::set_display_name,
@@ -125,6 +126,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             events::LatestVersionsUpdated,
             events::SnapGuideUpdate,
             events::ClipSent,
+            events::BackgroundHint,
         ])
 }
 
@@ -300,7 +302,7 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
-                let _ = window.hide();
+                crate::window_manage::request_dismiss(window.app_handle());
             }
             tauri::WindowEvent::Moved(_) if window.label() == "main" => {
                 commands::window::on_window_moved(window.app_handle());

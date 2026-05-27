@@ -137,3 +137,11 @@ pub struct SnapGuideUpdate {
 /// listens and opens the in-app Settings pane (`setShowSettings(true)`).
 #[derive(Clone, Serialize, Deserialize, Type, Event)]
 pub struct TrayOpenSettings;
+
+/// Fired exactly once — the first time the user dismisses the window (close
+/// box / Cmd+W / Cmd+Q) before the background-running hint has been
+/// acknowledged. The Rust side gates emission on the `background_hint_seen`
+/// flag (see `window_manage::request_dismiss`); the React `BackgroundHintDialog`
+/// listens and shows the one-time dialog.
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct BackgroundHint;
