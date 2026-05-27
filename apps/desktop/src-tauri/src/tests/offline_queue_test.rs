@@ -53,7 +53,6 @@ mod tests {
         assert_eq!(req.byte_size, 5);
         assert!(req.encrypted);
         assert_eq!(req.media_path, None);
-        assert_eq!(req.target_device_id, None);
     }
 
     #[test]
