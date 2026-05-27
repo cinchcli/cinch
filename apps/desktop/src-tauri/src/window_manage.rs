@@ -13,6 +13,48 @@ use crate::commands;
 use crate::store;
 use crate::PreviousAppPid;
 
+/// Settings-DB key recording that the user has seen the one-time
+/// "Cinch keeps running in the menu bar" hint. Value `"1"` once acknowledged.
+pub(crate) const BACKGROUND_HINT_SEEN_KEY: &str = "background_hint_seen";
+
+/// Whether the first-dismissal background-running hint should still be shown.
+/// True unless the flag has been set to `"1"`.
+pub(crate) fn should_prompt(flag: Option<&str>) -> bool {
+    flag != Some("1")
+}
+
+/// Handle a user-initiated window dismissal (close box / Cmd+W / Cmd+Q).
+///
+/// On the *first* dismissal (flag unset) it keeps the window visible and emits
+/// `BackgroundHint` so the frontend shows the one-time dialog. On every later
+/// dismissal — or if the settings DB is unavailable — it hides the `main`
+/// window, the existing menu-bar-agent behavior. Programmatic hides
+/// (paste-and-hide, overlays) call `window.hide()` directly and must NOT route
+/// through here.
+pub(crate) fn request_dismiss(app: &tauri::AppHandle) {
+    use tauri_specta::Event as _;
+
+    // Only prompt when the settings DB is reachable and the flag is unset. If
+    // the DB is unavailable we can neither read whether the hint was seen nor
+    // record it, so fail safe to the plain hide behavior rather than re-prompt.
+    let prompt = match app.try_state::<Arc<store::db::Database>>() {
+        Some(db) => should_prompt(
+            db.get_setting(BACKGROUND_HINT_SEEN_KEY)
+                .ok()
+                .flatten()
+                .as_deref(),
+        ),
+        None => false,
+    };
+
+    if prompt {
+        // Keep the window visible so the dialog renders over it.
+        let _ = crate::events::BackgroundHint.emit(app);
+    } else if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
 /// Show the main window centered on the monitor that currently has the mouse cursor.
 /// Falls back to simple show+focus if cursor or monitor data is unavailable.
 pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
@@ -218,6 +260,19 @@ pub(crate) fn register_send_shortcut(app: &tauri::AppHandle) {
             })
     {
         log::warn!("failed to register send shortcut {}: {}", shortcut_str, e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_prompt;
+
+    #[test]
+    fn test_should_prompt_gates_on_flag() {
+        assert!(should_prompt(None), "never seen → prompt");
+        assert!(should_prompt(Some("")), "empty → prompt");
+        assert!(should_prompt(Some("0")), "not yet acknowledged → prompt");
+        assert!(!should_prompt(Some("1")), "acknowledged → do not prompt");
     }
 }
 

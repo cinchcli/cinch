@@ -18,7 +18,7 @@
 //! the same mechanism the Edit shortcuts rely on.
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Wry};
 
 /// Menu id for the Cmd+Q "hide window" item, matched in [`handle_menu_event`].
 pub const HIDE_WINDOW_ID: &str = "app_hide_window";
@@ -88,8 +88,6 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 /// "Quit Cinch".
 pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     if event.id().as_ref() == HIDE_WINDOW_ID {
-        for window in app.webview_windows().values() {
-            let _ = window.hide();
-        }
+        crate::window_manage::request_dismiss(app);
     }
 }
