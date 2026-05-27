@@ -9,11 +9,9 @@ import { SourcePill } from './SourcePill';
 interface ClipDetailProps {
   clip: LocalClip | null;
   onCopy: (clip: LocalClip) => void;
-  onOpenCopyAs: (clip: LocalClip) => void;
   onPin: (clip: LocalClip) => void;
   onDelete: (clip: LocalClip) => void;
   onSaveImage: (clip: LocalClip) => void;
-  canCopyAs?: boolean;
   searchQuery?: string;
   tagColors?: MachineTagColorMap;
   sourceDisplayNames?: Record<string, string>;
@@ -22,11 +20,9 @@ interface ClipDetailProps {
 export function ClipDetail({
   clip,
   onCopy,
-  onOpenCopyAs,
   onPin,
   onDelete,
   onSaveImage,
-  canCopyAs = false,
   searchQuery,
   tagColors = {},
   sourceDisplayNames = {},
@@ -101,16 +97,6 @@ export function ClipDetail({
           <button type="button" onClick={() => onCopy(clip)} className="btn-primary" style={S.btnPrimary}>
             Copy <span style={S.kbdHint}>↵</span>
           </button>
-          {!isImage && canCopyAs && (
-            <button
-              type="button"
-              onClick={() => onOpenCopyAs(clip)}
-              className="btn-ghost"
-              style={S.btnGhost}
-            >
-              Copy As <span style={S.kbdHint}>⌘K</span>
-            </button>
-          )}
           <button type="button" onClick={() => onPin(clip)} className="btn-ghost" style={S.btnGhost}>
             {clip.is_pinned ? 'Unpin' : 'Pin'} <span style={S.kbdHint}>⌘P</span>
           </button>
