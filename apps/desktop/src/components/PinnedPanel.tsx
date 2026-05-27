@@ -63,11 +63,9 @@ export function PinnedPanel({
       <ClipDetail
         clip={selected}
         onCopy={onCopy}
-        onOpenCopyAs={() => {}}
         onPin={(c) => c.is_pinned ? onUnpin(c) : onPin(c)}
         onDelete={onDelete}
         onSaveImage={onSaveImage}
-        canCopyAs={false}
         tagColors={tagColors}
         sourceDisplayNames={deviceNicknames}
       />

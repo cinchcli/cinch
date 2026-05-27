@@ -25,12 +25,6 @@ vi.mock('@tauri-apps/api/core', () => ({
         if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
             return Promise.resolve([]);
         }
-        if (cmd === 'list_transform_actions') {
-            return Promise.resolve([
-                { id: 'pretty-json', label: 'Pretty JSON' },
-                { id: 'redact-secrets', label: 'Redact Secrets' },
-            ]);
-        }
         if (cmd === 'get_ws_status') return Promise.resolve('connected');
         return Promise.resolve();
     }),
@@ -55,12 +49,6 @@ describe('App', () => {
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
                 return Promise.resolve([]);
-            }
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
@@ -153,12 +141,6 @@ describe('App', () => {
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
-            }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -179,31 +161,42 @@ describe('App', () => {
         expect(invoke).toHaveBeenCalledWith('mark_clip_copied', { id: 'c1' });
     });
 
-    it('opens the Copy As sheet with Cmd+K for a selected text clip', async () => {
-        const clip: LocalClip = {
-            id: 'c1',
-            user_id: 'u1',
-            content: 'pretty me',
-            content_type: 'text',
-            source: 'local',
-            label: '',
-            byte_size: 9,
-            media_path: null,
-            created_at: 1_777_614_529,
-            synced: true,
-            is_pinned: false,
-            pin_note: null,
-            received_at: 1_777_614_529,
-        };
+    it('moves selection up with Ctrl+K', async () => {
+        const clips: LocalClip[] = [
+            {
+                id: 'c1',
+                user_id: 'u1',
+                content: 'first clip',
+                content_type: 'text',
+                source: 'local',
+                label: '',
+                byte_size: 10,
+                media_path: null,
+                created_at: 1_777_614_529,
+                synced: true,
+                is_pinned: false,
+                pin_note: null,
+                received_at: 1_777_614_529,
+            },
+            {
+                id: 'c2',
+                user_id: 'u1',
+                content: 'second clip',
+                content_type: 'text',
+                source: 'local',
+                label: '',
+                byte_size: 11,
+                media_path: null,
+                created_at: 1_777_614_528,
+                synced: true,
+                is_pinned: false,
+                pin_note: null,
+                received_at: 1_777_614_528,
+            },
+        ];
         vi.mocked(invoke).mockImplementation((cmd) => {
-            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'list_clips') return Promise.resolve(clips);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
-            }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -214,13 +207,16 @@ describe('App', () => {
         vi.mocked(useAuthState).mockReturnValue(state);
         render(<App />);
 
-        const row = await screen.findByRole('button', { name: /pretty me/i });
-        fireEvent.click(row);
+        const firstRow = await screen.findByRole('button', { name: /first clip/i });
+        const secondRow = await screen.findByRole('button', { name: /second clip/i });
+        fireEvent.click(secondRow);
 
-        await screen.findByRole('button', { name: /copy as/i });
-        fireEvent.keyDown(window, { key: 'k', metaKey: true, code: 'KeyK' });
+        expect(secondRow).toHaveAttribute('aria-selected', 'true');
+        fireEvent.keyDown(window, { key: 'k', ctrlKey: true, code: 'KeyK' });
 
-        expect(await screen.findByRole('dialog', { name: /copy as/i })).toBeInTheDocument();
+        await waitFor(() => {
+            expect(firstRow).toHaveAttribute('aria-selected', 'true');
+        });
     });
 
     it('copies an image clip via copy_image_to_clipboard (no media_path) instead of copy_clip_to_clipboard', async () => {
@@ -242,12 +238,6 @@ describe('App', () => {
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
-            }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -288,12 +278,6 @@ describe('App', () => {
             if (cmd === 'list_clips') return Promise.resolve([imageClip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
                 return Promise.resolve([]);
-            }
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
@@ -338,12 +322,6 @@ describe('App', () => {
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
             if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
-            if (cmd === 'list_transform_actions') {
-                return Promise.resolve([
-                    { id: 'pretty-json', label: 'Pretty JSON' },
-                    { id: 'redact-secrets', label: 'Redact Secrets' },
-                ]);
-            }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
