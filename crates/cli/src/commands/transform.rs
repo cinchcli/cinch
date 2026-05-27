@@ -50,9 +50,14 @@ pub(crate) fn transform_clip_from_store(
 
 pub async fn run(args: Args) -> Result<(), crate::exit::ExitError> {
     if args.list_actions {
+        let mut out = String::new();
         for a in client_core::transform::list_transform_actions("text") {
-            println!("{}\t{}", a.id, a.label);
+            out.push_str(a.id);
+            out.push('\t');
+            out.push_str(a.label);
+            out.push('\n');
         }
+        write_to_stdout(out.as_bytes())?;
         return Ok(());
     }
 
