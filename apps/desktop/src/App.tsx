@@ -33,7 +33,6 @@ import { SearchBar, type DeviceOption } from './components/SearchBar';
 import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipDetail } from './components/ClipDetail';
-import { StatusBar } from './components/StatusBar';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
@@ -160,7 +159,6 @@ function App() {
     return () => { cancelled = true; unsub?.(); };
   }, [notifyOnRemoteLogin]);
 
-  const [_status, setStatus] = useState('connecting');
   const [clips, setClips] = useState<LocalClip[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
@@ -282,9 +280,7 @@ function App() {
   }, [selectedClip]);
 
   useEffect(() => {
-    commands.getWsStatus().then(setStatus).catch(() => {});
     const unsubs = [
-      events.wsStatus.listen((e) => setStatus(e.payload)),
       events.clipReceived.listen(() => { refreshClips(); refreshSources(); }),
       events.remoteClipReceived.listen(() => { refreshClips(); refreshSources(); }),
       events.clipDeleted.listen(() => { refreshClips(); refreshSources(); }),
@@ -770,24 +766,6 @@ function App() {
           </>
         )}
       </div>
-
-      <StatusBar
-        clipCount={totalClips}
-        devicesOnline={devices.length > 0 ? devices.filter(d => d.online).length : undefined}
-        devicesTotal={devices.length > 0 ? devices.length : undefined}
-        hints={selectedClip
-          ? [
-              { keys: '↵', label: 'copy' },
-              { keys: '⌘K', label: 'copy as' },
-              { keys: '?', label: 'shortcuts' },
-            ]
-          : [
-              { keys: '⌘F /', label: 'search' },
-              { keys: '↑↓', label: 'navigate' },
-              { keys: '?', label: 'shortcuts' },
-            ]}
-        onMouseDown={handleWindowDrag}
-      />
 
       {selectedClip && (
         <HiddenActions

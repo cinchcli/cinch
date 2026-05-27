@@ -31,7 +31,6 @@ vi.mock('@tauri-apps/api/core', () => ({
                 { id: 'redact-secrets', label: 'Redact Secrets' },
             ]);
         }
-        if (cmd === 'get_ws_status') return Promise.resolve('connected');
         return Promise.resolve();
     }),
 }));
@@ -62,7 +61,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
     });
@@ -159,7 +157,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
         const state: AuthState = {
@@ -204,7 +201,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
         const state: AuthState = {
@@ -248,7 +244,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
         const state: AuthState = {
@@ -295,7 +290,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
             return Promise.resolve();
         });
@@ -344,7 +338,6 @@ describe('App', () => {
                     { id: 'redact-secrets', label: 'Redact Secrets' },
                 ]);
             }
-            if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
         const state: AuthState = {
