@@ -13,6 +13,7 @@ mod global_shortcut;
 mod misc;
 mod retention;
 mod source_settings;
+mod transform;
 
 pub use clip_ops::*;
 pub use device_cache::{DeviceCache, DeviceCacheHandle};
@@ -21,6 +22,7 @@ pub use global_shortcut::*;
 pub use misc::*;
 pub use retention::*;
 pub use source_settings::*;
+pub use transform::*;
 
 // ---------------------------------------------------------------------------
 // Local wire type kept for Specta / frontend compatibility.
