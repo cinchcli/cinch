@@ -93,7 +93,7 @@ mod tests {
         // HOME_LOCK used by auth::{login,approve,set_name} tests so we
         // don't race with them when cargo runs tests in parallel.
         use crate::commands::auth::test_helpers::HOME_LOCK;
-        let _home_guard = HOME_LOCK.lock().unwrap();
+        let _home_guard = HOME_LOCK.blocking_lock();
 
         // Force is_authenticated() to return false by pointing HOME at a
         // tempdir with no .cinch/ subdirectory.

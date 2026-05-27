@@ -133,6 +133,14 @@ pub struct SnapGuideUpdate {
     pub visible: bool,
 }
 
+/// Sent to the dedicated transparent `copy-toast` window. This lets copy
+/// feedback stay visible after the main dashboard has hidden itself.
+#[derive(Clone, Serialize, Deserialize, Type, Event)]
+pub struct CopyToastRequested {
+    pub message: String,
+    pub duration_ms: u64,
+}
+
 /// Fired when the user clicks the tray's "Settings…" item. React's `App.tsx`
 /// listens and opens the in-app Settings pane (`setShowSettings(true)`).
 #[derive(Clone, Serialize, Deserialize, Type, Event)]

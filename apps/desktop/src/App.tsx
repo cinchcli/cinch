@@ -33,7 +33,6 @@ import { SearchBar, type DeviceOption } from './components/SearchBar';
 import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipDetail } from './components/ClipDetail';
-import { StatusBar } from './components/StatusBar';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
@@ -345,7 +344,11 @@ function App() {
   }, []);
 
   const finishCopy = useCallback((clip: LocalClip, message: string) => {
-    showToast(message, 'copy');
+    void unwrap(commands.showCopyToast(message))
+      .catch((e) => {
+        console.error('show copy toast failed:', e);
+        showToast(message, 'copy');
+      });
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);
@@ -363,7 +366,7 @@ function App() {
     } else {
       void unwrap(commands.copyClipToClipboard(clip.content))
         .catch((e) => console.error('copy clip failed:', e));
-      finishCopy(clip, 'Copied to clipboard');
+      finishCopy(clip, 'Copied text to clipboard');
     }
   }, [finishCopy]);
 
@@ -729,23 +732,6 @@ function App() {
           </>
         )}
       </div>
-
-      <StatusBar
-        clipCount={totalClips}
-        devicesOnline={devices.length > 0 ? devices.filter(d => d.online).length : undefined}
-        devicesTotal={devices.length > 0 ? devices.length : undefined}
-        hints={selectedClip
-          ? [
-              { keys: '↵', label: 'copy' },
-              { keys: '?', label: 'shortcuts' },
-            ]
-          : [
-              { keys: '⌘F /', label: 'search' },
-              { keys: '↑↓', label: 'navigate' },
-              { keys: '?', label: 'shortcuts' },
-            ]}
-        onMouseDown={handleWindowDrag}
-      />
 
       {selectedClip && (
         <HiddenActions

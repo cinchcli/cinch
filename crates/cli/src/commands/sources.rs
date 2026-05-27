@@ -39,7 +39,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         return Ok(());
     }
 
-    println!("  {:<24}  {:>6}  {}", "SOURCE", "CLIPS", "LAST SEEN");
+    println!("  {:<24}  {:>6}  LAST SEEN", "SOURCE", "CLIPS");
     for r in &rows {
         let last_seen = crate::fmt::fmt_last_seen(r.last_seen);
         println!("  {:<24}  {:>6}  {}", r.source, r.clip_count, last_seen);

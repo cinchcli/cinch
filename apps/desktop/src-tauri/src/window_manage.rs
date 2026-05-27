@@ -11,6 +11,7 @@ use tauri::Manager;
 
 use crate::commands;
 use crate::store;
+#[cfg(target_os = "macos")]
 use crate::PreviousAppPid;
 
 /// Show the main window centered on the monitor that currently has the mouse cursor.

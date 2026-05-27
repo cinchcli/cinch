@@ -103,6 +103,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::updater::get_device_version_status,
             commands::updater::run_self_update,
             commands::window::snap_drag_start,
+            commands::window::show_copy_toast,
         ])
         .events(collect_events![
             events::AuthStateChanged,
@@ -124,6 +125,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             events::DeviceCodePending,
             events::LatestVersionsUpdated,
             events::SnapGuideUpdate,
+            events::CopyToastRequested,
             events::ClipSent,
         ])
 }
@@ -291,6 +293,7 @@ pub fn run() {
         .manage(pending_codes_handle.clone())
         .manage(previous_app_pid.clone())
         .manage(commands::window::SnapState::new())
+        .manage(commands::window::CopyToastState::new())
         // Phase 4: shared client-core Store, sync Writer, and LocalPusher
         .manage(shared_store)
         .manage(writer_handle)
@@ -386,6 +389,7 @@ pub fn run() {
             // Setup system tray
             tray::setup_tray(handle)?;
             commands::window::ensure_overlay(handle);
+            commands::window::ensure_copy_toast(handle);
 
             // Register global shortcuts (⌘⇧V main window focus)
             window_manage::register_global_shortcuts(handle);

@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn install_persists_display_name_from_poll() {
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.blocking_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var("HOME", tmp.path());
 

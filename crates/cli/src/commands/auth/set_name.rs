@@ -88,7 +88,7 @@ mod tests {
         use wiremock::matchers::{body_json, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.lock().await;
 
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -127,7 +127,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_set_name_rejects_blank_locally() {
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.lock().await;
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var("HOME", tmp.path());
         let err = run_set_name("   ").await.expect_err("must reject");
@@ -141,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_set_name_rejects_too_long_locally() {
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.lock().await;
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var("HOME", tmp.path());
         let long = "a".repeat(65);
