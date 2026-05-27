@@ -20,3 +20,4 @@ pub mod rm;
 pub mod search;
 pub mod sources;
 pub mod telemetry;
+pub mod transform;
