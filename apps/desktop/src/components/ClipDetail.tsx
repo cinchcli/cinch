@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import type { LocalClip } from '../bindings';
 import { C, formatBytes } from '../design';
+import { parseColorClip, type ParsedColorClip } from '../lib/colorClip';
 import { parseFromToken } from '../lib/fuzzy';
 import type { MachineTagColorMap } from '../lib/machineTagColors';
 import { SourcePill } from './SourcePill';
@@ -40,6 +41,7 @@ export function ClipDetail({
   }
 
   const isImage = clip.content_type === 'image';
+  const colorClip = clip.content_type === 'text' ? parseColorClip(clip.content) : null;
   const trimmed = clip.content.trim();
   const isJsonish =
     (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
@@ -82,6 +84,8 @@ export function ClipDetail({
             }}
           />
         </div>
+      ) : colorClip ? (
+        <ColorPreview color={colorClip} />
       ) : (
         <div style={S.scrollArea}>
           {isProse ? (
@@ -122,12 +126,28 @@ export function ClipDetail({
 
         <dl style={S.metaList}>
           <MetaRow label="Source" value={clip.source.startsWith('remote:') ? clip.source.replace('remote:', '') : clip.source} />
-          <MetaRow label="Type" value={clip.content_type} />
+          <MetaRow label="Type" value={colorClip ? 'color' : clip.content_type} />
           <MetaRow label="Size" value={formatBytes(clip.byte_size)} />
           {isImage && imgDims && <MetaRow label="Dimensions" value={`${imgDims.w} × ${imgDims.h}`} />}
           {clip.is_pinned && <MetaRow label="Note" value={clip.pin_note ?? '(no note)'} />}
         </dl>
       </div>
+    </div>
+  );
+}
+
+function ColorPreview({ color }: { color: ParsedColorClip }) {
+  return (
+    <div style={S.colorStage}>
+      <div
+        aria-label={`Color preview for ${color.value}`}
+        role="img"
+        style={{
+          ...S.colorSwatchLarge,
+          backgroundColor: color.cssColor,
+        }}
+      />
+      <div style={S.colorValue}>{color.value}</div>
     </div>
   );
 }
@@ -256,6 +276,35 @@ const S: Record<string, CSSProperties> = {
     height: 'auto',
     objectFit: 'contain',
     borderRadius: 2,
+  },
+  colorStage: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    overflow: 'hidden',
+    padding: 'var(--sp-xl)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 'var(--sp-md)',
+  },
+  colorSwatchLarge: {
+    width: 96,
+    height: 96,
+    borderRadius: '50%',
+    border: `1px solid ${C.border}`,
+    boxShadow: `0 0 0 10px ${C.card2}`,
+    flexShrink: 0,
+  },
+  colorValue: {
+    maxWidth: '100%',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 13,
+    lineHeight: 1.4,
+    color: C.t1,
+    wordBreak: 'break-word',
+    textAlign: 'center',
   },
   actions: { display: 'flex', gap: 'var(--sp-sm)', alignItems: 'center' },
   btnPrimary: {

@@ -69,6 +69,13 @@ describe('ClipCard', () => {
       expect(glyphCol).toHaveStyle({ width: '32px' });
     });
 
+    it('renders a color swatch instead of the text glyph for standalone color clips', () => {
+      const { container } = render(<ClipCard clip={{ ...textClip, content: 'rgb(255, 0, 0)' }} {...defaultProps} />);
+      expect(container.querySelector('[data-testid="color-swatch"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-testid="type-glyph"]')).not.toBeInTheDocument();
+      expect(screen.getByText('rgb(255, 0, 0)')).toBeInTheDocument();
+    });
+
     it('renders timestamp in JetBrains Mono with tabular-nums', () => {
       const { container } = render(<ClipCard clip={textClip} {...defaultProps} />);
       const timestamp = container.querySelector('[data-testid="timestamp"]');
@@ -126,4 +133,3 @@ describe('ClipCard', () => {
     });
   });
 });
-

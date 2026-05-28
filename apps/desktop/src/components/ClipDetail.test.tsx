@@ -31,6 +31,37 @@ describe('ClipDetail', () => {
     expect(screen.getByText(/hello world/i)).toBeInTheDocument();
   });
 
+  it('renders a color preview for standalone color text clips', () => {
+    render(
+      <ClipDetail
+        clip={{ ...baseClip, content: '#fff', byte_size: 4 }}
+        onCopy={noOp}
+        onPin={noOp}
+        onDelete={noOp}
+        onSaveImage={noOp}
+      />,
+    );
+
+    expect(screen.getByLabelText('Color preview for #fff')).toBeInTheDocument();
+    expect(screen.getByText('#fff')).toBeInTheDocument();
+    expect(screen.getByText('color')).toBeInTheDocument();
+  });
+
+  it('does not render a color preview for text that merely contains a color value', () => {
+    render(
+      <ClipDetail
+        clip={{ ...baseClip, content: 'background: #fff;' }}
+        onCopy={noOp}
+        onPin={noOp}
+        onDelete={noOp}
+        onSaveImage={noOp}
+      />,
+    );
+
+    expect(screen.queryByLabelText(/color preview/i)).not.toBeInTheDocument();
+    expect(screen.getByText('background: #fff;')).toBeInTheDocument();
+  });
+
   it('shows Copy / Pin / Delete buttons with kbd hints', () => {
     render(<ClipDetail clip={baseClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
     expect(screen.getByRole('button', { name: /^copy/i })).toBeInTheDocument();

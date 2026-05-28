@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import type { LocalClip } from "../bindings";
 import { C, formatTime, formatBytes } from "../design";
 import { IconCopy, IconTrash, typeGlyph, IconBinary } from "../icons";
+import { parseColorClip } from "../lib/colorClip";
 
 // ─── Props ────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
   const isImage = isImageType(clip);
   const isText = isTextType(clip.content_type);
   const isBinary = !isText && !isImage;
+  const colorClip = clip.content_type === "text" ? parseColorClip(clip.content) : null;
 
   const containerStyle: CSSProperties = {
     display: "flex",
@@ -67,7 +69,32 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
       onDoubleClick={onDoubleClick}
     >
       {/* Left column: type glyph or thumbnail */}
-      {isText && (
+      {isText && colorClip && (
+        <div
+          data-testid="color-swatch"
+          aria-label={`Color preview for ${colorClip.value}`}
+          style={{
+            width: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              backgroundColor: colorClip.cssColor,
+              border: `1px solid ${C.borderHover}`,
+              boxShadow: `0 0 0 3px ${C.card2}`,
+            }}
+          />
+        </div>
+      )}
+
+      {isText && !colorClip && (
         <div
           data-testid="type-glyph"
           style={{
