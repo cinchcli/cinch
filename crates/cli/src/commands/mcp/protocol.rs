@@ -89,7 +89,7 @@ fn tools_list() -> Value {
     json!({ "tools": [
         {
             "name": "search_clipboard",
-            "description": "Full-text search the user's clipboard history. Returns matching clips as previews; use get_clipboard_item for full content. Results may be fewer than `limit` when CINCH_MCP_MAX_AGE_DAYS is set.",
+            "description": "Full-text search the user's local clipboard history. Returns matching clips as previews; use get_clipboard_item for full content. Results may be fewer than `limit` when CINCH_MCP_MAX_AGE_DAYS is set.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -101,7 +101,7 @@ fn tools_list() -> Value {
         },
         {
             "name": "list_recent_clipboard",
-            "description": "List the most recent clipboard items. limit=1 returns what was just copied.",
+            "description": "List the most recent local clipboard items. limit=1 returns what was just copied.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
