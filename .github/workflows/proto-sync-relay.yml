@@ -6,22 +6,25 @@ on:
     paths:
       - 'crates/client-core/proto/cinch/v1/**.proto'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   open-relay-pr:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout cinch monorepo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: cinch
       - name: Checkout relay
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: cinchcli/relay
           token: ${{ secrets.RELAY_SYNC_TOKEN }}
           path: relay
       - uses: bufbuild/buf-setup-action@v1
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
       - name: Sync proto and regenerate
