@@ -27,8 +27,9 @@ pub fn clamp_limit(requested: Option<i64>) -> i64 {
 
 /// Parse the exposure-scope env value (`CINCH_MCP_MAX_AGE_DAYS`) into a max age
 /// in days. Returns `None` (unbounded — expose full history) for unset, empty,
-/// non-positive, or invalid input. This is the opt-in privacy lever: the
-/// surface is full history by default and only narrows when the user sets it.
+/// non-positive, or invalid input. This is an opt-in privacy lever: local
+/// clipboard history remains fully searchable by default, independent of relay
+/// retention limits.
 pub fn parse_max_age_days(raw: Option<&str>) -> Option<i64> {
     raw.and_then(|s| s.trim().parse::<i64>().ok())
         .filter(|&n| n > 0)

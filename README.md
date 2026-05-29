@@ -26,10 +26,11 @@ brew install cinchcli/tap/cinch
 curl -fsSL https://cinchcli.com/install.sh | sh
 ```
 
-### Clipboard for your AI tools (MCP)
+### Private clipboard for your AI tools (MCP)
 
-`cinch mcp` exposes your synced clipboard history (read-only) to MCP-aware AI
-tools so they can search and fetch what you copied — no manual paste.
+`cinch mcp` exposes your local clipboard history (read-only) to MCP-aware AI
+tools so they can search and fetch what you copied — no manual paste. It runs
+against `~/.cinch/store.db` on your machine and does not contact the relay.
 
 Claude Code:
 ```bash
@@ -42,11 +43,12 @@ Cursor (`~/.cursor/mcp.json` or project `.cursor/mcp.json`):
 ```
 
 Tools: `search_clipboard`, `list_recent_clipboard`, `get_clipboard_item`.
-Read-only; runs locally against `~/.cinch/store.db`; no relay/network access.
+Read-only; local-only; no relay/network access.
 
-Privacy: this exposes your local clipboard history to the AI client. To bound
-the surface, set `CINCH_MCP_MAX_AGE_DAYS` (e.g. `90`) so only recent clips are
-returned; unset (default) exposes full history.
+Privacy: this exposes local clipboard history to the AI client you configure.
+Hosted relay retention (for example 7 or 90 days) does not limit local history.
+To narrow what MCP returns, set `CINCH_MCP_MAX_AGE_DAYS` (e.g. `90`); unset
+(default) exposes full local history.
 
 ## Development
 
