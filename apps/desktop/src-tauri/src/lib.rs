@@ -256,12 +256,24 @@ pub fn run() {
         .register_uri_scheme_protocol("cinch", {
             move |app, request| {
                 let uri = request.uri().to_string();
-                let clip_id = uri
+                let r = if let Some(clip_id) = uri
                     .strip_prefix("cinch://media/")
                     .or_else(|| uri.strip_prefix("cinch://media\\"))
-                    .unwrap_or("");
-                let store = app.app_handle().state::<crate::SharedStore>();
-                let r = crate::media::serve_clip_image(store.inner(), clip_id);
+                {
+                    let store = app.app_handle().state::<crate::SharedStore>();
+                    crate::media::serve_clip_image(store.inner(), clip_id)
+                } else if let Some(bundle_id) = uri
+                    .strip_prefix("cinch://app-icon/")
+                    .or_else(|| uri.strip_prefix("cinch://app-icon\\"))
+                {
+                    crate::media::serve_app_icon(bundle_id)
+                } else {
+                    crate::media::MediaResponse {
+                        status: 404,
+                        content_type: "application/octet-stream",
+                        body: Vec::new(),
+                    }
+                };
                 tauri::http::Response::builder()
                     .status(r.status)
                     .header("Content-Type", r.content_type)
@@ -334,6 +346,9 @@ pub fn run() {
                         let payload = clipboard::monitor::clip_received_stub(
                             &clip.clip_id,
                             &clip.source,
+                            None,
+                            None,
+                            None,
                             clip.byte_size,
                             &clip.content_type,
                         );
@@ -535,11 +550,9 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|_app, event| {
             // Keep the app alive when macOS fires an implicit ExitRequested
-            // (e.g., the last window closed). Explicit `app.exit(n)` calls —
-            // including the tray's "Quit Cinch" — set `code = Some(n)`, so they
-            // pass through and terminate. Cmd+Q is handled separately via the
-            // custom app menu (see app_menu.rs): it hides the window instead of
-            // routing through the native `terminate:` that bypasses this guard.
+            // (e.g., the last window closed). Explicit quit paths (tray "Quit
+            // Cinch" / Cmd+Q) terminate the process and do not go through this
+            // guard.
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event

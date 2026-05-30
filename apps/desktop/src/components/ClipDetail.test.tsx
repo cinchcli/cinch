@@ -9,6 +9,9 @@ const baseClip: LocalClip = {
   content: 'hello world',
   content_type: 'text',
   source: 'local',
+  source_app_id: null,
+  source_app: null,
+  source_url: null,
   label: '',
   byte_size: 11,
   media_path: null,
@@ -67,6 +70,29 @@ describe('ClipDetail', () => {
     expect(screen.getByRole('button', { name: /^copy/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^pin/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^delete/i })).toBeInTheDocument();
+  });
+
+  it('renders copied app and source URL metadata', () => {
+    render(
+      <ClipDetail
+        clip={{
+          ...baseClip,
+          source_app_id: 'com.google.Chrome',
+          source_app: 'Google Chrome',
+          source_url: 'https://example.com/article',
+        }}
+        onCopy={noOp}
+        onPin={noOp}
+        onDelete={noOp}
+        onSaveImage={noOp}
+      />,
+    );
+    expect(screen.getByText('Google Chrome')).toBeInTheDocument();
+    expect(screen.getByText('https://example.com/article')).toBeInTheDocument();
+    expect(screen.getByTestId('source-app-icon')).toHaveAttribute(
+      'src',
+      'cinch://app-icon/com.google.Chrome',
+    );
   });
 
   it('calls onCopy when Copy clicked', () => {

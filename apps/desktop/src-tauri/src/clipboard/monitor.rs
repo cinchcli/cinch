@@ -145,12 +145,37 @@ async fn run_monitor_loop(
 
         let now = chrono::Utc::now().timestamp();
 
+        let source_app = snapshot.app_name.as_deref();
+        let source_app_id = snapshot.app_identity.as_deref();
+        let source_url_owned = active_clipboard_source_url(snapshot.app_identity.as_deref());
+        let source_url = source_url_owned.as_deref();
+
         match classify_snapshot(snapshot.content, MAX_IMAGE_BYTES) {
             ClipAction::PushText(text) => {
-                handle_text_clip(text, app, store, &mut recent_hashes, now, &source);
+                handle_text_clip(
+                    text,
+                    app,
+                    store,
+                    &mut recent_hashes,
+                    now,
+                    &source,
+                    source_app_id,
+                    source_app,
+                    source_url,
+                );
             }
             ClipAction::PushImage(bytes) => {
-                handle_image_clip(bytes, app, store, &mut recent_hashes, now, &source);
+                handle_image_clip(
+                    bytes,
+                    app,
+                    store,
+                    &mut recent_hashes,
+                    now,
+                    &source,
+                    source_app_id,
+                    source_app,
+                    source_url,
+                );
             }
             ClipAction::SkipOversizedImage(n) => {
                 info!("skipping oversized image: {} bytes", n);
@@ -167,6 +192,9 @@ fn handle_text_clip(
     recent_hashes: &mut VecDeque<RecentHash>,
     now: i64,
     source: &str,
+    source_app_id: Option<&str>,
+    source_app: Option<&str>,
+    source_url: Option<&str>,
 ) {
     let hash = compute_hash(text.as_bytes());
 
@@ -190,9 +218,12 @@ fn handle_text_clip(
     let raw = text.into_bytes();
     let content_type = client_core::classify::detect(&raw);
     let byte_size = raw.len() as i64;
-    match client_core::sync::capture::capture_local(
+    match client_core::sync::capture::capture_local_with_metadata(
         store,
         source,
+        source_app_id,
+        source_app,
+        source_url,
         content_type.as_wire(),
         raw,
         byte_size,
@@ -202,7 +233,15 @@ fn handle_text_clip(
                 "clipboard: captured text clip {} locally ({} bytes)",
                 clip_id, byte_size
             );
-            let payload = clip_received_stub(&clip_id, source, byte_size, content_type.as_wire());
+            let payload = clip_received_stub(
+                &clip_id,
+                source,
+                source_app_id,
+                source_app,
+                source_url,
+                byte_size,
+                content_type.as_wire(),
+            );
             let _ = crate::events::ClipReceived(payload).emit(app);
         }
         Err(e) => warn!("clipboard: local capture failed: {}", e),
@@ -219,6 +258,9 @@ fn handle_image_clip(
     recent_hashes: &mut VecDeque<RecentHash>,
     now: i64,
     source: &str,
+    source_app_id: Option<&str>,
+    source_app: Option<&str>,
+    source_url: Option<&str>,
 ) {
     let hash = compute_hash(&bytes);
 
@@ -241,13 +283,30 @@ fn handle_image_clip(
 
     let byte_size = bytes.len() as i64;
     let content_type = client_core::rest::ContentType::Image.as_wire();
-    match client_core::sync::capture::capture_local(store, source, content_type, bytes, byte_size) {
+    match client_core::sync::capture::capture_local_with_metadata(
+        store,
+        source,
+        source_app_id,
+        source_app,
+        source_url,
+        content_type,
+        bytes,
+        byte_size,
+    ) {
         Ok(clip_id) => {
             info!(
                 "clipboard: captured image clip {} locally ({} bytes)",
                 clip_id, byte_size
             );
-            let payload = clip_received_stub(&clip_id, source, byte_size, content_type);
+            let payload = clip_received_stub(
+                &clip_id,
+                source,
+                source_app_id,
+                source_app,
+                source_url,
+                byte_size,
+                content_type,
+            );
             let _ = crate::events::ClipReceived(payload).emit(app);
         }
         Err(e) => warn!("clipboard: local capture failed: {}", e),
@@ -261,6 +320,9 @@ fn handle_image_clip(
 pub(crate) fn clip_received_stub(
     clip_id: &str,
     source: &str,
+    source_app_id: Option<&str>,
+    source_app: Option<&str>,
+    source_url: Option<&str>,
     byte_size: i64,
     content_type: &str,
 ) -> crate::commands::clips::LocalClip {
@@ -275,6 +337,9 @@ pub(crate) fn clip_received_stub(
         // can keep using strict equality.
         content_type: crate::commands::clips::normalize_content_type(content_type.to_string()),
         source: source.to_string(),
+        source_app_id: source_app_id.map(str::to_string),
+        source_app: source_app.map(str::to_string),
+        source_url: source_url.map(str::to_string),
         label: String::new(),
         byte_size,
         media_path: None,
@@ -305,6 +370,18 @@ fn compute_hash(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+fn active_clipboard_source_url(bundle_id: Option<&str>) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        bundle_id.and_then(crate::clipboard::backend::macos::active_browser_url_for_bundle)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bundle_id;
+        None
+    }
 }
 
 #[cfg(test)]
@@ -365,6 +442,7 @@ mod tests {
             token: Some(1),
             content: PollContent::Unsupported,
             app_identity: None,
+            app_name: None,
         };
         assert!(
             !should_accept_snapshot(&snap, &[]),
@@ -378,6 +456,7 @@ mod tests {
             token: Some(1),
             content: PollContent::Empty,
             app_identity: Some("com.apple.TextEdit".into()),
+            app_name: Some("TextEdit".into()),
         };
         assert!(
             !should_accept_snapshot(&snap, &[]),
@@ -391,6 +470,7 @@ mod tests {
             token: Some(1),
             content: PollContent::Text("secret".into()),
             app_identity: Some("com.1password.1password".into()),
+            app_name: Some("1Password".into()),
         };
         assert!(
             !should_accept_snapshot(&snap, &["com.1password.1password".into()]),
@@ -404,6 +484,7 @@ mod tests {
             token: Some(1),
             content: PollContent::Text("hello".into()),
             app_identity: Some("com.apple.TextEdit".into()),
+            app_name: Some("TextEdit".into()),
         };
         assert!(
             should_accept_snapshot(&snap, &["com.1password.1password".into()]),
@@ -417,6 +498,7 @@ mod tests {
             token: Some(1),
             content: PollContent::ImagePng(vec![0x89, 0x50, 0x4E, 0x47]),
             app_identity: None,
+            app_name: None,
         };
         assert!(
             should_accept_snapshot(&snap, &[]),

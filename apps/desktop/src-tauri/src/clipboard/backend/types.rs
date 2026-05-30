@@ -13,6 +13,9 @@ pub struct PollSnapshot {
     /// Frontmost application identifier. Bundle id on macOS. `None` when the
     /// backend cannot determine it.
     pub app_identity: Option<String>,
+    /// Frontmost application display name on macOS. Falls back to the bundle
+    /// identifier when the backend cannot determine a friendly name.
+    pub app_name: Option<String>,
 }
 
 // Variants are constructed only inside `backend::macos`; on Linux/Windows the

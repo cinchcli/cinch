@@ -54,6 +54,9 @@ pub fn clip_wire_to_stored(c: &Clip) -> Result<Option<StoredClip>, String> {
         source: c.source.clone(),
         // source_key is not present on the wire Clip; populated later if needed.
         source_key: None,
+        source_app_id: None,
+        source_app: None,
+        source_url: None,
         content_type: c.content_type.clone(),
         content,
         media_path: c.media_path.clone(),

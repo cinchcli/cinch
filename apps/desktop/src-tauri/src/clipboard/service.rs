@@ -132,6 +132,7 @@ mod tests {
                 token: Some(self.token),
                 content: self.next_content.clone(),
                 app_identity: None,
+                app_name: None,
             })
         }
         fn write_text(&mut self, content: &str) -> Result<(), ClipboardError> {
@@ -200,6 +201,7 @@ mod tests {
             token: Some(2),
             content: PollContent::ImagePng(png.to_vec()),
             app_identity: None,
+            app_name: None,
         };
         assert!(svc.is_self_write(&snap));
     }

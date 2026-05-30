@@ -129,6 +129,9 @@ describe('App', () => {
             content: 'needle clip',
             content_type: 'text',
             source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
             label: '',
             byte_size: 11,
             media_path: null,
@@ -169,6 +172,9 @@ describe('App', () => {
                 content: 'first clip',
                 content_type: 'text',
                 source: 'local',
+                source_app_id: null,
+                source_app: null,
+                source_url: null,
                 label: '',
                 byte_size: 10,
                 media_path: null,
@@ -184,6 +190,9 @@ describe('App', () => {
                 content: 'second clip',
                 content_type: 'text',
                 source: 'local',
+                source_app_id: null,
+                source_app: null,
+                source_url: null,
                 label: '',
                 byte_size: 11,
                 media_path: null,
@@ -226,6 +235,9 @@ describe('App', () => {
             content: '',
             content_type: 'image',
             source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
             label: 'screenshot.png',
             byte_size: 245760,
             media_path: null,
@@ -258,6 +270,63 @@ describe('App', () => {
         expect(invoke).not.toHaveBeenCalledWith('copy_clip_to_clipboard', { content: '' });
     });
 
+    it('moves a copied history clip to the top of the inbox list', async () => {
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_777_614_600_000);
+        const makeClip = (id: string, content: string, createdAt: number): LocalClip => ({
+            id,
+            user_id: 'u1',
+            content,
+            content_type: 'text',
+            source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
+            label: '',
+            byte_size: content.length,
+            media_path: null,
+            created_at: createdAt,
+            synced: true,
+            sync_state: 'synced',
+            is_pinned: false,
+            pin_note: null,
+            received_at: createdAt,
+        });
+        const clips = [
+            makeClip('new', 'new clip', 1_777_614_529),
+            makeClip('old', 'old clip', 1_777_614_100),
+        ];
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve(clips);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+                return Promise.resolve([]);
+            }
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        const { container } = render(<App />);
+
+        await screen.findByRole('button', { name: /new clip/i });
+        const initialOrder = Array.from(container.querySelectorAll('.clip-row'))
+            .map((row) => row.getAttribute('data-id'));
+        expect(initialOrder).toEqual(['new', 'old']);
+
+        fireEvent.click(screen.getByRole('button', { name: /old clip/i }));
+        fireEvent.keyDown(window, { key: 'Enter' });
+
+        await waitFor(() => {
+            const order = Array.from(container.querySelectorAll('.clip-row'))
+                .map((row) => row.getAttribute('data-id'));
+            expect(order[0]).toBe('old');
+        });
+
+        nowSpy.mockRestore();
+    });
+
     it('saves an image clip to file via save_image_to_file when Save... is clicked', async () => {
         const imageClip: LocalClip = {
             id: 'cimg',
@@ -265,6 +334,9 @@ describe('App', () => {
             content: '',
             content_type: 'image',
             source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
             label: 'screenshot.png',
             byte_size: 245760,
             media_path: null,
@@ -310,6 +382,9 @@ describe('App', () => {
             content: 'clip to pin',
             content_type: 'text',
             source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
             label: '',
             byte_size: 11,
             media_path: null,

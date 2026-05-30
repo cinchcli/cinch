@@ -60,6 +60,7 @@ mod tests {
                 token: Some(self.token),
                 content: PollContent::Empty,
                 app_identity: None,
+                app_name: None,
             })
         }
         fn write_text(&mut self, _: &str) -> Result<(), ClipboardError> {
@@ -87,6 +88,9 @@ mod tests {
                 id: id.into(),
                 source: "remote:test".into(),
                 source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
                 content_type: ct.into(),
                 content: Some(bytes.to_vec()),
                 media_path: None,
@@ -106,6 +110,7 @@ mod tests {
             token: Some(u64::MAX),
             content: PollContent::ImagePng(bytes.to_vec()),
             app_identity: None,
+            app_name: None,
         }
     }
 
@@ -157,6 +162,9 @@ mod tests {
                 id: "empty".into(),
                 source: "remote:test".into(),
                 source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
                 content_type: "image".into(),
                 content: None,
                 media_path: None,

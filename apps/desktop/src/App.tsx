@@ -176,6 +176,28 @@ function App() {
   const [activeFilter, setActiveFilter] = useState<ClipFilter>('all');
   const searchRef = useRef<HTMLInputElement>(null);
   const clipListRef = useRef<HTMLDivElement>(null);
+  const copyRecencyRef = useRef<Map<string, number>>(new Map());
+
+  const clipRecency = useCallback((clip: LocalClip) => {
+    const override = copyRecencyRef.current.get(clip.id);
+    if (override !== undefined) return override;
+    return clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
+  }, []);
+
+  const applyInboxRecency = useCallback((list: LocalClip[]) => {
+    if (copyRecencyRef.current.size === 0) return list;
+    const updated = list.map((clip) => {
+      const override = copyRecencyRef.current.get(clip.id);
+      return override !== undefined ? { ...clip, received_at: override } : clip;
+    });
+    updated.sort((a, b) => {
+      const ra = clipRecency(a);
+      const rb = clipRecency(b);
+      if (rb !== ra) return rb - ra;
+      return b.created_at - a.created_at;
+    });
+    return updated;
+  }, [clipRecency]);
 
   useEffect(() => {
     const refreshTagColors = () => setTagColors(loadMachineTagColors());
@@ -218,11 +240,11 @@ function App() {
         return;
       }
       const results = await unwrap(commands.listClips(selectedSource, null, 500));
-      setClips(results);
+      setClips(applyInboxRecency(results));
     } catch (e) {
       console.error('failed to load clips:', e);
     }
-  }, [activePanel, selectedSource]);
+  }, [activePanel, selectedSource, applyInboxRecency]);
 
   const refreshSources = useCallback(async () => {
     try {
@@ -343,12 +365,21 @@ function App() {
     }
   }, []);
 
+  const bumpClipRecency = useCallback((clip: LocalClip) => {
+    const now = Math.floor(Date.now() / 1000);
+    copyRecencyRef.current.set(clip.id, now);
+    if (activePanel !== 'pinned') {
+      setClips((prev) => applyInboxRecency(prev));
+    }
+  }, [activePanel, applyInboxRecency]);
+
   const finishCopy = useCallback((clip: LocalClip, message: string) => {
     void unwrap(commands.showCopyToast(message))
       .catch((e) => {
         console.error('show copy toast failed:', e);
         showToast(message, 'copy');
       });
+    bumpClipRecency(clip);
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);

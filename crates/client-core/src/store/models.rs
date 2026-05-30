@@ -39,6 +39,9 @@ pub struct StoredClip {
     pub id: String, // ULID
     pub source: String,
     pub source_key: Option<String>,
+    pub source_app_id: Option<String>,
+    pub source_app: Option<String>,
+    pub source_url: Option<String>,
     pub content_type: String,
     pub content: Option<Vec<u8>>,
     pub media_path: Option<String>,
