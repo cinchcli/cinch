@@ -12,6 +12,9 @@ const textClip: LocalClip = {
   content: 'Hello world this is a test of clip card preview text rendering',
   content_type: 'text',
   source: 'local',
+  source_app_id: null,
+  source_app: null,
+  source_url: null,
   label: '',
   byte_size: 62,
   media_path: null,
@@ -25,6 +28,9 @@ const imageClip: LocalClip = {
   content: '',
   content_type: 'image',
   source: 'local',
+  source_app_id: null,
+  source_app: null,
+  source_url: null,
   label: 'screenshot.png',
   byte_size: 245760,
   media_path: null,
@@ -38,6 +44,9 @@ const binaryClip: LocalClip = {
   content: '',
   content_type: 'application/pdf',
   source: 'local',
+  source_app_id: null,
+  source_app: null,
+  source_url: null,
   label: 'document.pdf',
   byte_size: 1048576,
   media_path: null,
@@ -94,6 +103,25 @@ describe('ClipCard', () => {
       render(<ClipCard clip={textClip} {...defaultProps} />);
       expect(screen.getByLabelText('Copy clip')).toBeInTheDocument();
       expect(screen.getByLabelText('Delete clip')).toBeInTheDocument();
+    });
+
+    it('shows copied-from app and browser URL context when present', () => {
+      render(
+        <ClipCard
+          clip={{
+            ...textClip,
+            source_app_id: 'com.apple.Safari',
+            source_app: 'Safari',
+            source_url: 'https://example.com/docs/reference?tab=copy',
+          }}
+          {...defaultProps}
+        />,
+      );
+      expect(screen.getByText('Safari · example.com/docs/reference')).toBeInTheDocument();
+      expect(screen.getByTestId('source-app-icon')).toHaveAttribute(
+        'src',
+        'cinch://app-icon/com.apple.Safari',
+      );
     });
 
     it('applies selected styles with accent left bar when selected=true', () => {

@@ -1,45 +1,30 @@
 //! Custom application menu.
 //!
-//! macOS wires the default `PredefinedMenuItem::quit` to the native
-//! `terminate:` selector (with the standard Cmd+Q key equivalent). tao installs
-//! no `applicationShouldTerminate:` override, so `[NSApp terminate:]` kills the
-//! process directly — it never produces a preventable `RunEvent::ExitRequested`,
-//! so the `.run` handler's `prevent_exit()` can't intercept Cmd+Q.
-//!
-//! To make Cmd+Q *hide* the window and keep the menu-bar agent alive, we own the
-//! menu: the Cmd+Q slot is a plain `MenuItem` whose activation fires
-//! `on_menu_event` (handled in [`handle_menu_event`]) instead of `terminate:`.
-//! The real quit stays on the tray's "Quit Cinch" item (`app.exit(0)`).
-//!
 //! Replacing Tauri's default menu drops its built-in Edit/Window shortcuts, so
-//! we re-supply them here; otherwise Cmd+C/V/X/A and Cmd+W/Cmd+M would stop
-//! working in the dashboard. For an Accessory app the menu bar is not drawn, but
-//! its key equivalents are still processed while a Cinch window is focused —
-//! the same mechanism the Edit shortcuts rely on.
+//! we re-supply them here; otherwise Cmd+C/V/X/A (Edit) and Cmd+W/Cmd+M (Window)
+//! stop working in the dashboard.
+//!
+//! On macOS the app runs as an Accessory (menu-bar agent): the menu bar is not
+//! drawn, but key equivalents are still processed while a Cinch window is
+//! focused — the same mechanism the Edit shortcuts rely on.
+//!
+//! Behavior we want:
+//! - Cmd+Q quits the app (standard macOS behavior)
+//! - Cmd+W closes the Dashboard window (implemented as hide, so it can be shown
+//!   again from the tray)
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
-/// Menu id for the Cmd+Q "hide window" item, matched in [`handle_menu_event`].
-pub const HIDE_WINDOW_ID: &str = "app_hide_window";
+/// Menu id for the Cmd+W "close dashboard" item, matched in [`handle_menu_event`].
+pub const CLOSE_DASHBOARD_ID: &str = "window_close_dashboard";
 
 /// Build the application menu. See the module docs for why this replaces the
 /// Tauri default rather than extending it.
 pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    // App submenu (the first submenu is the macOS application menu). The Cmd+Q
-    // item is a plain MenuItem — NOT the predefined quit — so Cmd+Q fires a menu
-    // event we turn into a window hide instead of `terminate:`.
-    // Labeled "Hide Window" because it calls window.hide() (the app stays
-    // alive); the real quit is the tray's "Quit Cinch". Standard app-menu items
-    // like Hide Others / Show All / Quit are intentionally omitted — they are
-    // never visible for an Accessory app and not needed for a menu-bar agent.
-    let hide_window = MenuItem::with_id(
-        app,
-        HIDE_WINDOW_ID,
-        "Hide Window",
-        true,
-        Some("CmdOrCtrl+Q"),
-    )?;
+    // App submenu (the first submenu is the macOS application menu).
+    // Even though the menu bar is not drawn for an Accessory app, key
+    // equivalents still fire while a window is focused.
     let app_menu = Submenu::with_items(
         app,
         "Cinch",
@@ -47,7 +32,7 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         &[
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &hide_window,
+            &PredefinedMenuItem::quit(app, None)?,
         ],
     )?;
 
@@ -68,27 +53,31 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
-    // Window submenu — preserves Cmd+M (minimize) and Cmd+W (close → hide via
-    // the CloseRequested handler in lib.rs).
+    // Window submenu — preserves Cmd+M (minimize) and implements Cmd+W as
+    // "close dashboard" (hide the main window so it can be restored from tray).
+    let close_dashboard = MenuItem::with_id(
+        app,
+        CLOSE_DASHBOARD_ID,
+        "Close Window",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
     let window_menu = Submenu::with_items(
         app,
         "Window",
         true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::close_window(app, None)?,
-        ],
+        &[&PredefinedMenuItem::minimize(app, None)?, &close_dashboard],
     )?;
 
     Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
 }
 
-/// Handle application-menu events. Cmd+Q (our custom item) hides every webview
-/// window so the app keeps running in the menu bar; the real quit is the tray's
-/// "Quit Cinch".
+/// Handle application-menu events.
+///
+/// Cmd+W closes the Dashboard window (implemented as hide).
 pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
-    if event.id().as_ref() == HIDE_WINDOW_ID {
-        for window in app.webview_windows().values() {
+    if event.id().as_ref() == CLOSE_DASHBOARD_ID {
+        if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
         }
     }

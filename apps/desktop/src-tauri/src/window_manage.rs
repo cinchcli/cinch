@@ -165,9 +165,8 @@ pub(crate) fn configure_macos_window(_app: &tauri::AppHandle) {}
 ///
 /// The app's `NSApp.mainMenu` is not drawn for an Accessory app, but its key
 /// equivalents still fire while a window is focused. The custom menu in
-/// `app_menu.rs` relies on this: Cmd+C/V/X/A keep working in text fields, and
-/// Cmd+Q routes through `app_menu::handle_menu_event` (which hides the window)
-/// rather than the native `terminate:` that would bypass the exit guard.
+/// `app_menu.rs` relies on this so standard shortcuts keep working (Edit
+/// shortcuts like Cmd+C/V/X/A, and Window shortcuts like Cmd+W/Cmd+M).
 #[cfg(target_os = "macos")]
 pub(crate) fn configure_activation_policy(app: &tauri::AppHandle) {
     if let Err(e) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {

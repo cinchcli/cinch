@@ -109,7 +109,7 @@ mod tests {
                 )
             })
             .expect("read schema_version");
-        assert_eq!(version, 3);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -120,6 +120,9 @@ mod tests {
             id: "01HXABC".into(),
             source: "atlas0".into(),
             source_key: None,
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
             content_type: "text/plain".into(),
             content: Some(b"hello".to_vec()),
             media_path: None,
@@ -147,6 +150,9 @@ mod tests {
                     id: format!("01HXABC{i:03}"),
                     source: "m".into(),
                     source_key: None,
+                    source_app_id: None,
+                    source_app: None,
+                    source_url: None,
                     content_type: "text/plain".into(),
                     content: Some(body.as_bytes().to_vec()),
                     media_path: None,
@@ -174,6 +180,9 @@ mod tests {
                     id: id.into(),
                     source: "m".into(),
                     source_key: None,
+                    source_app_id: None,
+                    source_app: None,
+                    source_url: None,
                     content_type: "text/plain".into(),
                     content: Some(b"x".to_vec()),
                     media_path: None,

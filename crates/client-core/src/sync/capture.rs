@@ -15,11 +15,38 @@ pub fn capture_local(
     raw: Vec<u8>,
     byte_size: i64,
 ) -> Result<String, StoreError> {
+    capture_local_with_metadata(
+        store,
+        source,
+        None,
+        None,
+        None,
+        content_type_wire,
+        raw,
+        byte_size,
+    )
+}
+
+/// Persist a captured clip as `Local` with optional capture-source metadata.
+/// The relay is never contacted: capture builds local history only.
+pub fn capture_local_with_metadata(
+    store: &Store,
+    source: &str,
+    source_app_id: Option<&str>,
+    source_app: Option<&str>,
+    source_url: Option<&str>,
+    content_type_wire: &str,
+    raw: Vec<u8>,
+    byte_size: i64,
+) -> Result<String, StoreError> {
     let clip_id = Ulid::new().to_string();
     let stored = StoredClip {
         id: clip_id.clone(),
         source: source.to_string(),
         source_key: None,
+        source_app_id: source_app_id.map(str::to_string),
+        source_app: source_app.map(str::to_string),
+        source_url: source_url.map(str::to_string),
         content_type: content_type_wire.to_string(),
         content: Some(raw),
         media_path: None,
@@ -45,10 +72,23 @@ mod tests {
     #[test]
     fn capture_local_writes_local_state() {
         let s = store();
-        let id = capture_local(&s, "remote:host", "text", b"secret".to_vec(), 6).unwrap();
+        let id = capture_local_with_metadata(
+            &s,
+            "remote:host",
+            Some("com.apple.Safari"),
+            Some("Safari"),
+            Some("https://example.com/path"),
+            "text",
+            b"secret".to_vec(),
+            6,
+        )
+        .unwrap();
         let row = queries::get_clip(&s, &id).unwrap().unwrap();
         assert_eq!(row.sync_state, SyncState::Local);
         assert_eq!(row.content.as_deref(), Some(&b"secret"[..]));
+        assert_eq!(row.source_app_id.as_deref(), Some("com.apple.Safari"));
+        assert_eq!(row.source_app.as_deref(), Some("Safari"));
+        assert_eq!(row.source_url.as_deref(), Some("https://example.com/path"));
     }
 
     /// The core security invariant: a captured Local clip is never returned by

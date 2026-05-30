@@ -126,6 +126,8 @@ export function ClipDetail({
 
         <dl style={S.metaList}>
           <MetaRow label="Source" value={clip.source.startsWith('remote:') ? clip.source.replace('remote:', '') : clip.source} />
+          {clip.source_app && <MetaRow label="App" value={<AppMeta clip={clip} />} />}
+          {clip.source_url && <MetaRow label="URL" value={clip.source_url} />}
           <MetaRow label="Type" value={colorClip ? 'color' : clip.content_type} />
           <MetaRow label="Size" value={formatBytes(clip.byte_size)} />
           {isImage && imgDims && <MetaRow label="Dimensions" value={`${imgDims.w} × ${imgDims.h}`} />}
@@ -152,7 +154,24 @@ function ColorPreview({ color }: { color: ParsedColorClip }) {
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
+function AppMeta({ clip }: { clip: LocalClip }) {
+  return (
+    <span style={S.appMeta}>
+      {clip.source_app_id && (
+        <img
+          data-testid="source-app-icon"
+          src={`cinch://app-icon/${encodeURIComponent(clip.source_app_id)}`}
+          alt=""
+          aria-hidden="true"
+          style={S.appIcon}
+        />
+      )}
+      <span>{clip.source_app}</span>
+    </span>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <>
       <dt style={S.metaKey}>{label}</dt>
@@ -354,6 +373,18 @@ const S: Record<string, CSSProperties> = {
     margin: 0,
   },
   metaVal: { color: C.t1, margin: 0, wordBreak: 'break-all' },
+  appMeta: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  appIcon: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    flexShrink: 0,
+  },
   highlight: {
     background: 'var(--highlight)',
     borderRadius: 2,

@@ -67,6 +67,176 @@ pub(crate) fn serve_clip_image(store: &Store, clip_id: &str) -> MediaResponse {
     }
 }
 
+/// Serve a macOS app icon as PNG from a bundle identifier.
+pub(crate) fn serve_app_icon(bundle_id: &str) -> MediaResponse {
+    let not_found = || MediaResponse {
+        status: 404,
+        content_type: "application/octet-stream",
+        body: Vec::new(),
+    };
+    if bundle_id.is_empty() {
+        return not_found();
+    }
+
+    match app_icon_png(bundle_id) {
+        Some(body) => MediaResponse {
+            status: 200,
+            content_type: "image/png",
+            body,
+        },
+        None => not_found(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
+    app_icon_png_native(bundle_id).or_else(|| app_icon_png_with_image_crate_fallback(bundle_id))
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_png_native(bundle_id: &str) -> Option<Vec<u8>> {
+    use objc::runtime::{Class, Object};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CString;
+    use std::ptr;
+
+    let bundle_id = CString::new(bundle_id).ok()?;
+    unsafe {
+        let nsstring_cls = Class::get("NSString")?;
+        let bundle: *mut Object = msg_send![nsstring_cls, stringWithUTF8String: bundle_id.as_ptr()];
+        let path = app_path_for_bundle(bundle)?;
+
+        let workspace_cls = Class::get("NSWorkspace")?;
+        let workspace: *mut Object = msg_send![workspace_cls, sharedWorkspace];
+        let icon: *mut Object = msg_send![workspace, iconForFile: path];
+        if icon.is_null() {
+            return None;
+        }
+
+        let data: *mut Object = msg_send![icon, TIFFRepresentation];
+        if data.is_null() {
+            return None;
+        }
+
+        let bitmap_cls = Class::get("NSBitmapImageRep")?;
+        let bitmap: *mut Object = msg_send![bitmap_cls, imageRepWithData: data];
+        if bitmap.is_null() {
+            return None;
+        }
+
+        // NSBitmapImageFileType.png = 4. Let AppKit do the conversion; some app
+        // icons produce TIFF data that the Rust image crate cannot decode.
+        let png_data: *mut Object =
+            msg_send![bitmap, representationUsingType:4usize properties:ptr::null_mut::<Object>()];
+        nsdata_to_vec(png_data)
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn app_path_for_bundle(
+    bundle: *mut objc::runtime::Object,
+) -> Option<*mut objc::runtime::Object> {
+    use objc::runtime::{Class, Object};
+    use objc::{msg_send, sel, sel_impl};
+
+    let workspace_cls = Class::get("NSWorkspace")?;
+    let workspace: *mut Object = msg_send![workspace_cls, sharedWorkspace];
+    let app_url: *mut Object = msg_send![workspace, URLForApplicationWithBundleIdentifier: bundle];
+    if !app_url.is_null() {
+        let path: *mut Object = msg_send![app_url, path];
+        if !path.is_null() {
+            return Some(path);
+        }
+    }
+
+    let apps: *mut Object = msg_send![workspace, runningApplications];
+    if apps.is_null() {
+        return None;
+    }
+
+    let count: usize = msg_send![apps, count];
+    for i in 0..count {
+        let app: *mut Object = msg_send![apps, objectAtIndex:i];
+        if app.is_null() {
+            continue;
+        }
+
+        let running_bundle: *mut Object = msg_send![app, bundleIdentifier];
+        let matches: bool = msg_send![running_bundle, isEqualToString: bundle];
+        if !matches {
+            continue;
+        }
+
+        let url: *mut Object = msg_send![app, bundleURL];
+        if url.is_null() {
+            continue;
+        }
+        let path: *mut Object = msg_send![url, path];
+        if !path.is_null() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn nsdata_to_vec(data: *mut objc::runtime::Object) -> Option<Vec<u8>> {
+    use objc::{msg_send, sel, sel_impl};
+
+    if data.is_null() {
+        return None;
+    }
+    let len: usize = msg_send![data, length];
+    let bytes: *const u8 = msg_send![data, bytes];
+    if len == 0 || bytes.is_null() {
+        return None;
+    }
+    Some(std::slice::from_raw_parts(bytes, len).to_vec())
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_png_with_image_crate_fallback(bundle_id: &str) -> Option<Vec<u8>> {
+    use objc::runtime::{Class, Object};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CString;
+    use std::io::Cursor;
+
+    let bundle_id = CString::new(bundle_id).ok()?;
+    let tiff = unsafe {
+        let nsstring_cls = Class::get("NSString")?;
+        let bundle: *mut Object = msg_send![nsstring_cls, stringWithUTF8String: bundle_id.as_ptr()];
+        let path = app_path_for_bundle(bundle)?;
+        let workspace_cls = Class::get("NSWorkspace")?;
+        let workspace: *mut Object = msg_send![workspace_cls, sharedWorkspace];
+        let icon: *mut Object = msg_send![workspace, iconForFile: path];
+        if icon.is_null() {
+            return None;
+        }
+
+        let data: *mut Object = msg_send![icon, TIFFRepresentation];
+        if data.is_null() {
+            return None;
+        }
+        let len: usize = msg_send![data, length];
+        let bytes: *const u8 = msg_send![data, bytes];
+        if len == 0 || bytes.is_null() {
+            return None;
+        }
+        std::slice::from_raw_parts(bytes, len).to_vec()
+    };
+
+    let img = image::load_from_memory_with_format(&tiff, image::ImageFormat::Tiff).ok()?;
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).ok()?;
+    Some(out.into_inner())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_icon_png(_: &str) -> Option<Vec<u8>> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +254,9 @@ mod tests {
                 id: id.into(),
                 source: "remote:test".into(),
                 source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
                 content_type: ct.into(),
                 content,
                 media_path: None,
@@ -132,5 +305,19 @@ mod tests {
         assert_eq!(serve_clip_image(&s, "nope").status, 404);
         insert(&s, "e1", "image", None);
         assert_eq!(serve_clip_image(&s, "e1").status, 404);
+    }
+
+    #[test]
+    fn empty_app_icon_request_is_404() {
+        assert_eq!(serve_app_icon("").status, 404);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn textedit_app_icon_request_returns_png() {
+        let response = serve_app_icon("com.apple.TextEdit");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.content_type, "image/png");
+        assert!(response.body.starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 }

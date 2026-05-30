@@ -5,10 +5,17 @@
 
 use objc::runtime::{Class, Object};
 use objc::{msg_send, sel, sel_impl};
+use std::process::Command;
 
 use super::{Backend, ClipboardError, PollContent, PollSnapshot};
 
 pub(crate) struct MacBackend;
+
+#[derive(Debug, Clone)]
+struct FrontmostApp {
+    bundle_id: Option<String>,
+    display_name: Option<String>,
+}
 
 impl MacBackend {
     pub(crate) fn new() -> Self {
@@ -18,7 +25,9 @@ impl MacBackend {
 
 impl Backend for MacBackend {
     fn read_snapshot(&mut self) -> Result<PollSnapshot, ClipboardError> {
-        let app_identity = get_frontmost_app_bundle_id();
+        let frontmost_app = get_frontmost_app();
+        let app_identity = frontmost_app.bundle_id;
+        let app_name = frontmost_app.display_name;
 
         // Privacy gate (PRV-01, D-13): honor NSPasteboard concealed/transient
         // UTIs so clips from password managers and short-lived content (e.g.
@@ -35,6 +44,7 @@ impl Backend for MacBackend {
                 token: Some(token),
                 content: PollContent::Unsupported,
                 app_identity,
+                app_name,
             });
         }
 
@@ -46,6 +56,7 @@ impl Backend for MacBackend {
                     token: Some(token),
                     content: PollContent::Text(text),
                     app_identity,
+                    app_name,
                 });
             }
         }
@@ -55,6 +66,7 @@ impl Backend for MacBackend {
                 token: Some(token),
                 content: PollContent::ImagePng(bytes),
                 app_identity,
+                app_name,
             });
         }
 
@@ -62,6 +74,7 @@ impl Backend for MacBackend {
             token: Some(token),
             content: PollContent::Empty,
             app_identity,
+            app_name,
         })
     }
 
@@ -143,27 +156,102 @@ fn get_pasteboard_change_count() -> i64 {
     }
 }
 
-fn get_frontmost_app_bundle_id() -> Option<String> {
+fn get_frontmost_app() -> FrontmostApp {
     unsafe {
-        let cls = Class::get("NSWorkspace")?;
+        let Some(cls) = Class::get("NSWorkspace") else {
+            return FrontmostApp {
+                bundle_id: None,
+                display_name: None,
+            };
+        };
         let ws: *mut Object = msg_send![cls, sharedWorkspace];
         let app: *mut Object = msg_send![ws, frontmostApplication];
         if app.is_null() {
-            return None;
+            return FrontmostApp {
+                bundle_id: None,
+                display_name: None,
+            };
         }
+
         let bid: *mut Object = msg_send![app, bundleIdentifier];
-        if bid.is_null() {
-            return None;
+        let bundle_id = nsstring_to_string(bid);
+
+        let name: *mut Object = msg_send![app, localizedName];
+        let display_name = nsstring_to_string(name).or_else(|| bundle_id.clone());
+        FrontmostApp {
+            bundle_id,
+            display_name,
         }
-        let utf8: *const std::os::raw::c_char = msg_send![bid, UTF8String];
-        if utf8.is_null() {
-            return None;
+    }
+}
+
+unsafe fn nsstring_to_string(value: *mut Object) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    let utf8: *const std::os::raw::c_char = msg_send![value, UTF8String];
+    if utf8.is_null() {
+        return None;
+    }
+    Some(
+        std::ffi::CStr::from_ptr(utf8)
+            .to_string_lossy()
+            .into_owned(),
+    )
+}
+
+pub(crate) fn active_browser_url_for_bundle(bundle_id: &str) -> Option<String> {
+    let script = browser_url_script(bundle_id)?;
+    let output = Command::new("osascript")
+        .args(["-e", script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!url.is_empty()).then_some(url)
+}
+
+fn browser_url_script(bundle_id: &str) -> Option<&'static str> {
+    match bundle_id {
+        "com.apple.Safari" => Some(
+            r#"tell application id "com.apple.Safari" to get URL of current tab of front window"#,
+        ),
+        "com.apple.SafariTechnologyPreview" => Some(
+            r#"tell application id "com.apple.SafariTechnologyPreview" to get URL of current tab of front window"#,
+        ),
+        "com.google.Chrome" => Some(chromium_url_script("com.google.Chrome")),
+        "com.google.Chrome.canary" => Some(chromium_url_script("com.google.Chrome.canary")),
+        "com.brave.Browser" => Some(chromium_url_script("com.brave.Browser")),
+        "com.microsoft.edgemac" => Some(chromium_url_script("com.microsoft.edgemac")),
+        "com.vivaldi.Vivaldi" => Some(chromium_url_script("com.vivaldi.Vivaldi")),
+        "com.operasoftware.Opera" => Some(chromium_url_script("com.operasoftware.Opera")),
+        _ => None,
+    }
+}
+
+fn chromium_url_script(bundle_id: &str) -> &'static str {
+    match bundle_id {
+        "com.google.Chrome" => {
+            r#"tell application id "com.google.Chrome" to get URL of active tab of front window"#
         }
-        Some(
-            std::ffi::CStr::from_ptr(utf8)
-                .to_string_lossy()
-                .into_owned(),
-        )
+        "com.google.Chrome.canary" => {
+            r#"tell application id "com.google.Chrome.canary" to get URL of active tab of front window"#
+        }
+        "com.brave.Browser" => {
+            r#"tell application id "com.brave.Browser" to get URL of active tab of front window"#
+        }
+        "com.microsoft.edgemac" => {
+            r#"tell application id "com.microsoft.edgemac" to get URL of active tab of front window"#
+        }
+        "com.vivaldi.Vivaldi" => {
+            r#"tell application id "com.vivaldi.Vivaldi" to get URL of active tab of front window"#
+        }
+        "com.operasoftware.Opera" => {
+            r#"tell application id "com.operasoftware.Opera" to get URL of active tab of front window"#
+        }
+        _ => unreachable!("unsupported Chromium-family browser bundle id"),
     }
 }
 
@@ -275,7 +363,7 @@ fn get_pasteboard_type_utis() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_concealed_or_transient, CONCEALED_UTI, TRANSIENT_UTI};
+    use super::{browser_url_script, is_concealed_or_transient, CONCEALED_UTI, TRANSIENT_UTI};
 
     #[test]
     fn detect_concealed_transient() {
@@ -309,5 +397,17 @@ mod tests {
         // Lock the exact canonical UTI strings per nspasteboard.org.
         assert_eq!(CONCEALED_UTI, "org.nspasteboard.ConcealedType");
         assert_eq!(TRANSIENT_UTI, "org.nspasteboard.TransientType");
+    }
+
+    #[test]
+    fn browser_url_scripts_cover_common_macos_browsers() {
+        assert!(browser_url_script("com.apple.Safari")
+            .unwrap()
+            .contains("current tab"));
+        assert!(browser_url_script("com.google.Chrome")
+            .unwrap()
+            .contains("active tab"));
+        assert!(browser_url_script("com.brave.Browser").is_some());
+        assert!(browser_url_script("org.mozilla.firefox").is_none());
     }
 }

@@ -25,6 +25,18 @@ function isImageType(clip: LocalClip): boolean {
   return clip.content_type === "image";
 }
 
+function copiedFromLabel(clip: LocalClip): string | null {
+  if (!clip.source_app && !clip.source_url) return null;
+  const app = clip.source_app ?? "Browser";
+  if (!clip.source_url) return app;
+  try {
+    const url = new URL(clip.source_url);
+    return `${app} · ${url.hostname}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return `${app} · ${clip.source_url}`;
+  }
+}
+
 // ─── ClipCard ─────────────────────────────────────────────────
 
 export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleClick }: ClipCardProps) {
@@ -35,6 +47,7 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
   const isText = isTextType(clip.content_type);
   const isBinary = !isText && !isImage;
   const colorClip = clip.content_type === "text" ? parseColorClip(clip.content) : null;
+  const copiedFrom = copiedFromLabel(clip);
 
   const containerStyle: CSSProperties = {
     display: "flex",
@@ -167,21 +180,24 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
       {/* Content column */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {isText && (
-          <div
-            style={{
-              fontFamily: 'var(--font-body)',
-              fontSize: 16,
-              fontWeight: 500,
-              color: C.t1,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              lineHeight: 1.15,
-              letterSpacing: "0.1px",
-            }}
-          >
-            {clip.content.trim().replace(/\s+/g, " ").slice(0, 140)}
-          </div>
+          <>
+            <div
+              style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 16,
+                fontWeight: 500,
+                color: C.t1,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: 1.15,
+                letterSpacing: "0.1px",
+              }}
+            >
+              {clip.content.trim().replace(/\s+/g, " ").slice(0, 140)}
+            </div>
+            {copiedFrom && <CopiedFrom clip={clip} text={copiedFrom} />}
+          </>
         )}
 
         {isImage && (
@@ -205,6 +221,7 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
             }}>
               {clip.content_type}
             </div>
+            {copiedFrom && <CopiedFrom clip={clip} text={copiedFrom} />}
           </>
         )}
 
@@ -230,6 +247,7 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
             }}>
               {formatBytes(clip.byte_size)}
             </div>
+            {copiedFrom && <CopiedFrom clip={clip} text={copiedFrom} />}
           </>
         )}
       </div>
@@ -296,6 +314,42 @@ export function ClipCard({ clip, selected, onCopy, onDelete, onClick, onDoubleCl
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CopiedFrom({ clip, text }: { clip: LocalClip; text: string }) {
+  return (
+    <div
+      title={text}
+      style={{
+        marginTop: 4,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        fontWeight: 600,
+        color: C.t3,
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+      }}
+    >
+      {clip.source_app_id && (
+        <img
+          data-testid="source-app-icon"
+          src={`cinch://app-icon/${encodeURIComponent(clip.source_app_id)}`}
+          alt=""
+          aria-hidden="true"
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: 3,
+            flexShrink: 0,
+          }}
+        />
+      )}
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
     </div>
   );
 }

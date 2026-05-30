@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
@@ -22,6 +22,12 @@ pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     }
     if current < 3 {
         migrate_v3(conn)?;
+    }
+    if current < 4 {
+        migrate_v4(conn)?;
+    }
+    if current < 5 {
+        migrate_v5(conn)?;
     }
     Ok(())
 }
@@ -116,13 +122,34 @@ fn migrate_v2(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migrate_v4(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        ALTER TABLE clips ADD COLUMN source_app TEXT;
+        ALTER TABLE clips ADD COLUMN source_url TEXT;
+        UPDATE meta SET value = '4' WHERE key = 'schema_version';
+    "#,
+    )?;
+    Ok(())
+}
+
+fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        ALTER TABLE clips ADD COLUMN source_app_id TEXT;
+        UPDATE meta SET value = '5' WHERE key = 'schema_version';
+    "#,
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::Connection;
 
     #[test]
-    fn v1_to_v2_to_v3_migration_chain() {
+    fn v1_to_current_migration_chain() {
         let conn = Connection::open_in_memory().unwrap();
         // Seed meta table that apply_migrations needs.
         conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
@@ -183,6 +210,24 @@ mod tests {
             state, "synced",
             "new rows must default to sync_state='synced'"
         );
+        let source_app: Option<String> = conn
+            .query_row("SELECT source_app FROM clips WHERE id='y'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let source_app_id: Option<String> = conn
+            .query_row("SELECT source_app_id FROM clips WHERE id='y'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let source_url: Option<String> = conn
+            .query_row("SELECT source_url FROM clips WHERE id='y'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(source_app_id, None);
+        assert_eq!(source_app, None);
+        assert_eq!(source_url, None);
     }
 
     #[test]
