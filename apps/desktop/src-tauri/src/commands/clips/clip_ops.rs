@@ -22,7 +22,7 @@ use client_core::store::queries;
 #[tauri::command]
 #[specta::specta]
 pub fn list_pinned_clips(store: State<'_, SharedStore>) -> Result<Vec<LocalClip>, String> {
-    queries::list_clips(&store, None, None, None, true, 200)
+    queries::list_clips(&store, None, None, None, None, true, 200)
         .map(|v| v.into_iter().map(stored_to_local).collect())
         .map_err(|e| e.to_string())
 }
@@ -88,7 +88,7 @@ pub fn list_clips(
     content_type: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<LocalClip>, String> {
-    let clips = queries::list_clips(&store, source.as_deref(), limit, None, false, 50)
+    let clips = queries::list_clips(&store, source.as_deref(), limit, None, None, false, 50)
         .map_err(|e| e.to_string())?;
 
     // Optional client-side content_type filter (client-core query has no content_type filter yet).

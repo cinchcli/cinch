@@ -129,7 +129,10 @@ pub struct SnapGuideUpdate {
     pub anchor_y: i32,
     pub win_w: u32,
     pub win_h: u32,
-    pub within_snap: bool,
+    pub snap_x: bool,
+    pub snap_y: bool,
+    pub dist_x: f64,
+    pub dist_y: f64,
     pub visible: bool,
 }
 

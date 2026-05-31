@@ -459,7 +459,10 @@ export type SnapGuideUpdate = {
 	anchor_y: number,
 	win_w: number,
 	win_h: number,
-	within_snap: boolean,
+	snap_x: boolean,
+	snap_y: boolean,
+	dist_x: number,
+	dist_y: number,
 	visible: boolean,
 };
 
