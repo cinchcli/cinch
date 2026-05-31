@@ -49,7 +49,7 @@ fn imports_legacy_clips() {
 
     // Row reachable via queries.
     let rows =
-        client_core::store::queries::list_clips(&store, None, None, None, false, 10).unwrap();
+        client_core::store::queries::list_clips(&store, None, None, None, None, false, 10).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, "01HXOLD001");
 

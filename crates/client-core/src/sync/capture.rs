@@ -113,7 +113,7 @@ mod tests {
             "flush must make zero relay calls for a Local clip"
         );
         // The clip is untouched and still Local.
-        let rows = queries::list_clips(&s, None, Some(10), None, false, 100).unwrap();
+        let rows = queries::list_clips(&s, None, Some(10), None, None, false, 100).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].sync_state, SyncState::Local);
     }

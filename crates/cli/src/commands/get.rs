@@ -8,11 +8,14 @@ use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
-    /// ID prefix (minimum 4 characters).
-    pub id: String,
+    /// ID prefix (minimum 4 characters) or relative index (1 = latest, 2 = second latest, ...).
+    pub id_or_index: String,
     /// Print metadata only, not content.
     #[arg(long)]
     pub meta: bool,
+    /// Copy text content to system clipboard (TTY only).
+    #[arg(long)]
+    pub copy: bool,
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
@@ -25,11 +28,41 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     })?;
     crate::runtime::opportunistic_backfill(&ctx).await;
 
-    let id = client_core::store::prefix::resolve_clip_id(&ctx.store, &args.id)
-        .map_err(render_resolve_error)?;
-    let clip = client_core::store::queries::get_clip(&ctx.store, &id)
-        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?
-        .ok_or_else(|| ExitError::new(GENERIC_ERROR, "clip vanished after resolution", ""))?;
+    // Determine if input is a relative index (1-based) or a clip ID prefix.
+    let clip = if let Ok(index) = args.id_or_index.parse::<i64>() {
+        if index < 1 {
+            return Err(ExitError::new(
+                GENERIC_ERROR,
+                "index must be at least 1 (1 = latest)",
+                "",
+            ));
+        }
+        // Fetch the n-th latest clip using OFFSET.
+        let mut rows = client_core::store::queries::list_clips(
+            &ctx.store,
+            None,
+            Some(1),
+            Some(index - 1),
+            None,
+            false,
+            1,
+        )
+        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
+
+        rows.pop().ok_or_else(|| {
+            ExitError::new(
+                GENERIC_ERROR,
+                format!("no clip found at index {index}"),
+                "Run 'cinch clip list' to see available clips",
+            )
+        })?
+    } else {
+        let id = client_core::store::prefix::resolve_clip_id(&ctx.store, &args.id_or_index)
+            .map_err(render_resolve_error)?;
+        client_core::store::queries::get_clip(&ctx.store, &id)
+            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?
+            .ok_or_else(|| ExitError::new(GENERIC_ERROR, "clip vanished after resolution", ""))?
+    };
 
     if args.meta {
         println!("id:           {}", clip.id);
@@ -44,17 +77,51 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         return Ok(());
     }
 
-    if let Some(bytes) = clip.content {
-        write_to_stdout(&bytes)?;
+    let content_bytes = if let Some(bytes) = clip.content {
+        bytes
     } else if let Some(path) = clip.media_path {
         let abs = client_core::store::default_media_root()
             .map_err(|e| ExitError::new(GENERIC_ERROR, e.to_string(), ""))?
             .join(path);
-        let data = std::fs::read(&abs)
-            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("read media: {e}"), ""))?;
-        write_to_stdout(&data)?;
+        std::fs::read(&abs)
+            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("read media: {e}"), ""))?
+    } else {
+        Vec::new()
+    };
+
+    if !content_bytes.is_empty() {
+        write_to_stdout(&content_bytes)?;
+
+        if args.copy && !clip.content_type.starts_with("image") {
+            if let Ok(text) = String::from_utf8(content_bytes) {
+                copy_text_to_clipboard(&text);
+            }
+        } else if args.copy && clip.content_type.starts_with("image") {
+            #[cfg(target_os = "macos")]
+            {
+                if let Err(e) = crate::macos_pasteboard::write_png(&content_bytes) {
+                    eprintln!("Warning: image clipboard write failed: {}", e);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                eprintln!("Warning: --copy for images is only supported on macOS.");
+            }
+        }
     }
+
     Ok(())
+}
+
+fn copy_text_to_clipboard(text: &str) {
+    use arboard::Clipboard;
+    if let Ok(mut cb) = Clipboard::new() {
+        if let Err(e) = cb.set_text(text) {
+            eprintln!("Warning: clipboard write failed: {}", e);
+        }
+    } else {
+        eprintln!("Warning: could not open system clipboard");
+    }
 }
 
 fn write_to_stdout(bytes: &[u8]) -> Result<(), ExitError> {
@@ -92,7 +159,34 @@ pub fn render_resolve_error(err: ResolveError) -> ExitError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
     use client_core::store::models::MatchInfo;
+
+    #[derive(Debug, Parser)]
+    #[command(no_binary_name = true)]
+    struct GetArgsHarness {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    #[test]
+    fn test_parse_index() {
+        let harness = GetArgsHarness::try_parse_from(["1"]).expect("parse ok");
+        assert_eq!(harness.args.id_or_index, "1");
+        assert!(!harness.args.copy);
+    }
+
+    #[test]
+    fn test_parse_id_prefix() {
+        let harness = GetArgsHarness::try_parse_from(["01HXXXXX"]).expect("parse ok");
+        assert_eq!(harness.args.id_or_index, "01HXXXXX");
+    }
+
+    #[test]
+    fn test_parse_with_copy() {
+        let harness = GetArgsHarness::try_parse_from(["1", "--copy"]).expect("parse ok");
+        assert!(harness.args.copy);
+    }
 
     fn mk_candidate(id: &str, source: &str) -> MatchInfo {
         MatchInfo {

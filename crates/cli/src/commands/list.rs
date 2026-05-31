@@ -168,7 +168,7 @@ fn parse_rfc3339(s: &str) -> Option<SystemTime> {
 }
 
 fn render_table(recs: &[ListRecord], now: SystemTime) -> String {
-    // Layout: source(sw)  type(4)  age(3)  preview
+    // Layout: id(12)  source(sw)  type(4)  age(3)  preview
     // sw = max(8, longest normalized source name) so the table aligns to the
     // widest device shown. Mirrors the picker format in cinch.vim.
     let sw = source_width(recs, 8);
@@ -183,8 +183,10 @@ fn render_table(recs: &[ListRecord], now: SystemTime) -> String {
         };
         let src = normalize_source(&r.source_name);
         let typ = compact_type(&r.content_type);
+        let id_prefix = if r.id.len() >= 12 { &r.id[..12] } else { &r.id };
         out.push_str(&format!(
-            "{:<sw$}  {:<4}  {:<3}  {}\n",
+            "{:<12}  {:<sw$}  {:<4}  {:<3}  {}\n",
+            id_prefix,
             src,
             typ,
             age,
@@ -296,6 +298,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         &ctx.store,
         local_from.as_deref(),
         Some(args.limit as i64),
+        None,        // offset: default to 0
         None,        // since_ms: not yet exposed as a CLI flag
         args.pinned, // pinned_only: propagated from --pinned flag
         args.limit as i64,
@@ -661,8 +664,27 @@ mod tests {
         assert!(out.contains("desktop"), "missing device name: {}", out);
         assert!(out.contains("text"), "missing type column: {}", out);
         assert!(out.contains("hello"), "missing preview: {}", out);
-        // Verifies the layout: source(8) + 2sp + type(4) + 2sp + age(3) + 2sp + preview.
-        assert_eq!(out, "desktop   text  5m   hello\n");
+        // Verifies the layout: id(12) + 2sp + source(8) + 2sp + type(4) + 2sp + age(3) + 2sp + preview.
+        assert_eq!(out, "c1            desktop   text  5m   hello\n");
+    }
+
+    #[test]
+    fn render_table_truncates_long_ids() {
+        let recs = vec![ListRecord {
+            id: "verylongidprefix12345".into(),
+            source: "s".into(),
+            source_name: "src".into(),
+            content_type: "text".into(),
+            size_bytes: 0,
+            created_at: "2026-05-13T08:00:00Z".into(),
+            preview: "p".into(),
+            content: None,
+            image_metadata: None,
+        }];
+        let now = parse_rfc3339("2026-05-13T08:00:00Z").unwrap();
+        let out = render_table(&recs, now);
+        // Should only show the first 12 chars: "verylongidpr"
+        assert!(out.starts_with("verylongidpr"));
     }
 
     #[test]

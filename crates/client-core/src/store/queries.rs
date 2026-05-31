@@ -54,6 +54,7 @@ pub fn list_clips(
     store: &Store,
     from: Option<&str>,
     limit: Option<i64>,
+    offset: Option<i64>,
     since_ms: Option<i64>,
     pinned_only: bool,
     default_limit: i64,
@@ -74,8 +75,9 @@ pub fn list_clips(
     if pinned_only {
         sql.push_str(" AND pinned = 1");
     }
-    sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+    sql.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
     binds.push(Box::new(limit.unwrap_or(default_limit)));
+    binds.push(Box::new(offset.unwrap_or(0)));
 
     store.with_conn(|conn| {
         let mut stmt = conn.prepare(&sql)?;
@@ -762,6 +764,37 @@ mod tests {
     }
 
     // ── Task 8: get_last_flush_at / set_last_flush_at ───────────────────────
+
+    #[test]
+    fn list_clips_honors_offset() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, ts: i64| StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            source_key: None,
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
+            content_type: "text".into(),
+            content: Some(b"x".to_vec()),
+            media_path: None,
+            byte_size: 1,
+            created_at: ts,
+            pinned: false,
+            pinned_at: None,
+            sync_state: SyncState::Synced,
+        };
+        for (id, ts) in [("a", 10), ("b", 20), ("c", 30)] {
+            insert_clip(&store, &make(id, ts)).unwrap();
+        }
+        // Descending order: c(30), b(20), a(10)
+        let rows = list_clips(&store, None, Some(1), Some(1), None, false, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "b");
+
+        let rows = list_clips(&store, None, Some(1), Some(2), None, false, 10).unwrap();
+        assert_eq!(rows[0].id, "a");
+    }
 
     #[test]
     fn last_flush_at_roundtrips() {
