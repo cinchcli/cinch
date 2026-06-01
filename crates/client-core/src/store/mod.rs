@@ -5,6 +5,7 @@ pub mod models;
 pub mod prefix;
 pub mod queries;
 pub mod schema;
+pub mod settings;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -12,7 +13,6 @@ use std::sync::Mutex;
 
 pub struct Store {
     conn: Mutex<Connection>,
-    path: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -44,7 +44,6 @@ impl Store {
         schema::apply_migrations(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
-            path: path.to_path_buf(),
         };
         // One-shot import from the desktop's legacy SQLite if present.
         // Idempotent; skipped for in-memory test stores.
@@ -54,10 +53,6 @@ impl Store {
             }
         }
         Ok(store)
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     pub(crate) fn with_conn<R>(
@@ -99,17 +94,17 @@ mod tests {
 
     #[test]
     fn opens_in_memory_and_runs_migrations() {
-        let store = Store::open(Path::new(":memory:")).expect("open");
+        let store = Store::open(Path::new(":memory:")).unwrap();
         let version: i64 = store
-            .with_conn(|c| {
-                c.query_row(
+            .with_conn(|conn| {
+                conn.query_row(
                     "SELECT CAST(value AS INTEGER) FROM meta WHERE key='schema_version'",
                     [],
                     |r| r.get(0),
                 )
             })
-            .expect("read schema_version");
-        assert_eq!(version, 5);
+            .unwrap();
+        assert_eq!(version, schema::CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -123,6 +118,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text/plain".into(),
             content: Some(b"hello".to_vec()),
             media_path: None,
@@ -153,6 +149,7 @@ mod tests {
                     source_app_id: None,
                     source_app: None,
                     source_url: None,
+                    label: None,
                     content_type: "text/plain".into(),
                     content: Some(body.as_bytes().to_vec()),
                     media_path: None,
@@ -165,7 +162,7 @@ mod tests {
             )
             .unwrap();
         }
-        let hits = super::queries::search_clips(&store, "hello", 10).unwrap();
+        let hits = super::queries::search_clips(&store, "hello", 10, None).unwrap();
         assert_eq!(hits.len(), 2);
     }
 
@@ -183,6 +180,7 @@ mod tests {
                     source_app_id: None,
                     source_app: None,
                     source_url: None,
+                    label: None,
                     content_type: "text/plain".into(),
                     content: Some(b"x".to_vec()),
                     media_path: None,
