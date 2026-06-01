@@ -4,6 +4,8 @@
 
 use super::{Store, StoreError};
 use rusqlite::{params, OptionalExtension};
+#[cfg(feature = "specta")]
+use specta::Type;
 
 /// Read a raw setting value, or `None` if unset.
 pub fn get_setting(store: &Store, key: &str) -> Result<Option<String>, StoreError> {
@@ -43,8 +45,15 @@ pub fn list_settings_with_prefix(
     prefix: &str,
 ) -> Result<Vec<(String, String)>, StoreError> {
     store.with_conn(|conn| {
-        let pattern = format!("{prefix}%");
-        let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key LIKE ?1")?;
+        // Escape LIKE metacharacters so a literal prefix is always matched.
+        // Backslash must be replaced first to avoid double-escaping.
+        let escaped = prefix
+            .replace('\\', r"\\")
+            .replace('%', r"\%")
+            .replace('_', r"\_");
+        let pattern = format!("{escaped}%");
+        let mut stmt =
+            conn.prepare("SELECT key, value FROM settings WHERE key LIKE ?1 ESCAPE '\\'")?;
         let rows = stmt
             .query_map(params![pattern], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -53,9 +62,6 @@ pub fn list_settings_with_prefix(
         Ok(rows)
     })
 }
-
-#[cfg(feature = "specta")]
-use specta::Type;
 
 /// Per-source auto-copy preference (frontend-facing).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -301,5 +307,33 @@ mod tests {
         assert_eq!(window_placement(&s).unwrap(), None);
         set_window_placement(&s, "{\"x\":1}").unwrap();
         assert_eq!(window_placement(&s).unwrap(), Some("{\"x\":1}".to_string()));
+    }
+
+    #[test]
+    fn list_settings_with_prefix_treats_metacharacters_literally() {
+        let s = store();
+        set_setting(&s, "foo%bar", "a").unwrap();
+        set_setting(&s, "fooXbar", "b").unwrap();
+        let rows = list_settings_with_prefix(&s, "foo%").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "foo%bar");
+    }
+
+    #[test]
+    fn all_source_alert_settings_lists_rows() {
+        let s = store();
+        set_source_alert_enabled(&s, "remote:b", false).unwrap();
+        let rows = all_source_alert_settings(&s).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].source, "remote:b");
+        assert!(!rows[0].alert_enabled);
+    }
+
+    #[test]
+    fn send_shortcut_round_trip() {
+        let s = store();
+        assert_eq!(send_shortcut(&s).unwrap(), None);
+        set_send_shortcut(&s, "Cmd+Shift+S").unwrap();
+        assert_eq!(send_shortcut(&s).unwrap(), Some("Cmd+Shift+S".to_string()));
     }
 }

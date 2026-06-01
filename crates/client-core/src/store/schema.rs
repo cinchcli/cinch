@@ -225,9 +225,9 @@ fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
-    // Generic key/value app settings, shared by the desktop and CLI. Replaces
-    // the desktop's separate `com.cinch.app/clips.db` settings table so both
-    // front-ends read one store. See store::settings for key conventions.
+    // Generic key/value app settings, shared by the desktop and CLI. Will replace
+    // the desktop's separate settings table once the consolidation lands. See
+    // store::settings for key conventions.
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS settings (
