@@ -55,36 +55,6 @@ pub struct LocalClip {
     pub received_at: i64,
 }
 
-impl LocalClip {
-    /// Convert from the legacy `store::models::LocalClip` that `ws.rs` and
-    /// `clipboard/monitor.rs` still produce (Task 4.3 will remove those callers).
-    pub fn from_legacy(l: crate::store::models::LocalClip) -> Self {
-        Self {
-            id: l.id,
-            user_id: l.user_id,
-            content: l.content,
-            content_type: normalize_content_type(l.content_type),
-            source: l.source,
-            source_app_id: None,
-            source_app: None,
-            source_url: None,
-            label: l.label,
-            byte_size: l.byte_size,
-            media_path: l.media_path,
-            created_at: l.created_at,
-            synced: l.synced,
-            sync_state: if l.synced {
-                "synced".to_string()
-            } else {
-                "local".to_string()
-            },
-            is_pinned: l.is_pinned,
-            pin_note: l.pin_note,
-            received_at: l.received_at,
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // SourceInfo — returned to the frontend; matches the old desktop shape.
 // client_core::store::models::SourceRow has the same fields (source,
@@ -107,13 +77,9 @@ pub struct SourceInfo {
 /// so we collapse MIME prefixes here — at the Rust → frontend boundary —
 /// rather than spreading the defense across every React component.
 pub(crate) fn normalize_content_type(ct: String) -> String {
-    if ct.starts_with("image") {
-        return "image".to_string();
-    }
-    if ct.starts_with("text") {
-        return "text".to_string();
-    }
-    ct
+    // Single source of truth lives in client-core; kept as a thin wrapper
+    // because this is the documented Rust→frontend boundary helper.
+    client_core::rest::normalize_content_type(&ct)
 }
 
 /// Convert a `StoredClip` (client-core, ms timestamps) to a `LocalClip`
@@ -136,7 +102,7 @@ fn stored_to_local(c: StoredClip) -> LocalClip {
         source_app_id: c.source_app_id,
         source_app: c.source_app,
         source_url: c.source_url,
-        label: String::new(),
+        label: c.label.unwrap_or_else(|| "".to_string()),
         byte_size: c.byte_size,
         media_path: c.media_path,
         created_at: created_at_secs,
@@ -189,22 +155,6 @@ fn resolve_active_creds(mc: &State<'_, MultiConfigHandle>) -> Result<(String, St
 }
 
 #[cfg(test)]
-pub(super) mod test_helpers {
-    use crate::store::db::Database;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    pub fn test_db() -> Database {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let tmp: PathBuf =
-            std::env::temp_dir().join(format!("cinch-cmd-test-{}-{}.db", std::process::id(), n));
-        let _ = std::fs::remove_file(&tmp);
-        Database::open(&tmp).unwrap()
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use client_core::store::models::SyncState;
@@ -218,6 +168,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".to_string(),
             content: Some(b"hello".to_vec()),
             media_path: None,
@@ -242,6 +193,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "image".to_string(),
             content: None,
             media_path: Some("media/shot.png".to_string()),
@@ -265,6 +217,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".to_string(),
             content: Some(b"hi".to_vec()),
             media_path: None,
@@ -304,6 +257,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text/plain".to_string(),
             content: Some(b"legacy".to_vec()),
             media_path: None,
@@ -333,6 +287,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "image".into(),
                 content: Some(png.clone()),
                 media_path: None,
@@ -361,6 +316,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "image/png".into(),
                 content: Some(png.clone()),
                 media_path: None,

@@ -161,7 +161,6 @@ describe('App', () => {
         fireEvent.keyDown(window, { key: 'Enter' });
 
         await waitFor(() => expect(input).toHaveValue(''));
-        expect(invoke).toHaveBeenCalledWith('mark_clip_copied', { id: 'c1' });
     });
 
     it('moves selection up with Ctrl+K', async () => {

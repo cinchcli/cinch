@@ -10,7 +10,6 @@ use super::{
 };
 use crate::clipboard::ClipboardService;
 use crate::protocol::MultiConfigHandle;
-use crate::store::db::Database;
 use crate::LocalPusherHandle;
 use crate::SharedStore;
 use client_core::store::queries;
@@ -84,25 +83,12 @@ pub async fn unpin_clip(
 #[specta::specta]
 pub fn list_clips(
     store: State<'_, SharedStore>,
-    source: Option<String>,
-    content_type: Option<String>,
+    query: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<LocalClip>, String> {
-    let clips = queries::list_clips(&store, source.as_deref(), limit, None, None, false, 50)
-        .map_err(|e| e.to_string())?;
-
-    // Optional client-side content_type filter (client-core query has no content_type filter yet).
-    let filtered: Vec<LocalClip> = clips
-        .into_iter()
-        .map(stored_to_local)
-        .filter(|c| {
-            content_type
-                .as_deref()
-                .map(|ct| c.content_type == ct)
-                .unwrap_or(true)
-        })
-        .collect();
-    Ok(filtered)
+    queries::query_clips(&store, &query.unwrap_or_default(), limit.unwrap_or(50))
+        .map(|v| v.into_iter().map(stored_to_local).collect())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -112,7 +98,7 @@ pub fn search_clips(
     query: String,
     limit: Option<i64>,
 ) -> Result<Vec<LocalClip>, String> {
-    queries::search_clips(&store, &query, limit.unwrap_or(50))
+    queries::search_clips(&store, &query, limit.unwrap_or(50), None)
         .map(|v| v.into_iter().map(stored_to_local).collect())
         .map_err(|e| e.to_string())
 }
@@ -176,16 +162,6 @@ pub async fn send_clip(pusher: State<'_, LocalPusherHandle>, id: String) -> Resu
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())
-}
-
-// ---------------------------------------------------------------------------
-// mark_clip_copied — TODO(phase 5): client-core has no copied_at column yet.
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-#[specta::specta]
-pub fn mark_clip_copied(db: State<'_, Arc<Database>>, id: String) -> Result<(), String> {
-    db.mark_clip_copied(&id, chrono::Utc::now().timestamp())
 }
 
 // ---------------------------------------------------------------------------
@@ -273,17 +249,11 @@ pub async fn save_image_to_file(
 /// unknown payloads: the desktop push pipeline normalises to PNG, so this
 /// is the safest fallback for clipboard images that lack a clearer signal.
 fn detect_image_ext(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        "png"
-    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        "jpg"
-    } else if bytes.starts_with(b"GIF8") {
-        "gif"
-    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        "webp"
-    } else {
-        "png"
-    }
+    // Single source of truth for format sniffing; default to "png" since the
+    // desktop push pipeline normalises clipboard images to PNG.
+    client_core::media::detect_image_format(bytes)
+        .map(|f| f.ext())
+        .unwrap_or("png")
 }
 
 /// Build the default filename suggested in the save dialog. User can edit it.

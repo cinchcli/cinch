@@ -12,7 +12,6 @@ mod paths;
 pub mod protocol;
 mod retention;
 mod startup;
-mod store;
 mod sync_status;
 pub mod telemetry;
 mod tray;
@@ -68,7 +67,6 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::get_source_alert_enabled,
             commands::clips::set_source_alert_enabled,
             commands::clips::get_all_source_alert_settings,
-            commands::clips::mark_clip_copied,
             commands::clips::copy_clip_to_clipboard,
             commands::clips::copy_image_to_clipboard,
             commands::clips::save_image_to_file,
@@ -154,17 +152,6 @@ pub fn run() {
         telemetry::Event::new("desktop.app.opened").with("is_configured", is_configured),
     );
     let active_relay_id_seed = multi_config.active_relay_id.clone().unwrap_or_default();
-
-    // Open local database
-    let db_path = paths::legacy_db_path();
-
-    let db = match store::db::Database::open(&db_path) {
-        Ok(db) => Arc::new(db),
-        Err(e) => {
-            eprintln!("ERROR: failed to open database: {}", e);
-            std::process::exit(1);
-        }
-    };
 
     let ws_relay_url = config.relay_url.clone();
     let ws_token = config.token.clone();
@@ -291,7 +278,6 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(db.clone())
         .manage(multi_config_handle.clone())
         .manage(device_cache_handle.clone())
         .manage(ws_abort_handle.clone())

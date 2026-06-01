@@ -5,9 +5,8 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { commands, events } from './bindings';
 import type { LocalClip, SourceInfo, Device } from './bindings';
 import { unwrap } from './lib/tauri';
-import { buildTargets, fuzzySearch, parseFromToken } from './lib/fuzzy';
 import { groupByTimeBucket } from './lib/timeBuckets';
-import { applyClipFilter, type ClipFilter } from './lib/clipFilters';
+import { type ClipFilter } from './lib/clipFilters';
 import { physicalKey } from './lib/keyboard';
 import {
   loadMachineTagColors,
@@ -239,12 +238,19 @@ function App() {
         setClips(pinned);
         return;
       }
-      const results = await unwrap(commands.listClips(selectedSource, null, 500));
+      let finalQuery = debouncedQuery;
+      if (selectedSource) {
+        finalQuery = `from:${selectedSource} ${finalQuery}`.trim();
+      }
+      if (activeFilter !== 'all') {
+        finalQuery = `type:${activeFilter} ${finalQuery}`.trim();
+      }
+      const results = await unwrap(commands.listClips(finalQuery, 500));
       setClips(applyInboxRecency(results));
     } catch (e) {
       console.error('failed to load clips:', e);
     }
-  }, [activePanel, selectedSource, applyInboxRecency]);
+  }, [activePanel, selectedSource, debouncedQuery, activeFilter, applyInboxRecency]);
 
   const refreshSources = useCallback(async () => {
     try {
@@ -383,9 +389,7 @@ function App() {
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);
-    void unwrap(commands.markClipCopied(clip.id))
-      .then(refreshClips)
-      .catch((e) => console.error('failed to mark clip copied:', e));
+    void refreshClips();
     void commands.focusPreviousApp();
   }, [refreshClips, showToast]);
 
@@ -436,25 +440,6 @@ function App() {
 
   const totalClips = sources.reduce((sum, s) => sum + s.clip_count, 0);
 
-  // Parse from:<nickname> + residual fuzzy term
-  const parsed = useMemo(() => parseFromToken(debouncedQuery), [debouncedQuery]);
-
-  const sourceFilter = useMemo(() => {
-    if (!parsed.from) return null;
-    const nick = parsed.from.toLowerCase();
-    const localDisplayNameMatch = Object.entries(displayNames).find(
-      ([source, name]) =>
-        name.toLowerCase() === nick ||
-        source.replace(/^remote:/, '').toLowerCase() === nick,
-    );
-    if (localDisplayNameMatch) return localDisplayNameMatch[0];
-
-    const matched = devices.find(
-      d => (d.nickname?.toLowerCase() === nick) || (d.hostname?.toLowerCase() === nick),
-    );
-    return matched ? matched.source_key : '__no_match__';
-  }, [parsed.from, displayNames, devices]);
-
   // Build source -> nickname map for SourcePill and from: filter
   const nicknameBySource = useMemo(() => {
     const map: Record<string, string> = { ...displayNames };
@@ -471,29 +456,11 @@ function App() {
     [devices, sources, displayNames, tagColors],
   );
 
-  const filteredClips = useMemo(() => {
-    // 1. Apply source filter (from:<nickname>)
-    let pool = clips;
-    if (sourceFilter === '__no_match__') return [];
-    if (sourceFilter) pool = pool.filter(c => c.source === sourceFilter);
-
-    // 2. Fuzzy-rank the residual query against content + nickname
-    const targets = buildTargets(pool, nicknameBySource, activePanel === 'pinned');
-    return fuzzySearch(targets, parsed.residual);
-  }, [clips, sourceFilter, parsed.residual, nicknameBySource, activePanel]);
-
-  const typeFilteredClips = useMemo(() => {
-    return applyClipFilter(filteredClips, activeFilter);
-  }, [filteredClips, activeFilter]);
-
-  // Arrow-key nav must follow what the user sees. The inbox view groups
-  // by time bucket (Today → Yesterday → This week → Older), so flatten
-  // in that order for navigation. Pinned view groups by note in input
-  // order, which already matches `filteredClips`.
+  // Use results from Rust directly — no more client-side fuzzy filtering!
   const navOrderClips = useMemo(() => {
-    if (activePanel === 'pinned') return filteredClips;
-    return groupByTimeBucket(typeFilteredClips).flatMap((g) => g.items);
-  }, [filteredClips, typeFilteredClips, activePanel]);
+    if (activePanel === 'pinned') return clips;
+    return groupByTimeBucket(clips).flatMap((g) => g.items);
+  }, [clips, activePanel]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -717,7 +684,7 @@ function App() {
           />
         ) : activePanel === 'pinned' ? (
           <PinnedPanel
-            clips={filteredClips}
+            clips={clips}
             selected={selectedClip}
             onSelect={setSelectedClip}
             onCopy={copyClip}
@@ -741,7 +708,7 @@ function App() {
           <>
             <ClipList
               ref={clipListRef}
-              clips={typeFilteredClips}
+              clips={clips}
               selected={selectedClip}
               onSelect={setSelectedClip}
               onCopy={copyClip}
