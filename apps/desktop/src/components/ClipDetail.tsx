@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import type { LocalClip } from '../bindings';
 import { C, formatBytes } from '../design';
 import { parseColorClip, type ParsedColorClip } from '../lib/colorClip';
-import { parseFromToken } from '../lib/fuzzy';
 import type { MachineTagColorMap } from '../lib/machineTagColors';
 import { SourcePill } from './SourcePill';
 
@@ -50,7 +49,7 @@ export function ClipDetail({
   // stays in mono so whitespace and punctuation read correctly.
   const isProse = !isJsonish && clip.content_type === 'text';
   const body = isJsonish ? tryPrettyJson(clip.content) : clip.content;
-  const highlightQuery = parseFromToken(searchQuery ?? '').residual;
+  const highlightQuery = (searchQuery ?? '').trim();
 
   const stamp = new Date(clip.created_at * 1000).toLocaleString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -67,6 +66,23 @@ export function ClipDetail({
             nickname={sourceDisplayNames[clip.source]}
             colorSlot={tagColors[clip.source]}
           />
+          {clip.label && clip.label.length > 0 && (
+            <>
+              <span style={{ color: C.t4 }}>·</span>
+              <span style={{
+                background: 'rgba(255, 107, 107, 0.1)',
+                color: '#ff6b6b',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '1px 8px',
+                borderRadius: 999,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}>
+                {clip.label}
+              </span>
+            </>
+          )}
           <span style={{ color: C.t4 }}>·</span>
           <span>{stamp}</span>
         </div>
