@@ -38,27 +38,34 @@ const unsub = events.clipReceived.listen((e) => console.log(e.payload));
 
 Never use `listen<T>("event-name", cb)` from `@tauri-apps/api/event` — grep for it; zero occurrences is the invariant.
 
-## Cross-repo dependency changes (cinch-core)
+## Cross-crate dependency changes (client-core)
 
-Desktop pulls `cinchcli-core` from crates.io. The parent CLAUDE.md states the
-"no sibling-checkout invariant": this repo must build standalone, since CI
-and fresh clones only check out `desktop/`. Anything that breaks that
-invariant turns `main` red on the next push.
+Desktop depends on `client-core` through an in-repo path dep, declared in
+`src-tauri/Cargo.toml` as
+`client-core = { package = "cinchcli-core", path = "../../../crates/client-core", features = ["specta"] }`.
+This is a single Cargo workspace: the CLI, the desktop backend, and the
+shared library all build from the same checkout. There is no crates.io
+round-trip and no version bump to coordinate — editing
+`crates/client-core/` and rebuilding the workspace is the whole flow.
 
-When a desktop feature needs an unpublished cinch-core change, the order is:
+When a desktop feature needs a `client-core` change:
 
-1. Land the change in `cinchcli/cinch-core`, bump `crates/client-core/Cargo.toml`, and `cargo publish -p cinchcli-core`.
-2. **Then** bump `src-tauri/Cargo.toml`'s `cinchcli-core` version in a separate desktop commit.
+1. Edit `crates/client-core/` directly (add the API, run its tests).
+2. Use it from `src-tauri/`. `cargo build --workspace` resolves the path
+   dep with no publish or version bump.
 
-Do NOT, on the desktop repo:
+Do NOT:
 
-- Add a `[patch.crates-io]` block with a path that escapes the repo (`../../cinch-core/...`). The path resolves on the maintainer's multi-repo checkout but not in CI or on any other machine, and Cargo check fails with `No such file or directory`.
-- Bump a `version =` to a number that is not yet on crates.io. Cargo cannot resolve it and every contributor's build breaks.
-- Push a desktop change that compiles only because a local patch override is masking a missing published version. A green local `cargo check` under a `[patch.crates-io]` override is not a signal that CI will pass — verify against the published state (drop the patch block, then `cargo check`) before pushing.
+- Switch the dep back to a crates.io `version = "..."` — the root
+  `CLAUDE.md` invariant is "internal path deps only." A published
+  version would freeze the desktop at whatever was last pushed to
+  crates.io and silently mask in-tree `client-core` edits.
+- Add a `[patch.crates-io]` block. It is unnecessary in a path-dep
+  workspace and only reintroduces the escaping-path failure mode.
 
-If you need to run desktop locally against an unpublished cinch-core during
-development, keep the override out of `Cargo.toml`. Use an uncommitted
-`.cargo/config.toml` or a worktree-local `Cargo.toml` patch you never `git add`.
+If a wire/`.proto` field changes in `crates/client-core/proto/`, run
+`make generate` from the repo root so the Go bindings and specta
+TypeScript stay in sync — see the root `CLAUDE.md` "Wire schema" section.
 
 ## Content Type Classification
 
@@ -68,7 +75,7 @@ The desktop's clipboard polling pipeline classifies text clips before pushing:
 - `ContentType` derives `Copy`, so the classified value moves cleanly into the spawned async closure.
 - The classified value flows into both `pusher.push_text(.., content_type)` (wire) and the `clip_received_stub(.., content_type.as_wire())` event payload (frontend).
 
-Wire vocabulary is exactly 4 strings: `text`, `code`, `url`, `image`. The frontend (`ClipCard.tsx`, `ClipDetail.tsx`, `icons.tsx`) dispatches on these. Do not introduce new values like `json` or `error` on the desktop side — `cinch-core/proto/cinch/v1/clips.proto` is the source of truth, and the wire field is open `string` only for backwards compatibility. Adding a new logical type requires a coordinated cinch-core change + crates.io publish.
+Wire vocabulary is exactly 4 strings: `text`, `code`, `url`, `image`. The frontend (`ClipList.tsx`, `ClipDetail.tsx`, `icons.tsx`) dispatches on these. Do not introduce new values like `json` or `error` on the desktop side — `crates/client-core/proto/cinch/v1/clips.proto` is the source of truth, and the wire field is open `string` only for backwards compatibility. Adding a new logical type requires a coordinated proto change + `make generate` (regenerating the Go and specta bindings) plus matching relay updates.
 
 `store::models::LocalClip` (the legacy type still derived in `models.rs`) is being phased out. New code should use `commands::clips::LocalClip` (Specta-exported). The legacy type is kept alive only because `sync_status.rs` and a few tests still depend on it.
 

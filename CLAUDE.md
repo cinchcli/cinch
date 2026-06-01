@@ -2,32 +2,6 @@
 
 This file provides guidance to Claude Code when working with the cinch monorepo.
 
-## Repository Layout
-
-Single Cargo workspace + Tauri app + agent worktree convention.
-
-```
-cinch/main/                          # main worktree
-├── Cargo.toml                       # [workspace] root
-├── crates/
-│   ├── client-core/                 # shared lib (proto, crypto, http, ws, store)
-│   └── cli/                         # cinch CLI binary
-├── apps/desktop/                    # macOS Tauri app
-│   ├── src-tauri/                   # workspace member
-│   └── src/                         # React + TS frontend
-├── go/cinch/v1/                     # generated Go bindings (canonical for relay)
-├── proto -> crates/client-core/proto
-├── testdata/wire-vectors.json
-├── scripts/
-│   ├── new-agent-worktree.sh
-│   ├── clean-agent-worktree.sh
-│   └── check-version-parity.sh
-└── .github/workflows/
-    ├── ci.yml
-    ├── publish.yml                  # (Phase 4)
-    └── proto-sync-relay.yml         # (Phase 2)
-```
-
 **Agent worktree convention:**
 
 ```bash
