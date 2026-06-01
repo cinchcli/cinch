@@ -102,7 +102,7 @@ fn stored_to_local(c: StoredClip) -> LocalClip {
         source_app_id: c.source_app_id,
         source_app: c.source_app,
         source_url: c.source_url,
-        label: c.label.unwrap_or_else(|| "".to_string()),
+        label: c.label.unwrap_or_default(),
         byte_size: c.byte_size,
         media_path: c.media_path,
         created_at: created_at_secs,

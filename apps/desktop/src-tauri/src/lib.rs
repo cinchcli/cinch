@@ -157,10 +157,10 @@ pub fn run() {
     let ws_token = config.token.clone();
     let config_for_auth_seed = config.clone();
 
-    // ── Phase 4: open shared client-core Store at ~/.cinch/store.db ──────────
-    // This is the unified store shared between the desktop and the CLI writer.
-    // The legacy com.cinch.app/clips.db remains in use by existing commands
-    // (Task 4.2 will migrate those commands to use this store directly).
+    // ── Shared client-core Store at ~/.cinch/store.db ───────────────────────
+    // The single store shared between the desktop and the CLI writer. The
+    // desktop now runs entirely on this store; the legacy per-app SQLite DB
+    // and its store::db module have been removed.
     let shared_store: SharedStore = match client_core::store::default_db_path() {
         Ok(path) => match client_core::store::Store::open(&path) {
             Ok(s) => {
@@ -444,11 +444,10 @@ pub fn run() {
                 // Show dashboard on launch
                 show_on_active_monitor(handle);
 
-                // Note: delta-sync of the legacy com.cinch.app/clips.db has been removed.
+                // Note: delta-sync of the legacy per-app clips.db has been removed.
                 // The client_core::sync::Writer (started above, before the Tauri builder)
                 // handles all REST backfill and live WS writes into the shared client-core
-                // store (~/.cinch/store.db). Task 4.3 will delete ws.rs once that path
-                // is confirmed stable in production.
+                // store (~/.cinch/store.db).
                 let _ = (ws_relay_url, ws_token); // consumed by Writer above
 
                 // Reflect the boot-time writer result into ws_status + tray. startup.rs
