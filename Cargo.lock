@@ -672,7 +672,6 @@ dependencies = [
 name = "cinch-cli"
 version = "0.4.2"
 dependencies = [
- "anyhow",
  "arboard",
  "base64 0.22.1",
  "chrono",
@@ -696,6 +695,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "ulid",
  "uuid",
  "wiremock",
  "zip 2.4.2",
@@ -705,15 +705,12 @@ dependencies = [
 name = "cinch-desktop"
 version = "0.4.2"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "cinch-cli",
  "cinchcli-core",
  "dirs 6.0.0",
  "env_logger",
- "futures-util",
- "hkdf",
  "image",
  "log",
  "notify",
@@ -721,7 +718,6 @@ dependencies = [
  "objc",
  "reqwest 0.12.28",
  "rusqlite",
- "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -739,12 +735,9 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-specta",
  "tokio",
- "tokio-tungstenite",
- "ulid",
  "url",
  "uuid",
  "wiremock",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -752,6 +745,7 @@ name = "cinchcli-core"
 version = "0.4.2"
 dependencies = [
  "aes-gcm",
+ "async-trait",
  "base64 0.22.1",
  "bip39",
  "chrono",
@@ -766,6 +760,7 @@ dependencies = [
  "prost-build",
  "reqwest 0.12.28",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -6085,11 +6080,9 @@ checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
 dependencies = [
  "futures-util",
  "log",
- "native-tls",
  "rustls",
  "rustls-pki-types",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls",
  "tungstenite",
  "webpki-roots 0.26.11",
@@ -6354,7 +6347,6 @@ dependencies = [
  "http",
  "httparse",
  "log",
- "native-tls",
  "rand",
  "rustls",
  "rustls-pki-types",
