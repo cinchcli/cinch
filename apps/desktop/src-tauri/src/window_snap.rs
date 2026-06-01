@@ -76,9 +76,6 @@ pub struct Placement {
     pub anchored: bool,
 }
 
-/// Settings key for the persisted placement JSON.
-pub const PLACEMENT_KEY: &str = "window_placement";
-
 fn monitor_at(monitors: &[MonitorBox], px: f64, py: f64) -> Option<&MonitorBox> {
     monitors.iter().find(|m| {
         px >= m.x as f64 && px < (m.x + m.w) as f64 && py >= m.y as f64 && py < (m.y + m.h) as f64
