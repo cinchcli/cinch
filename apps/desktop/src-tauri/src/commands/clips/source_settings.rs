@@ -1,88 +1,85 @@
-use std::sync::Arc;
-
 use tauri::State;
 
 use crate::clipboard::ClipboardService;
-use crate::store::db::{Database, SourceAlertSetting, SourceSetting};
+use crate::SharedStore;
+use client_core::store::settings;
+use client_core::store::settings::{SourceAlertSetting, SourceSetting};
 
 // ---------------------------------------------------------------------------
-// Source-level settings — still backed by legacy Database.
-// client-core has alert_prefs but not auto_copy; keeping both on the legacy
-// store avoids half-migration. TODO(phase 5): move to client-core queries.
+// Source-level settings — backed by client-core SharedStore (settings table).
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_source_auto_copy(db: State<'_, Arc<Database>>, source: String) -> Result<bool, String> {
-    db.is_source_auto_copy(&source)
+pub fn get_source_auto_copy(store: State<'_, SharedStore>, source: String) -> Result<bool, String> {
+    settings::is_source_auto_copy(&store, &source).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_source_auto_copy(
-    db: State<'_, Arc<Database>>,
+    store: State<'_, SharedStore>,
     source: String,
     enabled: bool,
 ) -> Result<(), String> {
-    db.set_source_auto_copy(&source, enabled)
+    settings::set_source_auto_copy(&store, &source, enabled).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_all_source_settings(db: State<'_, Arc<Database>>) -> Result<Vec<SourceSetting>, String> {
-    db.get_all_source_settings()
+pub fn get_all_source_settings(
+    store: State<'_, SharedStore>,
+) -> Result<Vec<SourceSetting>, String> {
+    settings::all_source_settings(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_source_alert_enabled(
-    db: State<'_, Arc<Database>>,
+    store: State<'_, SharedStore>,
     source: String,
 ) -> Result<bool, String> {
-    db.is_source_alert_enabled(&source)
+    settings::is_source_alert_enabled(&store, &source).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_source_alert_enabled(
-    db: State<'_, Arc<Database>>,
+    store: State<'_, SharedStore>,
     source: String,
     enabled: bool,
 ) -> Result<(), String> {
-    db.set_source_alert_enabled(&source, enabled)
+    settings::set_source_alert_enabled(&store, &source, enabled).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_all_source_alert_settings(
-    db: State<'_, Arc<Database>>,
+    store: State<'_, SharedStore>,
 ) -> Result<Vec<SourceAlertSetting>, String> {
-    db.get_all_source_alert_settings()
+    settings::all_source_alert_settings(&store).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
-// Excluded-apps setting — backed by legacy Database.
-// TODO(phase 5): move to client-core meta/settings table.
+// Excluded-apps setting — backed by client-core SharedStore (settings table).
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 #[specta::specta]
 pub fn get_excluded_apps(
-    db: State<'_, Arc<Database>>,
-    clipboard: State<'_, Arc<ClipboardService>>,
+    store: State<'_, SharedStore>,
+    clipboard: State<'_, std::sync::Arc<ClipboardService>>,
 ) -> Result<Vec<String>, String> {
-    match db.get_setting("excluded_apps")? {
-        Some(json) => {
-            serde_json::from_str(&json).map_err(|e| format!("parse excluded_apps: {}", e))
-        }
-        None => Ok(clipboard.default_excluded_apps()),
+    let apps = settings::excluded_apps(&store).map_err(|e| e.to_string())?;
+    if apps.is_empty() {
+        Ok(clipboard.default_excluded_apps())
+    } else {
+        Ok(apps)
     }
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_excluded_apps(db: State<'_, Arc<Database>>, apps: Vec<String>) -> Result<(), String> {
-    let json =
-        serde_json::to_string(&apps).map_err(|e| format!("serialize excluded_apps: {}", e))?;
-    db.set_setting("excluded_apps", &json)
+pub fn set_excluded_apps(store: State<'_, SharedStore>, apps: Vec<String>) -> Result<(), String> {
+    settings::set_excluded_apps(&store, &apps).map_err(|e| e.to_string())
 }

@@ -13,8 +13,8 @@ use tokio::time::{self, Duration};
 
 use super::backend::{PollContent, PollSnapshot};
 use super::service::ClipboardService;
-use crate::store::db::Database;
 use crate::SharedStore;
+use client_core::store::settings;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const DEDUP_WINDOW_SECS: i64 = 5;
@@ -80,28 +80,22 @@ struct RecentHash {
 
 pub fn spawn_clipboard_monitor(
     app: &AppHandle,
-    db: Arc<Database>,
     service: Arc<ClipboardService>,
     store: SharedStore,
 ) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         info!("clipboard monitor started (local capture only)");
-        run_monitor_loop(&app_handle, &db, &service, &store).await;
+        run_monitor_loop(&app_handle, &service, &store).await;
     });
 }
 
-async fn run_monitor_loop(
-    app: &AppHandle,
-    db: &Arc<Database>,
-    service: &Arc<ClipboardService>,
-    store: &SharedStore,
-) {
+async fn run_monitor_loop(app: &AppHandle, service: &Arc<ClipboardService>, store: &SharedStore) {
     let mut last_token: Option<u64> = service.token();
     let mut recent_hashes: VecDeque<RecentHash> = VecDeque::new();
     let mut interval = time::interval(POLL_INTERVAL);
 
-    let excluded_apps = load_excluded_apps(db, service);
+    let excluded_apps = load_excluded_apps(store, service);
     let source = format!("remote:{}", client_core::machine::hostname_or_unknown());
 
     loop {
@@ -352,15 +346,13 @@ pub(crate) fn clip_received_stub(
     }
 }
 
-fn load_excluded_apps(db: &Database, service: &ClipboardService) -> Vec<String> {
-    match db.get_setting("excluded_apps") {
-        Ok(Some(json)) => {
-            serde_json::from_str(&json).unwrap_or_else(|_| service.default_excluded_apps())
-        }
+fn load_excluded_apps(store: &SharedStore, service: &ClipboardService) -> Vec<String> {
+    match settings::excluded_apps(store) {
+        Ok(apps) if !apps.is_empty() => apps,
         _ => {
             let defaults = service.default_excluded_apps();
-            let json = serde_json::to_string(&defaults).unwrap();
-            db.set_setting("excluded_apps", &json).ok();
+            // Persist the defaults on first run so future reads return them.
+            settings::set_excluded_apps(store, &defaults).ok();
             defaults
         }
     }

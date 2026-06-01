@@ -8,6 +8,7 @@ pub mod crypto;
 mod deep_link;
 pub mod events;
 pub mod media;
+mod paths;
 pub mod protocol;
 mod retention;
 mod startup;
@@ -20,6 +21,7 @@ mod validate;
 mod window_manage;
 mod window_snap;
 mod writer_restart;
+mod writer_setup;
 
 #[cfg(test)]
 mod tests;
@@ -154,10 +156,7 @@ pub fn run() {
     let active_relay_id_seed = multi_config.active_relay_id.clone().unwrap_or_default();
 
     // Open local database
-    let db_path = dirs::data_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap().join(".local/share"))
-        .join("com.cinch.app")
-        .join("clips.db");
+    let db_path = paths::legacy_db_path();
 
     let db = match store::db::Database::open(&db_path) {
         Ok(db) => Arc::new(db),
@@ -486,7 +485,12 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     crate::events::WsStatus(ws_value.clone()).emit(&h).ok();
                     let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
-                    let snapshot = auth_handle.lock().unwrap().clone();
+                    // Recover the snapshot even if the auth mutex was poisoned
+                    // by a prior panic — never cascade a second panic here.
+                    let snapshot = auth_handle
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .clone();
                     crate::tray::set_status(&h, &snapshot, &ws_value);
                 });
             } else {
@@ -496,7 +500,12 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     crate::events::WsStatus("unconfigured".into()).emit(&h).ok();
                     let auth_handle: AuthStateHandle = h.state::<AuthStateHandle>().inner().clone();
-                    let snapshot = auth_handle.lock().unwrap().clone();
+                    // Recover the snapshot even if the auth mutex was poisoned
+                    // by a prior panic — never cascade a second panic here.
+                    let snapshot = auth_handle
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .clone();
                     crate::tray::set_status(&h, &snapshot, "unconfigured");
                 });
             }
@@ -506,7 +515,6 @@ pub fn run() {
             // the explicit `send_clip` command. Runs regardless of auth.
             clipboard::monitor::spawn_clipboard_monitor(
                 handle,
-                db.clone(),
                 clipboard_service.clone(),
                 app.state::<crate::SharedStore>().inner().clone(),
             );
