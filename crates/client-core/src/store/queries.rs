@@ -253,6 +253,10 @@ pub fn purge_clips_before(store: &Store, cutoff_secs: i64) -> Result<usize, Stor
 }
 
 /// Count non-pinned clips with `created_at < cutoff_secs` (Unix seconds).
+/// Pinned clips are excluded — they are retention-exempt, so this count
+/// reflects exactly what `purge_clips_before` would delete. (The legacy
+/// desktop counter included pinned clips; this count is intentionally the
+/// purge-accurate number shown in the retroactive-purge confirmation dialog.)
 /// Used to populate the retroactive-purge confirmation dialog.
 pub fn count_clips_before(store: &Store, cutoff_secs: i64) -> Result<i64, StoreError> {
     store.with_conn(|conn| {
@@ -1113,5 +1117,104 @@ mod tests {
 
         let rows = list_clips(&store, None, Some(1), Some(2), None, false, 10).unwrap();
         assert_eq!(rows[0].id, "a");
+    }
+
+    // ── purge_clips_before / count_clips_before ──────────────────────────────
+
+    #[test]
+    fn purge_clips_before_deletes_old_non_pinned_only() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, ts_ms: i64, pinned: bool| StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            source_key: None,
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
+            label: None,
+            content_type: "text".into(),
+            content: Some(b"x".to_vec()),
+            media_path: None,
+            byte_size: 1,
+            created_at: ts_ms,
+            pinned,
+            pinned_at: None,
+            sync_state: SyncState::Synced,
+        };
+
+        // cutoff_secs = 1_000_000  →  cutoff_ms = 1_000_000_000
+        let cutoff_secs: i64 = 1_000_000;
+        let cutoff_ms = cutoff_secs * 1000;
+
+        // OLD non-pinned:  created_at = cutoff_ms - 1  →  should be purged
+        insert_clip(&store, &make("old-clip", cutoff_ms - 1, false)).unwrap();
+        // NEW non-pinned:  created_at = cutoff_ms + 1  →  must survive
+        insert_clip(&store, &make("new-clip", cutoff_ms + 1, false)).unwrap();
+        // PINNED old:      created_at = cutoff_ms - 1  →  must survive (pinned-exempt)
+        insert_clip(&store, &make("pinned-old", cutoff_ms - 1, true)).unwrap();
+        // BOUNDARY:        created_at = cutoff_ms exactly  →  strict `<`, must survive
+        insert_clip(&store, &make("boundary-clip", cutoff_ms, false)).unwrap();
+
+        let deleted = purge_clips_before(&store, cutoff_secs).unwrap();
+        assert_eq!(deleted, 1, "only the old non-pinned clip should be deleted");
+
+        assert!(
+            get_clip(&store, "old-clip").unwrap().is_none(),
+            "old non-pinned clip must be gone after purge"
+        );
+        assert!(
+            get_clip(&store, "new-clip").unwrap().is_some(),
+            "new non-pinned clip must survive purge"
+        );
+        assert!(
+            get_clip(&store, "pinned-old").unwrap().is_some(),
+            "pinned clip must survive purge even if older than cutoff"
+        );
+        assert!(
+            get_clip(&store, "boundary-clip").unwrap().is_some(),
+            "boundary clip (created_at == cutoff_ms) must survive strict-< purge"
+        );
+    }
+
+    #[test]
+    fn count_clips_before_counts_old_non_pinned_only() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, ts_ms: i64, pinned: bool| StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            source_key: None,
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
+            label: None,
+            content_type: "text".into(),
+            content: Some(b"x".to_vec()),
+            media_path: None,
+            byte_size: 1,
+            created_at: ts_ms,
+            pinned,
+            pinned_at: None,
+            sync_state: SyncState::Synced,
+        };
+
+        // cutoff_secs = 1_000_000  →  cutoff_ms = 1_000_000_000
+        let cutoff_secs: i64 = 1_000_000;
+        let cutoff_ms = cutoff_secs * 1000;
+
+        // OLD non-pinned:  created_at = cutoff_ms - 1  →  counted
+        insert_clip(&store, &make("old-clip", cutoff_ms - 1, false)).unwrap();
+        // NEW non-pinned:  created_at = cutoff_ms + 1  →  not counted
+        insert_clip(&store, &make("new-clip", cutoff_ms + 1, false)).unwrap();
+        // PINNED old:      created_at = cutoff_ms - 1  →  NOT counted (pinned-exempt)
+        insert_clip(&store, &make("pinned-old", cutoff_ms - 1, true)).unwrap();
+        // BOUNDARY:        created_at = cutoff_ms exactly  →  strict `<`, not counted
+        insert_clip(&store, &make("boundary-clip", cutoff_ms, false)).unwrap();
+
+        let count = count_clips_before(&store, cutoff_secs).unwrap();
+        assert_eq!(
+            count, 1,
+            "only the old non-pinned clip should be counted; \
+             pinned-old is retention-exempt and boundary-clip is outside strict-< window"
+        );
     }
 }

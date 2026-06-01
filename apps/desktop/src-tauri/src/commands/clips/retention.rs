@@ -142,6 +142,10 @@ pub fn preview_retention_change(store: State<'_, SharedStore>, days: i64) -> Res
 #[tauri::command]
 #[specta::specta]
 pub fn clear_local_history(store: State<'_, SharedStore>) -> Result<i64, String> {
+    // Only clears the unified store. Legacy-DB media cascade-cleanup (removing
+    // on-disk media files that were tracked by the old desktop DB) is intentionally
+    // deferred until the legacy store is fully retired (a later task), per the
+    // clean-cutover decision (Approach C, 2026-06-01).
     queries::clear_all_clips(&store).map_err(|e| e.to_string())
 }
 
