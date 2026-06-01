@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
@@ -28,6 +28,15 @@ pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     }
     if current < 5 {
         migrate_v5(conn)?;
+    }
+    if current < 6 {
+        migrate_v6(conn)?;
+    }
+    if current < 7 {
+        migrate_v7(conn)?;
+    }
+    if current < 8 {
+        migrate_v8(conn)?;
     }
     Ok(())
 }
@@ -143,6 +152,94 @@ fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migrate_v6(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        ALTER TABLE clips ADD COLUMN label TEXT;
+        UPDATE meta SET value = '6' WHERE key = 'schema_version';
+    "#,
+    )?;
+    Ok(())
+}
+
+fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
+    // The pre-v7 `clips_fts` was an *external-content* FTS5 table
+    // (`content='clips'`) that indexed EVERY clip's `content` column — including
+    // image clips, whose content is base64 that tokenizes into noise (short
+    // tokens like "hi") and pollutes text search. External-content tables also
+    // require the fragile `'delete'` command, whose tokens drift out of sync on
+    // SQLite rowid reuse, leaving stale matches that point at unrelated clips.
+    //
+    // v7 replaces it with a standard FTS5 table managed entirely by triggers:
+    //   - only non-image clips are indexed (no base64 pollution), and
+    //   - rows are removed with a plain `DELETE ... WHERE rowid = ?`, which can
+    //     never drift the way the external-content `'delete'` command does.
+    // The existing index is dropped and rebuilt from `clips`, which also clears
+    // any drift already present in upgraded databases.
+    conn.execute_batch(
+        r#"
+        BEGIN;
+        DROP TRIGGER IF EXISTS clips_ai;
+        DROP TRIGGER IF EXISTS clips_ad;
+        DROP TRIGGER IF EXISTS clips_au;
+        DROP TABLE IF EXISTS clips_fts;
+
+        CREATE VIRTUAL TABLE clips_fts USING fts5(content);
+
+        CREATE TRIGGER clips_ai AFTER INSERT ON clips
+        WHEN new.content_type NOT LIKE 'image%'
+        BEGIN
+          INSERT INTO clips_fts(rowid, content)
+            VALUES (new.rowid, CAST(COALESCE(new.content, '') AS TEXT));
+        END;
+
+        CREATE TRIGGER clips_ad AFTER DELETE ON clips
+        BEGIN
+          DELETE FROM clips_fts WHERE rowid = old.rowid;
+        END;
+
+        CREATE TRIGGER clips_au AFTER UPDATE ON clips
+        BEGIN
+          DELETE FROM clips_fts WHERE rowid = old.rowid;
+          INSERT INTO clips_fts(rowid, content)
+            SELECT new.rowid, CAST(COALESCE(new.content, '') AS TEXT)
+            WHERE new.content_type NOT LIKE 'image%';
+        END;
+
+        INSERT INTO clips_fts(rowid, content)
+          SELECT rowid, CAST(COALESCE(content, '') AS TEXT)
+          FROM clips
+          WHERE content_type NOT LIKE 'image%';
+
+        UPDATE meta SET value = '7' WHERE key = 'schema_version';
+        COMMIT;
+    "#,
+    )?;
+    // Reclaim the disk freed by dropping the old image-polluted index (the
+    // base64 tokens could be tens of MB). Best-effort and outside the
+    // transaction above (VACUUM cannot run inside one): the schema change is
+    // already committed, so a VACUUM failure (e.g. low disk) must not fail the
+    // migration. Runs exactly once, on the v6→v7 upgrade.
+    let _ = conn.execute_batch("VACUUM");
+    Ok(())
+}
+
+fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
+    // Generic key/value app settings, shared by the desktop and CLI. Replaces
+    // the desktop's separate `com.cinch.app/clips.db` settings table so both
+    // front-ends read one store. See store::settings for key conventions.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS settings (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+        UPDATE meta SET value = '8' WHERE key = 'schema_version';
+    "#,
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +325,161 @@ mod tests {
         assert_eq!(source_app_id, None);
         assert_eq!(source_app, None);
         assert_eq!(source_url, None);
+    }
+
+    #[test]
+    fn fresh_db_fts_excludes_image_content_and_is_current_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_migrations(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+
+        // A text clip and an image clip whose (base64-ish) content both tokenize
+        // to include "penguin". Only the text clip may be indexed.
+        conn.execute(
+            "INSERT INTO clips(id,source,content_type,content,created_at) VALUES('t','s','text','penguin note',0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clips(id,source,content_type,content,created_at) VALUES('i','s','image','penguin base64',0)",
+            [],
+        )
+        .unwrap();
+
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'penguin'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "image content must not pollute the FTS index");
+    }
+
+    #[test]
+    fn fts_delete_removes_entry_no_drift() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO clips(id,source,content_type,content,created_at) VALUES('t','s','text','quokka',0)",
+            [],
+        )
+        .unwrap();
+        let before: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'quokka'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, 1);
+
+        conn.execute("DELETE FROM clips WHERE id='t'", []).unwrap();
+        let after: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'quokka'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            after, 0,
+            "deleting a clip must remove its FTS entry (no drift)"
+        );
+    }
+
+    #[test]
+    fn migrate_v7_rebuilds_fts_excluding_images() {
+        // Build a legacy v6 database (external-content FTS that indexes every
+        // clip's content, including images) and verify the upgrade to v7 cleans
+        // the index in place.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+            .unwrap();
+        migrate_v1(&conn).unwrap();
+        migrate_v2(&conn).unwrap();
+        migrate_v3(&conn).unwrap();
+        migrate_v4(&conn).unwrap();
+        migrate_v5(&conn).unwrap();
+        migrate_v6(&conn).unwrap();
+        conn.execute("UPDATE meta SET value='6' WHERE key='schema_version'", [])
+            .unwrap();
+
+        conn.execute(
+            "INSERT INTO clips(id,source,content_type,content,created_at) VALUES('txt','s','text','wombat note',0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clips(id,source,content_type,content,created_at) VALUES('img','s','image','wombat base64',0)",
+            [],
+        )
+        .unwrap();
+
+        // The legacy schema indexes the image's content too — this is the bug.
+        let legacy: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'wombat'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            legacy, 2,
+            "legacy v6 indexes image content (the pollution bug)"
+        );
+
+        // Upgrade. migrate_v7 must rebuild the index excluding images.
+        apply_migrations(&conn).unwrap();
+
+        let after: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips_fts WHERE clips_fts MATCH 'wombat'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, 1, "after v7 only non-image content is indexed");
+
+        let id: String = conn
+            .query_row(
+                "SELECT id FROM clips WHERE rowid IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH 'wombat')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(id, "txt", "the surviving match must be the text clip");
+    }
+
+    #[test]
+    fn fresh_db_has_settings_table_and_is_v8() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_migrations(&conn).unwrap();
+        let version: i64 = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='schema_version'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+        // The settings table exists and round-trips.
+        conn.execute("INSERT INTO settings(key, value) VALUES ('k','v')", [])
+            .unwrap();
+        let v: String = conn
+            .query_row("SELECT value FROM settings WHERE key='k'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, "v");
     }
 
     #[test]
