@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use tauri::State;
 
-use crate::store::db::Database;
+use crate::SharedStore;
+use client_core::store::settings;
 
 // ---------------------------------------------------------------------------
 // Global shortcut persistence (plan 03-04, D-08)
-// TODO(phase 5): move to client-core meta/settings table.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_GLOBAL_SHORTCUT: &str = "CmdOrCtrl+Shift+V";
@@ -24,9 +22,9 @@ const MODIFIER_NAMES: &[&str] = &[
 ];
 
 /// Testable inner: read persisted global shortcut or return the default.
-fn get_global_shortcut_inner(db: &Database) -> Result<String, String> {
-    Ok(db
-        .get_setting("global_shortcut")?
+fn get_global_shortcut_inner(store: &client_core::store::Store) -> Result<String, String> {
+    Ok(settings::global_shortcut(store)
+        .map_err(|e| e.to_string())?
         .unwrap_or_else(|| DEFAULT_GLOBAL_SHORTCUT.to_string()))
 }
 
@@ -56,63 +54,67 @@ fn validate_shortcut(shortcut: &str) -> Result<(), String> {
 /// Validation rules:
 /// 1. Must contain at least one modifier key (Cmd, Ctrl, Alt, Shift, etc.)
 /// 2. Must contain at least one regular (non-modifier) key
-fn set_global_shortcut_inner(db: &Database, shortcut: &str) -> Result<(), String> {
+fn set_global_shortcut_inner(
+    store: &client_core::store::Store,
+    shortcut: &str,
+) -> Result<(), String> {
     validate_shortcut(shortcut)?;
-    db.set_setting("global_shortcut", shortcut)
+    settings::set_global_shortcut(store, shortcut).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_global_shortcut(db: State<'_, Arc<Database>>) -> Result<String, String> {
-    get_global_shortcut_inner(&db)
+pub fn get_global_shortcut(store: State<'_, SharedStore>) -> Result<String, String> {
+    get_global_shortcut_inner(&store)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_global_shortcut(db: State<'_, Arc<Database>>, shortcut: String) -> Result<(), String> {
-    set_global_shortcut_inner(&db, &shortcut)
+pub fn set_global_shortcut(store: State<'_, SharedStore>, shortcut: String) -> Result<(), String> {
+    set_global_shortcut_inner(&store, &shortcut)
 }
 
 // ---------------------------------------------------------------------------
 // Send shortcut persistence (Task 3 — opt-in, no default)
 // ---------------------------------------------------------------------------
 
-const SEND_SHORTCUT_KEY: &str = "send_shortcut";
-
 /// No default: absence means the send hotkey is disabled (opt-in).
-fn get_send_shortcut_inner(db: &Database) -> Result<Option<String>, String> {
-    db.get_setting(SEND_SHORTCUT_KEY)
+fn get_send_shortcut_inner(store: &client_core::store::Store) -> Result<Option<String>, String> {
+    settings::send_shortcut(store).map_err(|e| e.to_string())
 }
 
 /// Testable inner: validate and persist the opt-in send shortcut.
 /// `None` clears the key (disabling the hotkey); `Some(s)` validates then stores.
-fn set_send_shortcut_inner(db: &Database, shortcut: Option<&str>) -> Result<(), String> {
+fn set_send_shortcut_inner(
+    store: &client_core::store::Store,
+    shortcut: Option<&str>,
+) -> Result<(), String> {
     match shortcut {
-        None => db.delete_setting(SEND_SHORTCUT_KEY),
+        None => settings::delete_setting(store, "send_shortcut").map_err(|e| e.to_string()),
         Some(s) => {
             validate_shortcut(s)?;
-            db.set_setting(SEND_SHORTCUT_KEY, s)
+            settings::set_send_shortcut(store, s).map_err(|e| e.to_string())
         }
     }
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_send_shortcut(db: State<'_, Arc<Database>>) -> Result<Option<String>, String> {
-    get_send_shortcut_inner(&db)
+pub fn get_send_shortcut(store: State<'_, SharedStore>) -> Result<Option<String>, String> {
+    get_send_shortcut_inner(&store)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_send_shortcut(
-    db: State<'_, Arc<Database>>,
+    store: State<'_, SharedStore>,
     app: tauri::AppHandle,
     shortcut: Option<String>,
 ) -> Result<(), String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     // Capture the previously-registered value before overwriting it.
-    let prev = get_send_shortcut_inner(&db)?;
-    set_send_shortcut_inner(&db, shortcut.as_deref())?;
+    let prev = get_send_shortcut_inner(&store)?;
+    set_send_shortcut_inner(&store, shortcut.as_deref())?;
     // Unregister ONLY the previous send shortcut (not unregister_all, which would
     // also drop the window-show shortcut), then re-register from the new value.
     if let Some(prev) = prev {
@@ -124,28 +126,33 @@ pub fn set_send_shortcut(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_helpers::test_db;
+    use client_core::store::Store;
+
     use super::*;
+
+    fn test_store() -> Store {
+        Store::open(std::path::Path::new(":memory:")).unwrap()
+    }
 
     #[test]
     fn global_shortcut_defaults_when_missing() {
-        let db = test_db();
-        let s = get_global_shortcut_inner(&db).unwrap();
+        let store = test_store();
+        let s = get_global_shortcut_inner(&store).unwrap();
         assert_eq!(s, DEFAULT_GLOBAL_SHORTCUT);
     }
 
     #[test]
     fn global_shortcut_roundtrip() {
-        let db = test_db();
-        set_global_shortcut_inner(&db, "CmdOrCtrl+Shift+B").unwrap();
-        let s = get_global_shortcut_inner(&db).unwrap();
+        let store = test_store();
+        set_global_shortcut_inner(&store, "CmdOrCtrl+Shift+B").unwrap();
+        let s = get_global_shortcut_inner(&store).unwrap();
         assert_eq!(s, "CmdOrCtrl+Shift+B");
     }
 
     #[test]
     fn global_shortcut_rejects_no_modifier() {
-        let db = test_db();
-        let err = set_global_shortcut_inner(&db, "V").unwrap_err();
+        let store = test_store();
+        let err = set_global_shortcut_inner(&store, "V").unwrap_err();
         assert!(
             err.contains("modifier"),
             "error should mention modifier: {}",
@@ -155,8 +162,8 @@ mod tests {
 
     #[test]
     fn global_shortcut_rejects_modifier_only() {
-        let db = test_db();
-        let err = set_global_shortcut_inner(&db, "Cmd+Shift").unwrap_err();
+        let store = test_store();
+        let err = set_global_shortcut_inner(&store, "Cmd+Shift").unwrap_err();
         assert!(
             err.contains("regular key"),
             "error should mention regular key: {}",
@@ -166,44 +173,44 @@ mod tests {
 
     #[test]
     fn global_shortcut_accepts_alt_combo() {
-        let db = test_db();
-        assert!(set_global_shortcut_inner(&db, "Alt+Space").is_ok());
-        assert_eq!(get_global_shortcut_inner(&db).unwrap(), "Alt+Space");
+        let store = test_store();
+        assert!(set_global_shortcut_inner(&store, "Alt+Space").is_ok());
+        assert_eq!(get_global_shortcut_inner(&store).unwrap(), "Alt+Space");
     }
 
     #[test]
     fn send_shortcut_is_none_when_unset() {
-        let db = test_db();
-        assert_eq!(get_send_shortcut_inner(&db).unwrap(), None);
+        let store = test_store();
+        assert_eq!(get_send_shortcut_inner(&store).unwrap(), None);
     }
 
     #[test]
     fn send_shortcut_roundtrip_and_clear() {
-        let db = test_db();
-        set_send_shortcut_inner(&db, Some("CmdOrCtrl+Shift+S")).unwrap();
+        let store = test_store();
+        set_send_shortcut_inner(&store, Some("CmdOrCtrl+Shift+S")).unwrap();
         assert_eq!(
-            get_send_shortcut_inner(&db).unwrap(),
+            get_send_shortcut_inner(&store).unwrap(),
             Some("CmdOrCtrl+Shift+S".to_string())
         );
-        set_send_shortcut_inner(&db, None).unwrap(); // clearing returns to opt-out
-        assert_eq!(get_send_shortcut_inner(&db).unwrap(), None);
+        set_send_shortcut_inner(&store, None).unwrap(); // clearing returns to opt-out
+        assert_eq!(get_send_shortcut_inner(&store).unwrap(), None);
     }
 
     #[test]
     fn send_shortcut_overwrite() {
-        let db = test_db();
-        set_send_shortcut_inner(&db, Some("CmdOrCtrl+Shift+S")).unwrap();
-        set_send_shortcut_inner(&db, Some("Alt+F")).unwrap();
+        let store = test_store();
+        set_send_shortcut_inner(&store, Some("CmdOrCtrl+Shift+S")).unwrap();
+        set_send_shortcut_inner(&store, Some("Alt+F")).unwrap();
         assert_eq!(
-            get_send_shortcut_inner(&db).unwrap(),
+            get_send_shortcut_inner(&store).unwrap(),
             Some("Alt+F".to_string())
         );
     }
 
     #[test]
     fn send_shortcut_rejects_no_modifier() {
-        let db = test_db();
-        let err = set_send_shortcut_inner(&db, Some("S")).unwrap_err();
+        let store = test_store();
+        let err = set_send_shortcut_inner(&store, Some("S")).unwrap_err();
         assert!(
             err.contains("modifier"),
             "error should mention modifier: {}",

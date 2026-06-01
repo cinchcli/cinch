@@ -182,11 +182,12 @@ pub(crate) fn configure_activation_policy(_app: &tauri::AppHandle) {}
 pub(crate) fn register_send_shortcut(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    let Some(shortcut_str) = app
-        .try_state::<Arc<store::db::Database>>()
-        .and_then(|db| db.get_setting("send_shortcut").ok().flatten())
-    else {
-        return; // unset (or DB not yet managed) → disabled (opt-in)
+    let Some(shortcut_str) = app.try_state::<crate::SharedStore>().and_then(|store| {
+        client_core::store::settings::send_shortcut(&store)
+            .ok()
+            .flatten()
+    }) else {
+        return; // unset (or store not yet managed) → disabled (opt-in)
     };
 
     let handle = app.clone();
@@ -225,12 +226,11 @@ pub(crate) fn register_global_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     // Read persisted shortcut preference, fall back to default (D-08)
-    let shortcut_str = app
-        .state::<Arc<store::db::Database>>()
-        .get_setting("global_shortcut")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "CmdOrCtrl+Shift+W".to_string());
+    let shortcut_str =
+        client_core::store::settings::global_shortcut(&app.state::<crate::SharedStore>())
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "CmdOrCtrl+Shift+W".to_string());
 
     let handle = app.clone();
     if let Err(e) =
