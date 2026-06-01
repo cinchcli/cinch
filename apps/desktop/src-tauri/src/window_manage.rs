@@ -10,7 +10,6 @@ use log::info;
 use tauri::Manager;
 
 use crate::commands;
-use crate::store;
 #[cfg(target_os = "macos")]
 use crate::PreviousAppPid;
 
@@ -40,8 +39,8 @@ pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
         };
 
         let saved = app
-            .try_state::<Arc<store::db::Database>>()
-            .and_then(|db| commands::window::load_placement(&db));
+            .try_state::<crate::SharedStore>()
+            .and_then(|store| commands::window::load_placement(&store));
 
         // Always reposition: choose_placement restores the saved per-monitor
         // placement, else anchors on the cursor/first monitor, bottoming out

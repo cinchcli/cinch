@@ -11,9 +11,8 @@ use tauri::{
 use tauri_specta::Event;
 
 use crate::events::{CopyToastRequested, SnapGuideUpdate};
-use crate::store::db::Database;
 use crate::window_snap::{
-    anchor_for, monitor_fingerprint, resolve_drop, MonitorBox, Placement, WinSize, PLACEMENT_KEY,
+    anchor_for, monitor_fingerprint, resolve_drop, MonitorBox, Placement, WinSize,
     SNAP_THRESHOLD_PX,
 };
 
@@ -462,10 +461,10 @@ pub fn on_window_moved(app: &AppHandle) {
     emit_guide(app, &m, within_snap(app, &m), true);
 }
 
-pub fn save_placement(db: &Database, p: &Placement) {
+pub fn save_placement(store: &crate::SharedStore, p: &Placement) {
     match serde_json::to_string(p) {
         Ok(json) => {
-            if let Err(e) = db.set_setting(PLACEMENT_KEY, &json) {
+            if let Err(e) = client_core::store::settings::set_window_placement(store, &json) {
                 log::warn!("save_placement failed (non-fatal): {e}");
             }
         }
@@ -473,8 +472,10 @@ pub fn save_placement(db: &Database, p: &Placement) {
     }
 }
 
-pub fn load_placement(db: &Database) -> Option<Placement> {
-    let raw = db.get_setting(PLACEMENT_KEY).ok().flatten()?;
+pub fn load_placement(store: &crate::SharedStore) -> Option<Placement> {
+    let raw = client_core::store::settings::window_placement(store)
+        .ok()
+        .flatten()?;
     serde_json::from_str(&raw).ok()
 }
 
@@ -510,9 +511,9 @@ pub fn finish_drag(app: &AppHandle) {
         let _ = win.set_position(PhysicalPosition::new(nx, ny)); // instant jump
     }
 
-    if let Some(db) = app.try_state::<std::sync::Arc<Database>>() {
+    if let Some(store) = app.try_state::<crate::SharedStore>() {
         save_placement(
-            &db,
+            &store,
             &Placement {
                 monitor: monitor_fingerprint(&m),
                 x: nx,
@@ -525,16 +526,12 @@ pub fn finish_drag(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use crate::store::db::Database;
-    use crate::window_snap::{MonitorBox, Placement, PLACEMENT_KEY};
+    use std::sync::Arc;
 
-    fn tmp_db() -> Database {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static C: AtomicU64 = AtomicU64::new(0);
-        let n = C.fetch_add(1, Ordering::SeqCst);
-        let p = std::env::temp_dir().join(format!("snap-test-{}-{}.db", std::process::id(), n));
-        let _ = std::fs::remove_file(&p);
-        Database::open(&p).unwrap()
+    use crate::window_snap::{MonitorBox, Placement};
+
+    fn test_store() -> crate::SharedStore {
+        Arc::new(client_core::store::Store::open(std::path::Path::new(":memory:")).unwrap())
     }
 
     #[test]
@@ -559,8 +556,8 @@ mod tests {
 
     #[test]
     fn placement_persists_through_settings_store() {
-        let db = tmp_db();
-        assert!(super::load_placement(&db).is_none());
+        let store = test_store();
+        assert!(super::load_placement(&store).is_none());
 
         let p = Placement {
             monitor: "name:A".into(),
@@ -568,13 +565,15 @@ mod tests {
             y: 6,
             anchored: true,
         };
-        super::save_placement(&db, &p);
+        super::save_placement(&store, &p);
 
-        let got = super::load_placement(&db).expect("saved placement");
+        let got = super::load_placement(&store).expect("saved placement");
         assert_eq!(got, p);
 
-        // sanity: stored under the documented key as JSON
-        let raw = db.get_setting(PLACEMENT_KEY).unwrap().unwrap();
+        // sanity: stored under the documented key as JSON, via client-core settings
+        let raw = client_core::store::settings::window_placement(&store)
+            .unwrap()
+            .unwrap();
         assert!(raw.contains("\"monitor\":\"name:A\""));
     }
 }
