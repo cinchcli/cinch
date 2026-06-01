@@ -521,7 +521,7 @@ pub fn run() {
 
             // Spawn local retention sweep — purges clips older than the
             // local_retention_days setting (default 30) every hour. D-06.
-            retention::spawn_retention_sweep(db.clone());
+            retention::spawn_retention_sweep(app.state::<crate::SharedStore>().inner().clone());
 
             // Spawn the FS watcher for cross-process credential propagation (AUTH-03).
             // Best-effort — if the watcher fails to start, the app still runs but without

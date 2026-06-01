@@ -1,8 +1,14 @@
-use super::models::{AlertPref, RetentionPref, SourceRow, StoredClip, StoredDevice};
+use super::models::{RetentionPref, SourceRow, StoredClip, StoredDevice};
 use super::{Store, StoreError};
 use rusqlite::params;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
+
+/// The `clips` columns in the exact positional order `stored_clip_from_row`
+/// reads them (index 0..=14). Every `SELECT` that feeds `stored_clip_from_row`
+/// must use this list, so the column order and the row decoder can never drift
+/// apart (a silent off-by-one is exactly the kind of bug this prevents).
+const CLIP_COLUMNS: &str = "id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state";
 
 fn stored_clip_from_row(r: &Row<'_>) -> rusqlite::Result<StoredClip> {
     Ok(StoredClip {
@@ -12,14 +18,15 @@ fn stored_clip_from_row(r: &Row<'_>) -> rusqlite::Result<StoredClip> {
         source_app_id: r.get(3)?,
         source_app: r.get(4)?,
         source_url: r.get(5)?,
-        content_type: r.get(6)?,
-        content: r.get(7)?,
-        media_path: r.get(8)?,
-        byte_size: r.get(9)?,
-        created_at: r.get(10)?,
-        pinned: r.get::<_, i64>(11)? != 0,
-        pinned_at: r.get(12)?,
-        sync_state: super::models::SyncState::from_str_lossy(&r.get::<_, String>(13)?),
+        label: r.get(6)?,
+        content_type: r.get(7)?,
+        content: r.get(8)?,
+        media_path: r.get(9)?,
+        byte_size: r.get(10)?,
+        created_at: r.get(11)?,
+        pinned: r.get::<_, i64>(12)? != 0,
+        pinned_at: r.get(13)?,
+        sync_state: super::models::SyncState::from_str_lossy(&r.get::<_, String>(14)?),
     })
 }
 
@@ -27,8 +34,8 @@ pub fn insert_clip(store: &Store, c: &StoredClip) -> Result<(), StoreError> {
     store.with_conn(|conn| {
         conn.execute(
             r#"INSERT OR REPLACE INTO clips
-               (id, source, source_key, source_app_id, source_app, source_url, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
+               (id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
             params![
                 c.id,
                 c.source,
@@ -36,6 +43,7 @@ pub fn insert_clip(store: &Store, c: &StoredClip) -> Result<(), StoreError> {
                 c.source_app_id,
                 c.source_app,
                 c.source_url,
+                c.label,
                 c.content_type,
                 c.content,
                 c.media_path,
@@ -59,10 +67,7 @@ pub fn list_clips(
     pinned_only: bool,
     default_limit: i64,
 ) -> Result<Vec<StoredClip>, StoreError> {
-    let mut sql = String::from(
-        "SELECT id, source, source_key, source_app_id, source_app, source_url, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state
-         FROM clips WHERE 1=1"
-    );
+    let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
     let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(s) = from {
         sql.push_str(" AND source = ?");
@@ -94,12 +99,13 @@ pub fn list_clips(
 
 pub fn get_clip(store: &Store, id: &str) -> Result<Option<StoredClip>, StoreError> {
     store.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT id, source, source_key, source_app_id, source_app, source_url, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state
-             FROM clips WHERE id = ?1"
-        )?;
+        let mut stmt = conn.prepare(&format!("SELECT {CLIP_COLUMNS} FROM clips WHERE id = ?1"))?;
         let mut rows = stmt.query_map(params![id], stored_clip_from_row)?;
-        if let Some(row) = rows.next() { Ok(Some(row?)) } else { Ok(None) }
+        if let Some(row) = rows.next() {
+            Ok(Some(row?))
+        } else {
+            Ok(None)
+        }
     })
 }
 
@@ -137,30 +143,6 @@ pub fn list_sources(store: &Store) -> Result<Vec<SourceRow>, StoreError> {
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
-    })
-}
-
-pub fn upsert_device(store: &Store, d: &StoredDevice) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            r#"INSERT OR REPLACE INTO devices
-               (id, hostname, nickname, source_key, machine_id, public_key,
-                paired_at, last_push_at, online, refreshed_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
-            params![
-                d.id,
-                d.hostname,
-                d.nickname,
-                d.source_key,
-                d.machine_id,
-                d.public_key,
-                d.paired_at,
-                d.last_push_at,
-                if d.online { 1i64 } else { 0 },
-                d.refreshed_at,
-            ],
-        )?;
-        Ok(())
     })
 }
 
@@ -219,33 +201,6 @@ pub fn list_retention(store: &Store) -> Result<Vec<RetentionPref>, StoreError> {
     })
 }
 
-pub fn set_alert_pref(store: &Store, source: &str, enabled: bool) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "INSERT INTO alert_prefs(source, enabled) VALUES(?1, ?2)
-             ON CONFLICT(source) DO UPDATE SET enabled = excluded.enabled",
-            params![source, if enabled { 1i64 } else { 0 }],
-        )?;
-        Ok(())
-    })
-}
-
-pub fn list_alert_prefs(store: &Store) -> Result<Vec<AlertPref>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare("SELECT source, enabled FROM alert_prefs")?;
-        let rows: Vec<AlertPref> = stmt
-            .query_map([], |r| {
-                Ok(AlertPref {
-                    source: r.get(0)?,
-                    enabled: r.get::<_, i64>(1)? != 0,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
 pub fn watermark(store: &Store) -> Result<Option<String>, StoreError> {
     store.with_conn(|conn| {
         conn.query_row(
@@ -277,18 +232,6 @@ pub fn clip_count(store: &Store) -> Result<i64, StoreError> {
     store.with_conn(|conn| conn.query_row("SELECT COUNT(*) FROM clips", [], |r| r.get::<_, i64>(0)))
 }
 
-/// Return the number of clips whose `created_at` (ms) is before `cutoff_ms`.
-/// Used by the Settings pane "preview retention change" dialog.
-pub fn count_clips_before(store: &Store, cutoff_ms: i64) -> Result<i64, StoreError> {
-    store.with_conn(|conn| {
-        conn.query_row(
-            "SELECT COUNT(*) FROM clips WHERE created_at < ?1",
-            rusqlite::params![cutoff_ms],
-            |r| r.get::<_, i64>(0),
-        )
-    })
-}
-
 /// Delete all clips from the store. Returns the number of rows deleted.
 pub fn clear_all_clips(store: &Store) -> Result<i64, StoreError> {
     store.with_conn(|conn| {
@@ -297,21 +240,181 @@ pub fn clear_all_clips(store: &Store) -> Result<i64, StoreError> {
     })
 }
 
-pub fn search_clips(store: &Store, query: &str, limit: i64) -> Result<Vec<StoredClip>, StoreError> {
+/// Delete all non-pinned clips with `created_at < cutoff_secs` (Unix seconds).
+/// Returns the number of rows deleted. Pinned clips are always exempt.
+pub fn purge_clips_before(store: &Store, cutoff_secs: i64) -> Result<usize, StoreError> {
     store.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT c.id, c.source, c.source_key, c.source_app_id, c.source_app, c.source_url, c.content_type,
-                    c.content, c.media_path, c.byte_size, c.created_at, c.pinned,
-                    c.pinned_at, c.sync_state
-             FROM clips c JOIN clips_fts f ON f.rowid = c.rowid
-             WHERE clips_fts MATCH ?1 ORDER BY rank LIMIT ?2",
+        let n = conn.execute(
+            "DELETE FROM clips WHERE created_at < ?1 AND pinned = 0",
+            rusqlite::params![cutoff_secs * 1000],
         )?;
+        Ok(n)
+    })
+}
+
+/// Count non-pinned clips with `created_at < cutoff_secs` (Unix seconds).
+/// Used to populate the retroactive-purge confirmation dialog.
+pub fn count_clips_before(store: &Store, cutoff_secs: i64) -> Result<i64, StoreError> {
+    store.with_conn(|conn| {
+        conn.query_row(
+            "SELECT COUNT(*) FROM clips WHERE created_at < ?1 AND pinned = 0",
+            rusqlite::params![cutoff_secs * 1000],
+            |r| r.get::<_, i64>(0),
+        )
+    })
+}
+
+#[derive(Debug, Default)]
+pub struct ParsedQuery {
+    pub from: Option<String>,
+    pub content_type: Option<String>,
+    pub pinned: Option<bool>,
+    pub search_term: String,
+}
+
+pub fn parse_query_string(raw: &str) -> ParsedQuery {
+    let mut pq = ParsedQuery::default();
+    let mut terms = Vec::new();
+
+    for part in raw.split_whitespace() {
+        if let Some(val) = part.strip_prefix("from:") {
+            pq.from = Some(val.to_string());
+        } else if let Some(val) = part.strip_prefix("type:") {
+            pq.content_type = Some(val.to_string());
+        } else if part == "is:pinned" {
+            pq.pinned = Some(true);
+        } else {
+            terms.push(part);
+        }
+    }
+    pq.search_term = terms.join(" ");
+    pq
+}
+
+pub fn query_clips(
+    store: &Store,
+    raw_query: &str,
+    limit: i64,
+) -> Result<Vec<StoredClip>, StoreError> {
+    let pq = parse_query_string(raw_query);
+    let fts_query = sanitize_fts_query(&pq.search_term);
+    let like_query = format!("%{}%", pq.search_term);
+
+    store.with_conn(|conn| {
+        let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
+        let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if !pq.search_term.is_empty() {
+            sql.push_str(" AND (rowid IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?");
+            binds.push(Box::new(fts_query));
+            sql.push_str(") OR source_app LIKE ? OR source_url LIKE ? OR label LIKE ?)");
+            binds.push(Box::new(like_query.clone()));
+            binds.push(Box::new(like_query.clone()));
+            binds.push(Box::new(like_query.clone()));
+        }
+
+        if let Some(from_val) = pq.from {
+            // Resolve the 'from' value to a source key via nicknames/hostnames.
+            // Use the connection we already hold — a nested `store.with_conn()`
+            // here deadlocks, since the underlying `Mutex<Connection>` is not
+            // re-entrant. Resolution stays best-effort: any error falls through
+            // to an exact match on the raw `from_val` below.
+            let resolved_source: Option<String> = conn
+                .prepare(
+                    "SELECT source_key FROM devices
+                     WHERE source_key = ?1 OR hostname = ?1 OR nickname = ?1
+                     LIMIT 1",
+                )
+                .and_then(|mut stmt| {
+                    stmt.query_row(params![from_val], |r| r.get::<_, String>(0))
+                        .optional()
+                })
+                .unwrap_or(None);
+
+            if let Some(s) = resolved_source {
+                sql.push_str(" AND source = ?");
+                binds.push(Box::new(s));
+            } else {
+                // Fallback to exact match on source column if not found in devices table
+                sql.push_str(" AND source = ?");
+                binds.push(Box::new(from_val));
+            }
+        }
+
+        if let Some(ct) = pq.content_type {
+            if ct == "image" {
+                sql.push_str(" AND content_type LIKE 'image%'");
+            } else {
+                sql.push_str(" AND content_type = ?");
+                binds.push(Box::new(ct));
+            }
+        } else if pq.search_term.is_empty() {
+            // Default list: no hidden image filter
+        } else {
+            // Searching: hide images unless explicit
+            sql.push_str(" AND content_type NOT LIKE 'image%'");
+        }
+
+        if let Some(true) = pq.pinned {
+            sql.push_str(" AND pinned = 1");
+        }
+
+        if pq.search_term.is_empty() {
+            sql.push_str(" ORDER BY created_at DESC");
+        } else {
+            sql.push_str(
+                " ORDER BY (
+                    CASE
+                        WHEN label LIKE ? THEN 0
+                        WHEN source_app LIKE ? OR source_url LIKE ? THEN 1
+                        ELSE 2
+                    END
+                ) ASC, created_at DESC",
+            );
+            binds.push(Box::new(like_query.clone()));
+            binds.push(Box::new(like_query.clone()));
+            binds.push(Box::new(like_query.clone()));
+        }
+
+        sql.push_str(" LIMIT ?");
+        binds.push(Box::new(limit));
+
+        let mut stmt = conn.prepare(&sql)?;
         let rows: Vec<StoredClip> = stmt
-            .query_map(params![query, limit], stored_clip_from_row)?
+            .query_map(
+                rusqlite::params_from_iter(binds.iter().map(|b| &**b as &dyn rusqlite::ToSql)),
+                stored_clip_from_row,
+            )?
             .filter_map(|r| r.ok())
             .collect();
         Ok(rows)
     })
+}
+
+pub fn search_clips(
+    store: &Store,
+    query: &str,
+    limit: i64,
+    filter_type: Option<&str>,
+) -> Result<Vec<StoredClip>, StoreError> {
+    let mut full_query = query.to_string();
+    if let Some(t) = filter_type {
+        full_query.push_str(&format!(" type:{}", t));
+    }
+    query_clips(store, &full_query, limit)
+}
+
+/// Make an arbitrary natural-language query safe for SQLite FTS5 `MATCH`.
+/// FTS5 treats `-`, `:`, `"`, `*`, `(`, `)`, `^`, and bare-word operators
+/// (`AND`/`OR`/`NEAR`) specially; raw AI/user input often produces syntax
+/// errors. We split on whitespace and wrap each token as a quoted FTS5 string
+/// (internal `"` doubled), joined with spaces (implicit AND). Whitespace-only
+/// input yields `""`, which callers treat as "no FTS filter".
+pub fn sanitize_fts_query(raw: &str) -> String {
+    raw.split_whitespace()
+        .map(|tok| format!("\"{}\"", tok.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Return all clips that are queued for an explicit send (`sync_state = 'pending'`),
@@ -319,7 +422,7 @@ pub fn search_clips(store: &Store, query: &str, limit: i64) -> Result<Vec<Stored
 pub fn list_pending_clips(store: &Store) -> Result<Vec<StoredClip>, StoreError> {
     store.with_conn(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, source, source_key, source_app_id, source_app, source_url, content_type, content, media_path, byte_size,
+            "SELECT id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size,
                     created_at, pinned, pinned_at, sync_state
              FROM clips
              WHERE sync_state = 'pending'
@@ -460,38 +563,42 @@ pub fn replace_id_and_mark_synced(
         }
     })
 }
-const LAST_FLUSH_KEY: &str = "backlog.last_flush_at";
-
-/// Read the epoch-millisecond timestamp of the last successful backlog flush.
-/// Returns `None` if no flush has ever been recorded.
-pub fn get_last_flush_at(store: &Store) -> Result<Option<i64>, StoreError> {
-    store.with_conn(|conn| {
-        let v: Option<String> = conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                params![LAST_FLUSH_KEY],
-                |r| r.get(0),
-            )
-            .optional()?;
-        Ok(v.and_then(|s| s.parse().ok()))
-    })
-}
-
-/// Persist the epoch-millisecond timestamp of a successful backlog flush.
-pub fn set_last_flush_at(store: &Store, ts: i64) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![LAST_FLUSH_KEY, ts.to_string()],
-        )?;
-        Ok(())
-    })
-}
 #[cfg(test)]
 mod tests {
     use super::super::models::{StoredClip, SyncState};
     use super::*;
+
+    #[test]
+    fn query_clips_with_from_filter_does_not_deadlock() {
+        // Regression for the C1 deadlock: query_clips used to call
+        // store.with_conn() a SECOND time (to resolve `from:` device
+        // nicknames) while already holding the connection lock, deadlocking
+        // the non-reentrant Mutex<Connection>. Any `from:` query must now
+        // return promptly. (If this regresses, the test hangs → CI timeout.)
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "c-from".into(),
+                source: "deviceA".into(),
+                content_type: "text".into(),
+                content: Some(b"hello".to_vec()),
+                byte_size: 5,
+                created_at: 1,
+                sync_state: SyncState::Synced,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // Exact-source match (the device-resolution path falls through to it).
+        let hits = query_clips(&store, "from:deviceA", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c-from");
+
+        // A `from:` value with no match also returns promptly (no hang).
+        assert!(query_clips(&store, "from:nope", 10).unwrap().is_empty());
+    }
 
     #[test]
     fn insert_clip_persists_sync_state() {
@@ -503,6 +610,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"hello".to_vec()),
             media_path: None,
@@ -534,6 +642,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "text".into(),
                 content: Some(b"x".to_vec()),
                 media_path: None,
@@ -569,6 +678,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -602,6 +712,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "text".into(),
                 content: Some(b"x".to_vec()),
                 media_path: None,
@@ -637,6 +748,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "text".into(),
                 content: Some(b"x".to_vec()),
                 media_path: None,
@@ -665,6 +777,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -691,6 +804,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -725,6 +839,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -741,6 +856,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -763,7 +879,209 @@ mod tests {
         assert_eq!(after.pinned_at, Some(10));
     }
 
-    // ── Task 8: get_last_flush_at / set_last_flush_at ───────────────────────
+    #[test]
+    fn search_clips_prioritizes_labels() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        // 1. A very recent clip with "api" in content
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "recent-content".into(),
+                source: "s".into(),
+                source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
+                label: None,
+                content_type: "text".into(),
+                content: Some(b"this is some api content".to_vec()),
+                media_path: None,
+                byte_size: 24,
+                created_at: 1000,
+                pinned: false,
+                pinned_at: None,
+                sync_state: SyncState::Synced,
+            },
+        )
+        .unwrap();
+
+        // 2. An older clip with "api" in label
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "older-label".into(),
+                source: "s".into(),
+                source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
+                label: Some("api-v1".into()),
+                content_type: "text".into(),
+                content: Some(b"nothing".to_vec()),
+                media_path: None,
+                byte_size: 7,
+                created_at: 500,
+                pinned: false,
+                pinned_at: None,
+                sync_state: SyncState::Synced,
+            },
+        )
+        .unwrap();
+
+        let hits = search_clips(&store, "api", 10, None).unwrap();
+        assert_eq!(hits.len(), 2);
+        // Even though it's older, the label match should come first.
+        assert_eq!(
+            hits[0].id, "older-label",
+            "Label match should be prioritized over content match"
+        );
+        assert_eq!(hits[1].id, "recent-content");
+    }
+
+    #[test]
+    fn search_clips_excludes_images() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        // Insert a text clip containing "needle"
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "text-1".into(),
+                source: "s".into(),
+                source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
+                label: None,
+                content_type: "text".into(),
+                content: Some(b"this is a needle".to_vec()),
+                media_path: None,
+                byte_size: 16,
+                created_at: 10,
+                pinned: false,
+                pinned_at: None,
+                sync_state: SyncState::Synced,
+            },
+        )
+        .unwrap();
+
+        // Insert an image clip whose raw bytes happen to contain "needle"
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "image-1".into(),
+                source: "s".into(),
+                source_key: None,
+                source_app_id: None,
+                source_app: None,
+                source_url: None,
+                label: None,
+                content_type: "image/png".into(),
+                content: Some(b"binary data with needle here".to_vec()),
+                media_path: None,
+                byte_size: 28,
+                created_at: 20,
+                pinned: false,
+                pinned_at: None,
+                sync_state: SyncState::Synced,
+            },
+        )
+        .unwrap();
+
+        let hits = search_clips(&store, "needle", 10, None).unwrap();
+        // BEFORE FIX: this will likely be 2.
+        // AFTER FIX: this should be 1 (only text-1).
+        assert_eq!(
+            hits.len(),
+            1,
+            "Should only find text clip, not image clip. Found: {:?}",
+            hits.iter().map(|c| &c.id).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].id, "text-1");
+    }
+
+    #[test]
+    fn search_clips_metadata_match() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "meta-1".into(),
+                source: "s".into(),
+                source_key: None,
+                source_app_id: None,
+                source_app: Some("Slack".into()),
+                source_url: Some("https://cinchcli.com".into()),
+                label: Some("Important".into()),
+                content_type: "text".into(),
+                content: Some(b"nothing here".to_vec()),
+                media_path: None,
+                byte_size: 12,
+                created_at: 10,
+                pinned: false,
+                pinned_at: None,
+                sync_state: SyncState::Synced,
+            },
+        )
+        .unwrap();
+
+        // Match app name
+        let hits = search_clips(&store, "Slack", 10, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "meta-1");
+
+        // Match URL
+        let hits = search_clips(&store, "cinchcli", 10, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "meta-1");
+    }
+
+    #[test]
+    fn search_clips_with_type_filter() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, ct: &str| StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            source_key: None,
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
+            label: None,
+            content_type: ct.into(),
+            content: Some(b"needle".to_vec()),
+            media_path: None,
+            byte_size: 6,
+            created_at: 10,
+            pinned: false,
+            pinned_at: None,
+            sync_state: SyncState::Synced,
+        };
+        insert_clip(&store, &make("t1", "text")).unwrap();
+        insert_clip(&store, &make("c1", "code")).unwrap();
+        // Image content is intentionally NOT full-text indexed (schema v7):
+        // base64/pixel bytes are not meaningful text. An image is therefore
+        // findable only by its metadata, so give i1 a matching label.
+        let mut i1 = make("i1", "image/png");
+        i1.label = Some("needle".into());
+        insert_clip(&store, &i1).unwrap();
+
+        // Search for needle in code only
+        let hits = search_clips(&store, "needle", 10, Some("code")).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c1");
+
+        // Search for needle in images only — matched via label, not content.
+        let hits = search_clips(&store, "needle", 10, Some("image")).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "i1");
+
+        // An image whose ONLY "needle" is in its (binary) content must not be
+        // found — that base64 noise is exactly what schema v7 stops indexing.
+        let i2 = make("i2", "image/png");
+        insert_clip(&store, &i2).unwrap();
+        let hits = search_clips(&store, "needle", 10, Some("image")).unwrap();
+        assert_eq!(hits.len(), 1, "image content must not be FTS-searchable");
+        assert_eq!(hits[0].id, "i1");
+    }
 
     #[test]
     fn list_clips_honors_offset() {
@@ -775,6 +1093,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: Some(b"x".to_vec()),
             media_path: None,
@@ -794,15 +1113,5 @@ mod tests {
 
         let rows = list_clips(&store, None, Some(1), Some(2), None, false, 10).unwrap();
         assert_eq!(rows[0].id, "a");
-    }
-
-    #[test]
-    fn last_flush_at_roundtrips() {
-        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
-        assert!(get_last_flush_at(&store).unwrap().is_none());
-        set_last_flush_at(&store, 1_700_000_000).unwrap();
-        assert_eq!(get_last_flush_at(&store).unwrap(), Some(1_700_000_000));
-        set_last_flush_at(&store, 1_700_001_000).unwrap();
-        assert_eq!(get_last_flush_at(&store).unwrap(), Some(1_700_001_000));
     }
 }

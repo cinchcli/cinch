@@ -138,16 +138,10 @@ pub async fn handle_deeplink(
     {
         let relay = relay_url.clone();
         let tok = token.clone();
-        let db_clone: Arc<crate::store::db::Database> = app
-            .state::<Arc<crate::store::db::Database>>()
-            .inner()
-            .clone();
+        let shared_store: crate::SharedStore = app.state::<crate::SharedStore>().inner().clone();
         tauri::async_runtime::spawn(async move {
-            let remote_days = db_clone
-                .get_setting("remote_retention_days")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<i64>().ok())
+            let remote_days = client_core::store::settings::remote_retention_days(&shared_store)
+                .unwrap_or(None)
                 .unwrap_or(30);
             let url = format!("{}/devices/self/retention", relay.trim_end_matches('/'));
             let body = serde_json::json!({ "remote_retention_days": remote_days });

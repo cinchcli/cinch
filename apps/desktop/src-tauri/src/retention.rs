@@ -1,9 +1,10 @@
 //! Local-history retention sweep. Purges clips older than the
 //! `local_retention_days` setting (default 30 per D-05) on an hourly cadence.
 
-use std::sync::Arc;
+use client_core::store::queries;
+use client_core::store::settings;
 
-use crate::store;
+use crate::SharedStore;
 
 /// Spawn the local retention sweep — purges clips older than the
 /// configured `local_retention_days` setting (default 30 per D-05).
@@ -15,7 +16,7 @@ use crate::store;
 /// First tick fires immediately (tokio's documented behavior) — this
 /// catches stale clips that accumulated while the app was quit longer
 /// than the retention window. Intentional per RESEARCH.md Open Question 1.
-pub(crate) fn spawn_retention_sweep(db: Arc<store::db::Database>) {
+pub(crate) fn spawn_retention_sweep(store: SharedStore) {
     tauri::async_runtime::spawn(async move {
         const DEFAULT_RETENTION_DAYS: i64 = 30;
         const SWEEP_INTERVAL_SECS: u64 = 60 * 60;
@@ -32,12 +33,11 @@ pub(crate) fn spawn_retention_sweep(db: Arc<store::db::Database>) {
 
         loop {
             interval.tick().await; // first tick fires immediately — intentional
-            let days = match db.get_setting("local_retention_days") {
-                Ok(Some(v)) => v.parse::<i64>().unwrap_or(DEFAULT_RETENTION_DAYS),
-                _ => DEFAULT_RETENTION_DAYS,
-            };
+            let days = settings::local_retention_days(&store)
+                .unwrap_or(None)
+                .unwrap_or(DEFAULT_RETENTION_DAYS);
             let cutoff = chrono::Utc::now().timestamp() - days * 86_400;
-            match db.purge_before(cutoff) {
+            match queries::purge_clips_before(&store, cutoff) {
                 Ok(n) if n > 0 => {
                     log::info!("retention sweep deleted {} clips older than {}d", n, days,)
                 }
