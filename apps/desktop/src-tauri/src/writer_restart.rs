@@ -51,17 +51,15 @@ pub(crate) async fn restart_writer(
 
     // ws::run uses this REST client to GET /clips/{id}/media for media-routed
     // image clips (D-routing).
-    let ws_cfg = client_core::ws::WsConfig {
-        relay_url: relay_url.to_string(),
-        token: token.to_string(),
-        encryption_key: enc_key,
-        client_info: Some(build_client_info()),
-        media_fetcher: Some((*rest_arc).clone()),
-    };
+    let ws_cfg = crate::writer_setup::build_ws_config(
+        relay_url.to_string(),
+        token.to_string(),
+        enc_key,
+        &rest_arc,
+    );
 
     let store: SharedStore = app.state::<SharedStore>().inner().clone();
-    let lock_path = client_core::store::lock_path()
-        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/cinch.lock"));
+    let lock_path = crate::paths::lock_path();
 
     // Rebuild the LocalPusher with the new credentials so the next clipboard
     // capture pushes through the live token. Done before swapping the Writer
@@ -81,7 +79,7 @@ pub(crate) async fn restart_writer(
         let store_for_flush = store.clone();
         let rest_for_flush = rest_arc.clone();
         tauri::async_runtime::spawn(async move {
-            match client_core::sync::flush_once(&store_for_flush, &rest_for_flush, key).await {
+            match client_core::sync::flush_once(&store_for_flush, &*rest_for_flush, key).await {
                 Ok(report) => {
                     if report.flushed > 0 || report.dropped > 0 {
                         log::info!(
@@ -134,39 +132,12 @@ pub(crate) async fn restart_writer(
     // the relay does not replay events that arrived while this device was
     // unsubscribed — backfill is the only path to recover those clips.
     let devices_tx = app.state::<DevicesChangedTx>().inner().0.clone();
-    let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
-        let store_cb = store.clone();
-        let rest_cb = rest_arc.clone();
-        Some(Arc::new(move || {
-            let store = store_cb.clone();
-            let rest = rest_cb.clone();
-            tauri::async_runtime::spawn(async move {
-                let report = client_core::sync::reconnect_catchup(&store, &rest, key).await;
-                match &report.flush {
-                    Ok(r) if r.flushed > 0 || r.dropped > 0 => log::info!(
-                        "desktop reconnect flush: flushed={} dropped={} remaining={}",
-                        r.flushed,
-                        r.dropped,
-                        r.remaining,
-                    ),
-                    Ok(_) => {}
-                    Err(e) => log::debug!("desktop reconnect flush failed: {}", e),
-                }
-                match &report.backfill {
-                    Ok(n) if *n > 0 => {
-                        log::info!("desktop reconnect backfill: inserted={}", n)
-                    }
-                    Ok(_) => {}
-                    Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
-                }
-            });
-            // Signal the consumer in lib.rs setup() to emit DevicesChanged.
-            // Other devices may have paired/revoked while we were offline.
-            let _ = devices_tx.send(());
-        }))
-    } else {
-        None
-    };
+    let on_connected = crate::writer_setup::build_reconnect_callback(
+        store.clone(),
+        rest_arc.clone(),
+        enc_key,
+        devices_tx,
+    );
 
     match client_core::sync::Writer::start(
         store,

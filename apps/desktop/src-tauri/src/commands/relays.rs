@@ -25,10 +25,6 @@ impl PendingAuthRelay {
     pub fn new() -> Self {
         Self(std::sync::Mutex::new(None))
     }
-    #[allow(dead_code)]
-    pub fn take(&self) -> Option<String> {
-        self.0.lock().unwrap().take()
-    }
     /// Peek at the current value without consuming it.
     pub fn peek(&self) -> Option<String> {
         self.0.lock().unwrap().clone()
@@ -49,8 +45,6 @@ impl PendingAuthRelay {
 pub struct PendingRelayAdd(pub std::sync::Mutex<Option<PendingRelayInfo>>);
 
 pub struct PendingRelayInfo {
-    #[allow(dead_code)]
-    pub relay_url: String,
     pub label: Option<String>,
 }
 
@@ -60,10 +54,6 @@ impl PendingRelayAdd {
     }
     pub fn take(&self) -> Option<PendingRelayInfo> {
         self.0.lock().unwrap().take()
-    }
-    #[allow(dead_code)]
-    pub fn set(&self, info: PendingRelayInfo) {
-        *self.0.lock().unwrap() = Some(info);
     }
 }
 

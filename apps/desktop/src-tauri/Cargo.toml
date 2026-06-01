@@ -30,24 +30,17 @@ url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
-futures-util = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { version = "0.12", features = ["json"] }
-semver = "1"
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 env_logger = "0.11"
 dirs = "6"
 sha2 = "0.11"
-ulid = "1"
 uuid = { version = "1", features = ["v7"] }
 image = { version = "0.25", default-features = false, features = ["png", "tiff"] }
 notify = "8"
 notify-debouncer-full = "0.7"
-aes-gcm = "0.10"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-hkdf = "0.13"
 base64 = "0.22"
 specta-typescript = "0.0.11"
 specta = { version = "2.0.0-rc.24", features = ["derive"] }

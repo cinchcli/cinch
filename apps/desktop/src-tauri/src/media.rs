@@ -4,24 +4,10 @@
 
 use client_core::store::{queries, Store};
 
-/// Sniff a supported image format. Mirrors the CLI `detect_content_type`
-/// signatures (PNG/JPEG/GIF/WebP/TIFF/BMP).
+/// Sniff a supported image format and return its MIME type. Thin wrapper over
+/// the shared `client_core::media` detector (the single source of truth).
 pub(crate) fn image_content_type(data: &[u8]) -> Option<&'static str> {
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if data.starts_with(b"\xff\xd8\xff") {
-        Some("image/jpeg")
-    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if data.starts_with(b"RIFF") && data.len() >= 12 && &data[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else if data.starts_with(b"II\x2a\x00") || data.starts_with(b"MM\x00\x2a") {
-        Some("image/tiff")
-    } else if data.starts_with(b"BM") && data.len() >= 14 && data[6..10] == [0, 0, 0, 0] {
-        Some("image/bmp")
-    } else {
-        None
-    }
+    client_core::media::detect_image_format(data).map(|f| f.mime())
 }
 
 /// Result of a `cinch://media` lookup: HTTP status, content-type, body.
@@ -257,6 +243,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: ct.into(),
                 content,
                 media_path: None,

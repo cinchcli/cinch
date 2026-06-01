@@ -13,7 +13,7 @@
 //!   helpers used by the clipboard monitor and the offline flush path.
 
 #[cfg(test)]
-use crate::store::models::LocalClip;
+use crate::commands::clips::LocalClip;
 
 // ---------------------------------------------------------------------------
 // WsStatus
@@ -58,14 +58,6 @@ impl WsAbortHandle {
             old.abort();
         }
         *guard = Some(handle);
-    }
-
-    #[allow(dead_code)]
-    pub fn abort(&self) {
-        let mut guard = self.0.lock().unwrap();
-        if let Some(h) = guard.take() {
-            h.abort();
-        }
     }
 }
 

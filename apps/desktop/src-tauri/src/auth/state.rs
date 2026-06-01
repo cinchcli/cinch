@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! AuthState sum type — the single source of truth for desktop auth UI.
 //!
 //! Owned by Rust (Arc<Mutex<AuthState>>), subscribed via Tauri event `auth-state-changed`.

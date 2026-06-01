@@ -1,7 +1,7 @@
 use log::info;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{TrayIcon, TrayIconBuilder},
+    tray::TrayIconBuilder,
     AppHandle, Manager,
 };
 
@@ -9,9 +9,6 @@ use crate::auth::state::AuthState;
 
 pub struct TrayMenuItems {
     pub status: MenuItem<tauri::Wry>,
-    // Kept alive so the system tray icon isn't removed when this scope ends.
-    #[allow(dead_code)]
-    pub tray: TrayIcon<tauri::Wry>,
 }
 
 /// Pure label producer for the first tray row (account + connection status).
@@ -64,7 +61,10 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let tray_img = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
-    let tray_icon = TrayIconBuilder::new()
+    // Building the tray registers it into Tauri's resource table (an
+    // independent strong reference held for the AppHandle's lifetime), so the
+    // icon survives even though we don't retain the handle here.
+    let _tray_icon = TrayIconBuilder::new()
         .icon(tray_img)
         .icon_as_template(true)
         .menu(&menu)
@@ -93,10 +93,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    app.manage(TrayMenuItems {
-        status,
-        tray: tray_icon,
-    });
+    app.manage(TrayMenuItems { status });
 
     info!("tray icon created");
     Ok(())

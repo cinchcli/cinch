@@ -59,18 +59,16 @@ pub(crate) fn build_initial_writer_and_pusher(
     let rest_arc = Arc::new(rest_client);
     // ws::run uses this REST client to GET /clips/{id}/media for media-routed
     // image clips (D-routing). Cloned because the Writer also owns rest_arc.
-    let ws_cfg = client_core::ws::WsConfig {
-        relay_url: config.relay_url.clone(),
-        token: config.token.clone(),
-        encryption_key: enc_key,
-        client_info: Some(build_client_info()),
-        media_fetcher: Some((*rest_arc).clone()),
-    };
+    let ws_cfg = crate::writer_setup::build_ws_config(
+        config.relay_url.clone(),
+        config.token.clone(),
+        enc_key,
+        &rest_arc,
+    );
     let pusher =
         client_core::sync::LocalPusher::new(shared_store.clone(), rest_arc.clone(), enc_key);
     let store_for_writer = shared_store.clone();
-    let lock_p = client_core::store::lock_path()
-        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/cinch.lock"));
+    let lock_p = crate::paths::lock_path();
 
     let initial_cb_tx = clip_notif_tx.clone();
     let on_new_clip: client_core::sync::OnNewClipCallback = Arc::new(move |clip| {
@@ -83,40 +81,12 @@ pub(crate) fn build_initial_writer_and_pusher(
     // wasn't subscribed (inbound) — the relay does NOT replay missed
     // events on resubscribe, so without backfill here a `cinch push`
     // landing during a WS hiccup stays invisible until next launch.
-    let on_connected: Option<client_core::sync::OnConnectedCallback> = if let Some(key) = enc_key {
-        let store_cb = shared_store.clone();
-        let rest_cb = rest_arc.clone();
-        let devices_tx = devices_changed_tx.clone();
-        Some(Arc::new(move || {
-            let store = store_cb.clone();
-            let rest = rest_cb.clone();
-            tauri::async_runtime::spawn(async move {
-                let report = client_core::sync::reconnect_catchup(&store, &rest, key).await;
-                match &report.flush {
-                    Ok(r) if r.flushed > 0 || r.dropped > 0 => log::info!(
-                        "desktop reconnect flush: flushed={} dropped={} remaining={}",
-                        r.flushed,
-                        r.dropped,
-                        r.remaining,
-                    ),
-                    Ok(_) => {}
-                    Err(e) => log::debug!("desktop reconnect flush failed: {}", e),
-                }
-                match &report.backfill {
-                    Ok(n) if *n > 0 => {
-                        log::info!("desktop reconnect backfill: inserted={}", n)
-                    }
-                    Ok(_) => {}
-                    Err(e) => log::debug!("desktop reconnect backfill failed: {}", e),
-                }
-            });
-            // Signal the consumer in lib.rs setup() to emit DevicesChanged.
-            // Other devices may have paired/revoked while we were offline.
-            let _ = devices_tx.send(());
-        }))
-    } else {
-        None
-    };
+    let on_connected = crate::writer_setup::build_reconnect_callback(
+        shared_store.clone(),
+        rest_arc.clone(),
+        enc_key,
+        devices_changed_tx.clone(),
+    );
 
     let writer = match tauri::async_runtime::block_on(client_core::sync::Writer::start(
         store_for_writer,
@@ -150,7 +120,7 @@ pub(crate) fn build_initial_writer_and_pusher(
         let store_for_flush = shared_store.clone();
         let rest_for_flush = rest_arc.clone();
         tauri::async_runtime::spawn(async move {
-            match client_core::sync::flush_once(&store_for_flush, &rest_for_flush, key).await {
+            match client_core::sync::flush_once(&store_for_flush, &*rest_for_flush, key).await {
                 Ok(report) => {
                     if report.flushed > 0 || report.dropped > 0 {
                         log::info!(

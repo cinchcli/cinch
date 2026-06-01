@@ -62,16 +62,12 @@ pub fn compare(
     let Some(target) = target else {
         return VersionStatus::Unknown;
     };
-    let Ok(a) = semver::Version::parse(reported) else {
-        return VersionStatus::Unknown;
-    };
-    let Ok(b) = semver::Version::parse(target.trim_start_matches('v')) else {
-        return VersionStatus::Unknown;
-    };
-    if a < b {
-        VersionStatus::Outdated
-    } else {
-        VersionStatus::UpToDate
+    // Shared semver comparison (client-core) — `None` means unparseable on
+    // either side, which stays `Unknown` here.
+    match client_core::version::compare_versions(reported, target) {
+        Some(std::cmp::Ordering::Less) => VersionStatus::Outdated,
+        Some(_) => VersionStatus::UpToDate,
+        None => VersionStatus::Unknown,
     }
 }
 

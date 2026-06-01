@@ -40,28 +40,12 @@ pub enum PollContent {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub enum ClipboardError {
-    /// Content exceeded the maximum allowed size. Preserved as an expansion
-    /// point for future monitor/backend refactors (e.g. `monitor.rs` returning
-    /// this instead of logging oversized images inline). Not currently
-    /// constructed anywhere in the macOS-only code path.
-    #[allow(dead_code)]
-    Oversized {
-        bytes: usize,
-        limit: usize,
-    },
     Backend(String),
 }
 
 impl fmt::Display for ClipboardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClipboardError::Oversized { bytes, limit } => {
-                write!(
-                    f,
-                    "clipboard content too large: {} bytes (limit {})",
-                    bytes, limit
-                )
-            }
             ClipboardError::Backend(s) => write!(f, "backend error: {}", s),
         }
     }

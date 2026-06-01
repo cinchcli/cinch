@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::store::models::LocalClip;
+    use crate::commands::clips::LocalClip;
     use crate::sync_status::{
         build_push_request, encrypt_or_drop_for_test as encrypt_or_drop, EncryptedPayload,
     };
@@ -25,11 +25,15 @@ mod tests {
             content: "hello".to_string(),
             content_type: "text".to_string(),
             source: "remote:host".to_string(),
+            source_app_id: None,
+            source_app: None,
+            source_url: None,
             label: "label".to_string(),
             byte_size: 5,
             media_path: None,
             created_at: 0,
             synced: false,
+            sync_state: "local".to_string(),
             is_pinned: false,
             pin_note: None,
             received_at: 0,
