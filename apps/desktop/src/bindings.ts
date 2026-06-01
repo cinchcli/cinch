@@ -5,7 +5,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	listClips: (source: string | null, contentType: string | null, limit: number | null) => typedError<LocalClip[], string>(__TAURI_INVOKE("list_clips", { source, contentType, limit })),
+	listClips: (query: string | null, limit: number | null) => typedError<LocalClip[], string>(__TAURI_INVOKE("list_clips", { query, limit })),
 	listPinnedClips: () => typedError<LocalClip[], string>(__TAURI_INVOKE("list_pinned_clips")),
 	pinClip: (id: string, note: string | null) => typedError<null, string>(__TAURI_INVOKE("pin_clip", { id, note })),
 	unpinClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("unpin_clip", { id })),
@@ -33,7 +33,6 @@ export const commands = {
 	getSourceAlertEnabled: (source: string) => typedError<boolean, string>(__TAURI_INVOKE("get_source_alert_enabled", { source })),
 	setSourceAlertEnabled: (source: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_source_alert_enabled", { source, enabled })),
 	getAllSourceAlertSettings: () => typedError<SourceAlertSetting[], string>(__TAURI_INVOKE("get_all_source_alert_settings")),
-	markClipCopied: (id: string) => typedError<null, string>(__TAURI_INVOKE("mark_clip_copied", { id })),
 	copyClipToClipboard: (content: string) => typedError<null, string>(__TAURI_INVOKE("copy_clip_to_clipboard", { content })),
 	copyImageToClipboard: (clipId: string) => typedError<null, string>(__TAURI_INVOKE("copy_image_to_clipboard", { clipId })),
 	saveImageToFile: (clipId: string) => typedError<string | null, string>(__TAURI_INVOKE("save_image_to_file", { clipId })),
@@ -58,8 +57,8 @@ export const commands = {
 	 */
 	previewRetentionChange: (days: number) => typedError<number, string>(__TAURI_INVOKE("preview_retention_change", { days })),
 	/**
-	 *  Wipe every clip row + cascade-delete media files. Returns the number of
-	 *  rows deleted. Used by the "Clear local history" Settings button (PRV-03).
+	 *  Wipe every clip row. Returns the number of rows deleted.
+	 *  Used by the "Clear local history" Settings button (PRV-03).
 	 */
 	clearLocalHistory: () => typedError<number, string>(__TAURI_INVOKE("clear_local_history")),
 	saveConfig: (relayUrl: string, token: string) => typedError<null, string>(__TAURI_INVOKE("save_config", { relayUrl, token })),
@@ -466,6 +465,7 @@ export type SnapGuideUpdate = {
 	visible: boolean,
 };
 
+// Per-source alert preference (frontend-facing).
 export type SourceAlertSetting = {
 	source: string,
 	alert_enabled: boolean,
@@ -477,6 +477,7 @@ export type SourceInfo = {
 	last_seen: number,
 };
 
+// Per-source auto-copy preference (frontend-facing).
 export type SourceSetting = {
 	source: string,
 	auto_copy: boolean,

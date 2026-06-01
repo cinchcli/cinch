@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and the 
   - `push`, `pull`, `auth`, `admin` are unchanged.
 - No aliases — old top-level commands now error. Update scripts, dotfiles, and shell completions (re-run `cinch completion <shell>`).
 - The dynamic-completion helper now invokes `cinch device list --names` (was `cinch devices --names`).
+- Desktop now shares its local store with the CLI (single SQLite DB at `~/.cinch/store.db`). On this update, desktop app settings — global shortcut, send shortcut, local/remote retention days, excluded-apps list, per-source auto-copy/alert preferences, and saved window placement — reset to defaults. The "bump recently-copied clip" behavior (`mark_clip_copied`) was removed.
 
 ## 0.1.9 — 2026-05-18
 
