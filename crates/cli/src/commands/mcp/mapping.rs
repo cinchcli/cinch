@@ -26,13 +26,7 @@ pub struct McpClip {
 /// Collapse legacy MIME-style content types to cinch's canonical vocabulary.
 /// `text/*` -> "text", `image/*` -> "image"; canonical values pass through.
 pub fn normalize_content_type(ct: &str) -> String {
-    if ct.starts_with("image") {
-        "image".to_string()
-    } else if ct.starts_with("text") {
-        "text".to_string()
-    } else {
-        ct.to_string()
-    }
+    client_core::rest::normalize_content_type(ct)
 }
 
 /// Convert a stored clip into the MCP-facing shape.
@@ -91,6 +85,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: content_type.to_string(),
             content: content.map(|s| s.as_bytes().to_vec()),
             media_path: None,

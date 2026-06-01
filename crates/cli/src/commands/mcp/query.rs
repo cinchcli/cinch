@@ -3,19 +3,6 @@
 pub const DEFAULT_LIMIT: i64 = 20;
 pub const MAX_LIMIT: i64 = 100;
 
-/// Make an arbitrary natural-language query safe for SQLite FTS5 `MATCH`.
-/// FTS5 treats `-`, `:`, `"`, `*`, `(`, `)`, `^`, and bare-word operators
-/// (`AND`/`OR`/`NEAR`) specially; raw AI/user input often produces syntax
-/// errors. We split on whitespace and wrap each token as a quoted FTS5 string
-/// (internal `"` doubled), joined with spaces (implicit AND). Whitespace-only
-/// input yields `""`, which callers treat as "no FTS filter".
-pub fn sanitize_fts_query(raw: &str) -> String {
-    raw.split_whitespace()
-        .map(|tok| format!("\"{}\"", tok.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// Clamp a client-supplied limit into a safe range. `None`, zero, or negative
 /// fall back to the default; anything above the hard maximum is capped.
 pub fn clamp_limit(requested: Option<i64>) -> i64 {
@@ -46,27 +33,6 @@ pub fn since_ms_from_days(now_ms: i64, max_age_days: Option<i64>) -> Option<i64>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sanitize_quotes_each_token() {
-        assert_eq!(sanitize_fts_query("hello world"), "\"hello\" \"world\"");
-    }
-
-    #[test]
-    fn sanitize_neutralizes_fts_operators() {
-        // `-`, `:`, `*` would be FTS5 operators if unquoted; one token stays one quoted token.
-        assert_eq!(sanitize_fts_query("foo-bar:baz*"), "\"foo-bar:baz*\"");
-    }
-
-    #[test]
-    fn sanitize_doubles_embedded_quotes() {
-        assert_eq!(sanitize_fts_query("a\"b"), "\"a\"\"b\"");
-    }
-
-    #[test]
-    fn sanitize_empty_is_empty() {
-        assert_eq!(sanitize_fts_query("   "), "");
-    }
 
     #[test]
     fn clamp_defaults_and_caps() {

@@ -8,7 +8,6 @@
 use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};
 
-use arboard::Clipboard;
 use client_core::auth::load_config;
 use client_core::config::Config;
 use client_core::credstore;
@@ -16,7 +15,8 @@ use client_core::crypto;
 use client_core::http::RestClient;
 use client_core::protocol::Clip;
 use client_core::rest::ContentType;
-use client_core::ws::{self, DecryptFailReason, WsConfig, WsEvent, WsStatus};
+use client_core::transport::{StreamTransport, WsStreamTransport};
+use client_core::ws::{DecryptFailReason, WsConfig, WsEvent, WsStatus};
 
 /// Debounce guard: allows at most one `retry_key_bundle` call per window.
 struct RetryGate {
@@ -43,6 +43,7 @@ impl RetryGate {
 }
 
 use crate::exit::{ExitError, AUTH_FAILURE, ENCRYPTION_PENDING, GENERIC_ERROR, RELAY_ERROR};
+use crate::io::copy_text_to_clipboard;
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -221,12 +222,15 @@ async fn watch_stream(
         token: cfg.token.clone(),
         encryption_key: key,
         client_info: Some(crate::client_info::for_cli()),
-        // ws::run uses the same RestClient to GET /clips/{id}/media for
-        // media-routed clips (D-routing). Cheap to clone (reqwest::Client
-        // is Arc-backed internally).
-        media_fetcher: Some(client.clone()),
+        // The stream transport fetches GET /clips/{id}/media for media-routed
+        // clips (D-routing) through the `ClipTransport` seam. Cheap to clone
+        // (reqwest::Client is Arc-backed internally).
+        media_fetcher: Some(std::sync::Arc::new(client.clone())),
     };
-    let handle = tokio::spawn(ws::run(cfg_ws, tx));
+    // Drive the relay WebSocket through the `StreamTransport` seam (the same
+    // one the sync `Writer` uses), so `crate::ws::run` has a single production
+    // entry point and stays `pub(crate)`.
+    let handle = tokio::spawn(async move { WsStreamTransport.run_stream(cfg_ws, tx).await });
 
     eprintln!("watching for clips… (Ctrl-C to stop)");
     let mut retry_gate = RetryGate::new();
@@ -285,14 +289,30 @@ async fn watch_stream(
             }
             WsEvent::TokenRotated { token, device_id } => {
                 if let (Ok(current_cfg), Some(did)) = (load_config(), device_id.as_deref()) {
-                    match client_core::auth::rotate_credentials(
-                        &current_cfg.user_id,
-                        did,
-                        &token,
-                        &current_cfg.hostname,
-                    ) {
-                        Ok(()) => eprintln!("note: token rotated and persisted"),
-                        Err(e) => eprintln!("note: token rotated but persist failed: {}", e),
+                    // The relay sends token_rotated only over the connection it
+                    // authenticated, so `did` should be THIS device. Persisting a
+                    // token under a different device's account key would write a
+                    // stray credential and leave this device stuck on its stale
+                    // token, so we refuse a mismatch. An empty local id (config
+                    // predates the field) is treated as "unknown" and allowed
+                    // through to preserve existing behavior.
+                    if !current_cfg.active_device_id.is_empty()
+                        && current_cfg.active_device_id != did
+                    {
+                        eprintln!(
+                            "note: ignoring token_rotated for device {} (this device is {})",
+                            did, current_cfg.active_device_id
+                        );
+                    } else {
+                        match client_core::auth::rotate_credentials(
+                            &current_cfg.user_id,
+                            did,
+                            &token,
+                            &current_cfg.hostname,
+                        ) {
+                            Ok(()) => eprintln!("note: token rotated and persisted"),
+                            Err(e) => eprintln!("note: token rotated but persist failed: {}", e),
+                        }
                     }
                 } else {
                     eprintln!("note: token rotated by relay; restart cinch pull --watch");
@@ -500,16 +520,6 @@ fn content_type(s: &str) -> Option<ContentType> {
         "code" => Some(ContentType::Code),
         "image" => Some(ContentType::Image),
         _ => None,
-    }
-}
-
-fn copy_text_to_clipboard(text: &str) {
-    if let Ok(mut cb) = Clipboard::new() {
-        if let Err(e) = cb.set_text(text) {
-            eprintln!("Warning: clipboard write failed: {}", e);
-        }
-    } else {
-        eprintln!("Warning: could not open system clipboard");
     }
 }
 

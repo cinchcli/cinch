@@ -88,9 +88,6 @@ struct InviteRow {
     label: String,
     max_uses: u32,
     used_count: u32,
-    // created_at is present in the relay response but not shown in the table.
-    #[allow(dead_code)]
-    created_at: String,
     expires_at: String,
     revoked_at: Option<String>,
 }

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod admin;
+pub mod ai;
 pub mod auth;
 pub mod auth_recovery;
 pub mod clip;

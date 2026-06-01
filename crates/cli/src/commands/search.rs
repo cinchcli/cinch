@@ -12,6 +12,9 @@ pub struct Args {
     /// `text` (default) or `json`.
     #[arg(long, default_value = "text")]
     pub format: String,
+    /// Filter by content type (e.g. text, image, url, code).
+    #[arg(long = "type")]
+    pub filter_type: Option<String>,
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
@@ -24,8 +27,13 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     })?;
     crate::runtime::opportunistic_backfill(&ctx).await;
 
-    let hits = client_core::store::queries::search_clips(&ctx.store, &args.query, args.limit)
-        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("search failed: {e}"), ""))?;
+    let hits = client_core::store::queries::search_clips(
+        &ctx.store,
+        &args.query,
+        args.limit,
+        args.filter_type.as_deref(),
+    )
+    .map_err(|e| ExitError::new(GENERIC_ERROR, format!("search failed: {e}"), ""))?;
 
     if args.format == "json" {
         println!(
@@ -34,33 +42,53 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         );
     } else {
         for c in &hits {
-            let preview = preview_of(c);
+            let preview = if let Some(l) = &c.label {
+                format!("[{l}]")
+            } else {
+                preview_of(c)
+            };
             let when = crate::commands::list::format_unix_ms_as_rfc3339(c.created_at);
-            println!("{}  {:<14}  {}  {}", &c.id[..12], c.source, when, preview);
+            let source_display = if let Some(app) = &c.source_app {
+                format!("{} ({})", c.source, app)
+            } else {
+                c.source.clone()
+            };
+            println!(
+                "{}  {:<20}  {}  {}",
+                &c.id[..12],
+                source_display,
+                when,
+                preview
+            );
         }
     }
     Ok(())
 }
 
 fn preview_of(c: &client_core::store::models::StoredClip) -> String {
-    if c.content_type.starts_with("text/") {
-        let text: Vec<u8> = c
-            .content
-            .as_deref()
-            .unwrap_or(b"")
-            .iter()
-            .take(40)
-            .copied()
-            .collect();
-        let s = String::from_utf8_lossy(&text).replace('\n', " ");
-        if s.len() == 40 {
-            format!("{s}…")
+    if is_text_like(&c.content_type) {
+        let raw = String::from_utf8_lossy(c.content.as_deref().unwrap_or(b""));
+        let oneline = raw.replace('\n', " ");
+        // Truncate by characters, not bytes, so multibyte content (Korean,
+        // emoji, …) is never split mid-codepoint into U+FFFD replacements.
+        let mut chars = oneline.chars();
+        let head: String = chars.by_ref().take(40).collect();
+        if chars.next().is_some() {
+            format!("{head}…")
         } else {
-            s
+            head
         }
     } else {
         format!("[{} · {}]", c.content_type, fmt_bytes(c.byte_size))
     }
+}
+
+/// Content types whose stored bytes are human-readable and should be previewed
+/// inline. Covers the canonical vocabulary (`text`, `code`, `url`) plus legacy
+/// MIME values (`text/plain`, …) from pre-canonicalization clips. Mirrors
+/// `compact_type` in `list.rs` and `isTextLike` in the desktop frontend.
+fn is_text_like(ct: &str) -> bool {
+    ct.starts_with("text") || ct == "code" || ct == "url"
 }
 
 fn fmt_bytes(n: i64) -> String {
@@ -89,6 +117,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: content_type.into(),
             content,
             media_path: None,
@@ -104,6 +133,45 @@ mod tests {
     fn test_preview_of_text_short() {
         let c = clip("text/plain", Some(b"hello world".to_vec()), 11);
         assert_eq!(preview_of(&c), "hello world");
+    }
+
+    #[test]
+    fn test_preview_of_canonical_text_shows_content() {
+        // Canonical content_type is the bare string "text" (no MIME slash).
+        // The preview must show the matched content, not a "[text · NB]" placeholder.
+        let c = clip("text", Some(b"@MuClaw hi".to_vec()), 10);
+        assert_eq!(preview_of(&c), "@MuClaw hi");
+    }
+
+    #[test]
+    fn test_preview_of_canonical_code_and_url_show_content() {
+        let code = clip("code", Some(b"fn main() {}".to_vec()), 12);
+        assert_eq!(preview_of(&code), "fn main() {}");
+        let url = clip("url", Some(b"https://example.com".to_vec()), 19);
+        assert_eq!(preview_of(&url), "https://example.com");
+    }
+
+    #[test]
+    fn test_preview_of_multibyte_truncates_by_char_not_byte() {
+        // 50 Korean chars (3 bytes each = 150 bytes). Byte-based truncation would
+        // split a multibyte boundary and emit replacement chars; char-based must
+        // take the first 40 chars cleanly and append an ellipsis.
+        let content = "가".repeat(50);
+        let c = clip("text", Some(content.into_bytes()), 150);
+        let preview = preview_of(&c);
+        assert!(
+            !preview.contains('\u{FFFD}'),
+            "preview must not contain U+FFFD"
+        );
+        assert_eq!(preview, format!("{}…", "가".repeat(40)));
+    }
+
+    #[test]
+    fn test_preview_of_canonical_text_no_ellipsis_when_short() {
+        // 30 Korean chars (< 40): whole string shown, no ellipsis.
+        let content = "가".repeat(30);
+        let c = clip("text", Some(content.clone().into_bytes()), 90);
+        assert_eq!(preview_of(&c), content);
     }
 
     #[test]

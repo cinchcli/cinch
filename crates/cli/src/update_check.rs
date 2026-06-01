@@ -16,13 +16,9 @@ pub fn cached_cli_latest() -> Option<String> {
 /// equal/newer reported version. Used to gate the "(outdated)" marker on
 /// the `cinch device list` table for CLI rows.
 pub fn is_outdated(reported: &str, latest: &str) -> bool {
-    let Ok(a) = semver::Version::parse(reported) else {
-        return false;
-    };
-    let Ok(b) = semver::Version::parse(latest.trim_start_matches('v')) else {
-        return false;
-    };
-    a < b
+    // Single source of truth lives in client-core so the CLI marker and the
+    // desktop update prompt share identical semver/`v`-prefix semantics.
+    client_core::version::is_outdated(reported, latest)
 }
 
 #[cfg(test)]

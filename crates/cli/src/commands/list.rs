@@ -21,6 +21,7 @@ pub struct ListRecord {
     pub id: String,
     pub source: String,
     pub source_name: String,
+    pub label: String,
     pub content_type: String,
     pub size_bytes: i64,
     pub created_at: String,
@@ -36,7 +37,9 @@ pub struct ImageMetadata {
 
 fn render_record(clip: &Clip, source_name: &str) -> ListRecord {
     let is_image = clip.content_type.starts_with("image");
-    let preview = if is_image {
+    let preview = if !clip.label.is_empty() {
+        format!("[{}]", clip.label)
+    } else if is_image {
         let kb = clip.byte_size as f64 / 1024.0;
         let size_str = if kb >= 1024.0 {
             format!("{:.1} MB", kb / 1024.0)
@@ -64,6 +67,7 @@ fn render_record(clip: &Clip, source_name: &str) -> ListRecord {
         id: clip.clip_id.clone(),
         source: clip.source.clone(),
         source_name: source_name.into(),
+        label: clip.label.clone(),
         content_type: clip.content_type.clone(),
         size_bytes: clip.byte_size,
         created_at: clip.created_at.clone(),
@@ -432,7 +436,7 @@ fn into_wire_clip(c: StoredClip) -> Clip {
         content: content_str,
         content_type: c.content_type,
         source: c.source,
-        label: String::new(),
+        label: c.label.unwrap_or_default(),
         byte_size: c.byte_size,
         media_path: c.media_path,
         created_at: created_at_rfc,
@@ -650,6 +654,7 @@ mod tests {
             id: "c1".into(),
             source: "remote:desktop".into(),
             source_name: "desktop".into(),
+            label: "".into(),
             content_type: "text".into(),
             size_bytes: 142,
             created_at: "2026-05-13T08:00:00Z".into(),
@@ -674,6 +679,7 @@ mod tests {
             id: "verylongidprefix12345".into(),
             source: "s".into(),
             source_name: "src".into(),
+            label: "".into(),
             content_type: "text".into(),
             size_bytes: 0,
             created_at: "2026-05-13T08:00:00Z".into(),
@@ -694,6 +700,7 @@ mod tests {
             id: "c1".into(),
             source: "remote:laptop-7".into(),
             source_name: "remote:laptop-7".into(),
+            label: "".into(),
             content_type: "url".into(),
             size_bytes: 25,
             created_at: "2026-05-13T08:00:00Z".into(),
@@ -743,6 +750,7 @@ mod tests {
             id: "c".into(),
             source: name.into(),
             source_name: name.into(),
+            label: "".into(),
             content_type: "text".into(),
             size_bytes: 0,
             created_at: String::new(),

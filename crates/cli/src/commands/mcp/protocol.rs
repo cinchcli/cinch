@@ -94,7 +94,8 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Natural-language or keyword query." },
-                    "limit": { "type": "integer", "description": "Max results (default 20, max 100)." }
+                    "limit": { "type": "integer", "description": "Max results (default 20, max 100)." },
+                    "type": { "type": "string", "description": "Optional type filter (text, image, url, code)." }
                 },
                 "required": ["query"]
             }
@@ -123,7 +124,8 @@ fn tools_list() -> Value {
 }
 
 use super::mapping::to_mcp_clip;
-use super::query::{clamp_limit, sanitize_fts_query};
+use super::query::clamp_limit;
+use client_core::store::queries::sanitize_fts_query;
 
 fn handle_tool_call(
     store: &Store,
@@ -147,6 +149,8 @@ fn handle_tool_call(
                 .and_then(Value::as_str)
                 .ok_or((-32602, "missing required 'query'".to_string()))?;
             let limit = clamp_limit(args.get("limit").and_then(Value::as_i64));
+            let filter_type = args.get("type").and_then(Value::as_str);
+
             let fts = sanitize_fts_query(query);
             // The empty-query path goes through list_clips (DB-filters by since_ms);
             // the FTS path uses search_clips (no since arg) so we filter in Rust.
@@ -161,7 +165,7 @@ fn handle_tool_call(
                     limit,
                 )
             } else {
-                client_core::store::queries::search_clips(store, &fts, limit)
+                client_core::store::queries::search_clips(store, query, limit, filter_type)
             }
             .map_err(|e| (-32000, format!("store error: {e}")))?;
             let clips: Vec<_> = rows
@@ -275,6 +279,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: content_type.to_string(),
                 content: Some(content.as_bytes().to_vec()),
                 media_path: None,

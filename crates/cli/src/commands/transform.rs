@@ -1,4 +1,4 @@
-use std::io::Write;
+use crate::io::{copy_text_to_clipboard, write_to_stdout};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -79,40 +79,15 @@ pub async fn run(args: Args) -> Result<(), crate::exit::ExitError> {
 
     let out = transform_clip_from_store(&ctx.store, clip, action)?;
     if args.copy {
-        copy_text_to_clipboard(&out)?;
+        // Copy to the clipboard; if that fails, fall back to stdout so the
+        // transformed result is never lost (clipboard copy is best-effort).
+        if !copy_text_to_clipboard(&out) {
+            write_to_stdout(out.as_bytes())?;
+        }
     } else {
         write_to_stdout(out.as_bytes())?;
     }
     Ok(())
-}
-
-fn write_to_stdout(bytes: &[u8]) -> Result<(), crate::exit::ExitError> {
-    match std::io::stdout().write_all(bytes) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(e) => Err(crate::exit::ExitError::new(
-            crate::exit::GENERIC_ERROR,
-            e.to_string(),
-            "",
-        )),
-    }
-}
-
-fn copy_text_to_clipboard(text: &str) -> Result<(), crate::exit::ExitError> {
-    let mut cb = arboard::Clipboard::new().map_err(|e| {
-        crate::exit::ExitError::new(
-            crate::exit::GENERIC_ERROR,
-            format!("could not open clipboard: {e}"),
-            "",
-        )
-    })?;
-    cb.set_text(text).map_err(|e| {
-        crate::exit::ExitError::new(
-            crate::exit::GENERIC_ERROR,
-            format!("clipboard write failed: {e}"),
-            "",
-        )
-    })
 }
 
 #[cfg(test)]
@@ -135,6 +110,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: content_type.to_string(),
                 content: Some(content.to_vec()),
                 media_path: None,

@@ -74,6 +74,7 @@ mod tests {
         let mc = MultiConfig {
             active_relay_id: Some("r1".into()),
             relays: vec![blank_profile("r1", "")],
+            ..MultiConfig::default()
         };
         assert!(!has_active_token(&mc));
     }
@@ -83,6 +84,7 @@ mod tests {
         let mc = MultiConfig {
             active_relay_id: Some("r1".into()),
             relays: vec![blank_profile("r1", "abc")],
+            ..MultiConfig::default()
         };
         assert!(has_active_token(&mc));
     }

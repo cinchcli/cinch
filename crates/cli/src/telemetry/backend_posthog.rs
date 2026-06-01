@@ -88,22 +88,25 @@ impl PostHogBackend {
     }
 
     pub fn identify(&self, user_id: &str) {
-        let anon_id = self
-            .distinct_id
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default();
-        if anon_id == user_id {
-            return;
-        }
+        // Atomically check-and-swap the distinct_id in a single lock scope so
+        // concurrent identify() calls cannot interleave a stale read with a
+        // write. (`build_entry` below only locks distinct_id when its override
+        // is None; we pass Some(user_id), so there is no nested lock.)
+        let anon_id = {
+            let mut id = match self.distinct_id.lock() {
+                Ok(g) => g,
+                Err(p) => p.into_inner(),
+            };
+            if *id == user_id {
+                return;
+            }
+            std::mem::replace(&mut *id, user_id.to_string())
+        };
         let mut props = Map::new();
         props.insert("$anon_distinct_id".into(), Value::String(anon_id));
         let entry = self.build_entry("$identify".to_string(), props, Some(user_id.to_string()));
         if let Ok(mut buf) = self.buffer.lock() {
             buf.push(entry);
-        }
-        if let Ok(mut id) = self.distinct_id.lock() {
-            *id = user_id.to_string();
         }
     }
 

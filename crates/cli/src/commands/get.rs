@@ -1,10 +1,9 @@
 //! `cinch clip get <id-prefix>` — print a single clip's contents (or metadata).
 
-use std::io::Write;
-
 use client_core::store::models::ResolveError;
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
+use crate::io::{copy_text_to_clipboard, write_to_stdout};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -67,6 +66,15 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     if args.meta {
         println!("id:           {}", clip.id);
         println!("source:       {}", clip.source);
+        if let Some(app) = clip.source_app {
+            println!("source_app:   {}", app);
+        }
+        if let Some(url) = clip.source_url {
+            println!("source_url:   {}", url);
+        }
+        if let Some(label) = clip.label {
+            println!("label:        {}", label);
+        }
         println!("content_type: {}", clip.content_type);
         println!("byte_size:    {}", clip.byte_size);
         println!(
@@ -113,25 +121,6 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     Ok(())
 }
 
-fn copy_text_to_clipboard(text: &str) {
-    use arboard::Clipboard;
-    if let Ok(mut cb) = Clipboard::new() {
-        if let Err(e) = cb.set_text(text) {
-            eprintln!("Warning: clipboard write failed: {}", e);
-        }
-    } else {
-        eprintln!("Warning: could not open system clipboard");
-    }
-}
-
-fn write_to_stdout(bytes: &[u8]) -> Result<(), ExitError> {
-    match std::io::stdout().write_all(bytes) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(e) => Err(ExitError::new(GENERIC_ERROR, e.to_string(), "")),
-    }
-}
-
 pub fn render_resolve_error(err: ResolveError) -> ExitError {
     match err {
         ResolveError::TooShort => {
@@ -142,12 +131,17 @@ pub fn render_resolve_error(err: ResolveError) -> ExitError {
             let mut msg = String::from("ambiguous prefix — multiple matches:\n");
             for c in candidates {
                 let when = crate::commands::list::format_unix_ms_as_rfc3339(c.created_at);
+                let preview = if let Some(l) = c.label {
+                    format!("[{l}]")
+                } else {
+                    c.preview
+                };
                 msg.push_str(&format!(
                     "  {}  {:<14}  {}  {}\n",
                     &c.id[..12],
                     c.source,
                     when,
-                    c.preview
+                    preview
                 ));
             }
             ExitError::new(GENERIC_ERROR, msg, "re-run with a longer prefix")
@@ -193,6 +187,7 @@ mod tests {
             id: id.to_string(),
             source: source.to_string(),
             content_type: "text/plain".into(),
+            label: None,
             created_at: 0,
             preview: "preview".into(),
         }

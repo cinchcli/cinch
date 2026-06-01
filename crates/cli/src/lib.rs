@@ -14,6 +14,7 @@ mod commands;
 mod desktop_handoff;
 mod exit;
 mod fmt;
+mod io;
 mod key_state;
 #[cfg(target_os = "macos")]
 mod macos_pasteboard;
@@ -40,6 +41,8 @@ enum Cmd {
     Push(commands::push::Args),
     /// Pull clipboard content to stdout.
     Pull(commands::pull::Args),
+    /// AI workflows over explicit terminal or clipboard context.
+    Ai(commands::ai::Args),
     /// Operate on clips: list, search, get, rm.
     Clip(commands::clip::Args),
     /// Pin / unpin clips and list pinned clips.
@@ -142,6 +145,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
     match cmd {
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
+        Cmd::Ai(_) => "ai",
         Cmd::Clip(_) => "clip",
         Cmd::Pin(_) => "pin",
         Cmd::Device(_) => "device",
@@ -152,6 +156,10 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::SelfUpdate(_) => "self-update",
         Cmd::Mcp(_) => "mcp",
     }
+}
+
+fn is_ai_cmd(cmd: &Cmd) -> bool {
+    matches!(cmd, Cmd::Ai(_))
 }
 
 /// Returns true when the invocation is `cinch account telemetry ...`. Used to
@@ -218,7 +226,12 @@ pub fn run() -> i32 {
     // Skip telemetry init for the `cinch account telemetry` meta-command so
     // that inspecting/toggling state does not itself create the distinct_id
     // file or print the first-run notice.
-    let instrument = !is_telemetry_cmd(&cli.cmd);
+    //
+    // Also keep `cinch ai` free of background network side effects. AI commands
+    // have their own explicit provider boundary; `--no-send` must not trigger
+    // telemetry, update checks, relay backfills, or any other network call.
+    let ai_cmd = is_ai_cmd(&cli.cmd);
+    let instrument = !is_telemetry_cmd(&cli.cmd) && !ai_cmd;
     if instrument {
         telemetry::init();
     }
@@ -236,12 +249,15 @@ pub fn run() -> i32 {
         // T1: best-effort backlog flush on every CLI session start.
         // No-op if not authenticated, missing encryption key, or another
         // flush is in flight. Detached — never delays the user's command.
-        if let Ok(ctx) = crate::runtime::open_ctx() {
-            crate::runtime::spawn_session_flush(&ctx);
+        if !ai_cmd {
+            if let Ok(ctx) = crate::runtime::open_ctx() {
+                crate::runtime::spawn_session_flush(&ctx);
+            }
         }
         let cmd_result = match cli.cmd {
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
+            Cmd::Ai(args) => commands::ai::run(args).await,
             Cmd::Clip(args) => commands::clip::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
             Cmd::Device(args) => commands::device::run(args).await,
@@ -255,11 +271,13 @@ pub fn run() -> i32 {
         // Best-effort update notifier: never delays user-facing output by >300ms,
         // never affects exit status, never surfaces its errors. Replaces the
         // older `update_check::check_self_outdated` polling path.
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_millis(300),
-            update::notifier::maybe_notify(),
-        )
-        .await;
+        if !ai_cmd {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(300),
+                update::notifier::maybe_notify(),
+            )
+            .await;
+        }
         if instrument {
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let (success, exit_code) = match &cmd_result {

@@ -80,57 +80,8 @@ pub fn spawn_session_flush(ctx: &Ctx) {
         let _guard = guard;
         // Best-effort: errors are intentionally absorbed so the flush
         // never affects the user-facing exit code or output.
-        let _ = client_core::sync::flush_once(&store, &client, key).await;
+        let _ = client_core::sync::flush_once(&store, &*client, key).await;
     });
-}
-
-/// Best-effort `flush_once` with a tight deadline, debounced to once per 60s
-/// via the persistent `last_flush_at` watermark and the process-static
-/// `FlushGate`.
-///
-/// Awaited (not spawned) so callers can rely on backlog clips having been
-/// pushed before they do their own work — e.g. `cinch push` wants the
-/// backlog to arrive at the relay before its own new clip.
-///
-/// Skips silently when:
-/// - The encryption key is missing (cannot encrypt pending clips).
-/// - The last flush completed less than 60 seconds ago (debounce).
-/// - Another flush is already in flight in this process (FlushGate-gated).
-///
-/// Errors during the flush are intentionally absorbed — they never affect
-/// the caller's exit status or output. The flush is bounded by `timeout`
-/// so the user-visible latency of the host command stays predictable.
-pub async fn try_session_flush_with_timeout(ctx: &Ctx, timeout: std::time::Duration) {
-    let Some(key) = ctx.enc_key else { return };
-
-    // Mirror the SystemTime pattern already used in commands/push.rs so
-    // the timestamp source is consistent across CLI write paths and we
-    // don't take a transitive dep on chrono in the CLI crate's own logic.
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let last = client_core::store::queries::get_last_flush_at(&ctx.store)
-        .ok()
-        .flatten()
-        .unwrap_or(0);
-    if now - last < 60 {
-        return;
-    }
-
-    let gate = SESSION_FLUSH_GATE.get_or_init(FlushGate::new);
-    let Some(_guard) = gate.try_enter() else {
-        return;
-    };
-
-    // Best-effort: both errors and the timeout are intentionally absorbed
-    // so the flush never affects the user-facing exit code or output.
-    let _ = tokio::time::timeout(
-        timeout,
-        client_core::sync::flush_once(&ctx.store, &ctx.client, key),
-    )
-    .await;
-    let _ = client_core::store::queries::set_last_flush_at(&ctx.store, now);
 }
 
 /// Opportunistic REST backfill for read commands.
@@ -151,7 +102,7 @@ pub async fn opportunistic_backfill(ctx: &Ctx) {
 
     let _ = sync::backfill_once(
         &ctx.store,
-        &ctx.client,
+        &*ctx.client,
         BackfillBudget::default(),
         ctx.enc_key.as_ref(),
     )
