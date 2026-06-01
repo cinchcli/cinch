@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Credential storage — `~/.cinch/config.json` (0600 permissions).
 //!
 //! This module is the source of truth for the disk credential format used
@@ -36,10 +35,6 @@ impl std::fmt::Display for CredentialError {
     }
 }
 
-fn account_key(user_id: &str, device_id: &str) -> String {
-    format!("{}:{}", user_id, device_id)
-}
-
 fn config_path() -> Result<PathBuf, CredentialError> {
     let home = dirs::home_dir()
         .ok_or_else(|| CredentialError::Io("cannot determine home directory".into()))?;
@@ -55,14 +50,9 @@ pub fn load_multi_config() -> Result<MultiConfig, CredentialError> {
         fs::read_to_string(&p).map_err(|e| CredentialError::Io(format!("read config: {}", e)))?;
     let v: serde_json::Value = serde_json::from_str(&data)
         .map_err(|e| CredentialError::BadConfig(format!("parse config: {}", e)))?;
-    if v.get("relays").is_some() {
-        serde_json::from_value(v)
-            .map_err(|e| CredentialError::BadConfig(format!("parse multi_config: {}", e)))
-    } else {
-        let old: Config = serde_json::from_value(v)
-            .map_err(|e| CredentialError::BadConfig(format!("parse legacy config: {}", e)))?;
-        Ok(MultiConfig::from_legacy_pub(old))
-    }
+    // Shared parse path with `MultiConfig::load`: applies schema migrations and
+    // tolerates the legacy single-relay layout. See `config::parse_config_value`.
+    crate::config::parse_config_value(v).map_err(CredentialError::BadConfig)
 }
 
 pub fn save_multi_config(mc: &MultiConfig) -> Result<(), CredentialError> {
@@ -251,24 +241,6 @@ pub fn wipe_credentials() -> Result<(), CredentialError> {
     Ok(())
 }
 
-/// Read the encryption key for a user from config.
-pub fn read_encryption_key(user_id: &str) -> Result<Vec<u8>, CredentialError> {
-    if user_id.is_empty() {
-        return Err(CredentialError::NoEntry);
-    }
-    let cfg = load_config()?;
-    if !cfg.encryption_key.is_empty() {
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        use base64::Engine;
-        if let Ok(key_bytes) = URL_SAFE_NO_PAD.decode(&cfg.encryption_key) {
-            if key_bytes.len() == 32 {
-                return Ok(key_bytes);
-            }
-        }
-    }
-    Err(CredentialError::NoEntry)
-}
-
 /// Write the encryption key for a user to config.
 pub fn write_encryption_key(user_id: &str, key_bytes: &[u8]) -> Result<(), CredentialError> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -441,11 +413,9 @@ pub fn parse_pairing_complete_marker(line: &str) -> Option<PairingCompleteMarker
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn account_key_format() {
-        assert_eq!(account_key("u1", "d1"), "u1:d1");
+        assert_eq!(crate::credstore::account_key("u1", "d1"), "u1:d1");
     }
 }
 

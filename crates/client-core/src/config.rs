@@ -143,12 +143,51 @@ impl RelayProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Current on-disk config schema version. Bump this only alongside a registered
+/// migration in [`crate::config_migrate`] when the JSON layout changes in a way
+/// that an older field default cannot absorb.
+pub const CURRENT_CONFIG_VERSION: u32 = 1;
+
+fn default_config_version() -> u32 {
+    CURRENT_CONFIG_VERSION
+}
+
+/// Persistent multi-relay configuration, stored as JSON in `~/.cinch/config.json`
+/// (0600 permissions on Unix).
+///
+/// # Schema versioning
+/// `config_version` records the on-disk schema version. A missing field (configs
+/// written before versioning existed) or `0` is read as v1, so every existing
+/// installation keeps loading. On load, anything older than
+/// [`CURRENT_CONFIG_VERSION`] is upgraded by [`crate::config_migrate`]; anything
+/// newer is loaded best-effort without mutation. The field is written back on the
+/// next [`MultiConfig::save`].
+///
+/// # Security
+/// `token`, `encryption_key`, and `device_private_key` (on each [`RelayProfile`])
+/// are credential-bearing and must never be dropped, renamed, or altered by a
+/// migration — losing them forces a sign-out or makes clips undecryptable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiConfig {
+    #[serde(default = "default_config_version")]
+    pub config_version: u32,
     #[serde(default)]
     pub active_relay_id: Option<String>,
     #[serde(default)]
     pub relays: Vec<RelayProfile>,
+}
+
+impl Default for MultiConfig {
+    fn default() -> Self {
+        // Note: a derived `Default` would set `config_version` to 0, which the
+        // migration layer reinterprets as v1 — but writing the explicit current
+        // version keeps freshly-created configs self-describing on disk.
+        Self {
+            config_version: CURRENT_CONFIG_VERSION,
+            active_relay_id: None,
+            relays: Vec::new(),
+        }
+    }
 }
 
 pub type MultiConfigHandle = Arc<Mutex<MultiConfig>>;
@@ -168,15 +207,9 @@ impl MultiConfig {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) else {
             return Self::default();
         };
-        if v.get("relays").is_some() {
-            serde_json::from_value(v).unwrap_or_default()
-        } else {
-            let old: Config = match serde_json::from_value(v) {
-                Ok(c) => c,
-                Err(_) => return Self::default(),
-            };
-            Self::from_legacy(old)
-        }
+        // A parse/migration failure falls back to an empty config (treated as
+        // "not signed in") rather than crashing the client.
+        parse_config_value(v).unwrap_or_default()
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -214,10 +247,6 @@ impl MultiConfig {
             .unwrap_or_default()
     }
 
-    pub fn from_legacy_pub(old: Config) -> Self {
-        Self::from_legacy(old)
-    }
-
     fn from_legacy(old: Config) -> Self {
         if old.user_id.is_empty() && old.token.is_empty() {
             return Self::default();
@@ -225,9 +254,29 @@ impl MultiConfig {
         let profile = RelayProfile::from_config(&old, None);
         let id = profile.id.clone();
         Self {
+            config_version: CURRENT_CONFIG_VERSION,
             active_relay_id: Some(id),
             relays: vec![profile],
         }
+    }
+}
+
+/// Parse a raw config JSON value into a [`MultiConfig`], applying schema
+/// migrations first and tolerating the legacy single-relay (`Config`) layout
+/// that predates the `relays` array.
+///
+/// Shared by [`MultiConfig::load`] (which falls back to default on error) and
+/// [`crate::auth::load_multi_config`] (which propagates the error). Keeping the
+/// single parse path here means migrations and legacy detection cannot drift
+/// between the two entry points.
+pub fn parse_config_value(value: serde_json::Value) -> Result<MultiConfig, String> {
+    let value = crate::config_migrate::apply_migrations(value, CURRENT_CONFIG_VERSION)?;
+    if value.get("relays").is_some() {
+        serde_json::from_value(value).map_err(|e| format!("parse multi_config: {}", e))
+    } else {
+        let old: Config =
+            serde_json::from_value(value).map_err(|e| format!("parse legacy config: {}", e))?;
+        Ok(MultiConfig::from_legacy(old))
     }
 }
 
@@ -322,5 +371,95 @@ mod tests {
         }"#;
         let p: RelayProfile = serde_json::from_str(json).expect("decode");
         assert_eq!(p.display_name, "");
+    }
+
+    #[test]
+    fn default_multi_config_carries_current_version() {
+        assert_eq!(
+            MultiConfig::default().config_version,
+            CURRENT_CONFIG_VERSION
+        );
+    }
+
+    #[test]
+    fn unversioned_modern_config_loads_as_current_version() {
+        // A config written before the version field existed: serde fills the
+        // default, parse_config_value keeps the relays untouched.
+        let v = serde_json::json!({
+            "active_relay_id": "r1",
+            "relays": [{
+                "id": "r1", "label": "main", "relay_url": "https://r",
+                "user_id": "u", "device_id": "d", "hostname": "h", "token": "t"
+            }]
+        });
+        let mc = parse_config_value(v).expect("parse");
+        assert_eq!(mc.config_version, CURRENT_CONFIG_VERSION);
+        assert_eq!(mc.relays.len(), 1);
+        assert_eq!(mc.relays[0].token, "t");
+    }
+
+    #[test]
+    fn parse_preserves_credential_fields() {
+        let v = serde_json::json!({
+            "config_version": 1,
+            "active_relay_id": "r1",
+            "relays": [{
+                "id": "r1", "label": "prod", "relay_url": "https://api",
+                "user_id": "alice", "device_id": "d123", "hostname": "mac",
+                "token": "secret_token",
+                "encryption_key": "ZW5jX2tleQ",
+                "device_private_key": "cHJpdl9rZXk"
+            }]
+        });
+        let mc = parse_config_value(v).expect("parse");
+        let relay = mc.active_profile().expect("active relay");
+        assert_eq!(relay.token, "secret_token");
+        assert_eq!(relay.encryption_key, "ZW5jX2tleQ");
+        assert_eq!(relay.device_private_key, "cHJpdl9rZXk");
+    }
+
+    #[test]
+    fn parse_converts_legacy_single_relay_layout() {
+        // No "relays" key → legacy flat Config, converted via from_legacy.
+        let v = serde_json::json!({
+            "token": "t", "user_id": "u", "relay_url": "https://r",
+            "hostname": "h", "active_device_id": "d",
+            "encryption_key": "KEY", "device_private_key": "PRIV"
+        });
+        let mc = parse_config_value(v).expect("parse");
+        assert_eq!(mc.config_version, CURRENT_CONFIG_VERSION);
+        assert_eq!(mc.relays.len(), 1);
+        assert_eq!(mc.relays[0].token, "t");
+        assert_eq!(mc.relays[0].encryption_key, "KEY");
+        assert_eq!(mc.relays[0].device_private_key, "PRIV");
+        assert_eq!(
+            mc.active_relay_id.as_deref(),
+            Some(mc.relays[0].id.as_str())
+        );
+    }
+
+    #[test]
+    fn parse_newer_version_loads_best_effort() {
+        // A future build's config must still load its credentials rather than
+        // being discarded; the migration layer leaves it untouched.
+        let v = serde_json::json!({
+            "config_version": 999,
+            "active_relay_id": "r1",
+            "relays": [{
+                "id": "r1", "label": "main", "relay_url": "https://r",
+                "user_id": "u", "device_id": "d", "hostname": "h", "token": "keep"
+            }]
+        });
+        let mc = parse_config_value(v).expect("best-effort parse");
+        assert_eq!(mc.config_version, 999);
+        assert_eq!(mc.active_profile().expect("active").token, "keep");
+    }
+
+    #[test]
+    fn version_survives_serialize_roundtrip() {
+        let mc = MultiConfig::default();
+        let json = serde_json::to_string(&mc).expect("serialize");
+        let back: MultiConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.config_version, CURRENT_CONFIG_VERSION);
     }
 }

@@ -44,6 +44,23 @@ impl ContentType {
     }
 }
 
+/// Collapse a legacy MIME-style `content_type` to the canonical 4-string
+/// vocabulary (`text`, `code`, `url`, `image`). Pre-2026-05 builds emitted
+/// MIME values like `"text/plain"` / `"image/png"`, and the relay's
+/// `content_type` column is an open string, so those can still surface. This
+/// read-side defense collapses `text/*` → `"text"` and `image/*` → `"image"`;
+/// unknown values pass through verbatim (a defense, not a gate — producers
+/// must still emit canonical strings).
+pub fn normalize_content_type(ct: &str) -> String {
+    if ct.starts_with("image") {
+        "image".to_string()
+    } else if ct.starts_with("text") {
+        "text".to_string()
+    } else {
+        ct.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

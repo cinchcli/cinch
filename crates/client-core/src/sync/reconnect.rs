@@ -8,8 +8,8 @@
 //! until the next process restart triggers `Writer::start`'s initial
 //! backfill.
 
-use crate::http::RestClient;
 use crate::store::Store;
+use crate::transport::ClipTransport;
 
 use super::backlog_flusher::{flush_once, FlushError, FlushReport};
 use super::reader::{backfill_once, BackfillBudget, BackfillError};
@@ -35,7 +35,7 @@ pub struct ReconnectCatchupReport {
 /// callback (see `client_core::sync::OnConnectedCallback`).
 pub async fn reconnect_catchup(
     store: &Store,
-    client: &RestClient,
+    client: &dyn ClipTransport,
     key: [u8; 32],
 ) -> ReconnectCatchupReport {
     let flush = flush_once(store, client, key).await;
@@ -46,6 +46,7 @@ pub async fn reconnect_catchup(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::RestClient;
     use crate::store::{queries, Store};
     use crate::version::{ClientInfo, ClientType};
     use wiremock::matchers::{method, path};

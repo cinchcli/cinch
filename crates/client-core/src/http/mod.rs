@@ -63,6 +63,20 @@ pub enum HttpError {
     Build(String),
 }
 
+impl HttpError {
+    /// Whether retrying the request might succeed. Network blips and relay
+    /// 5xx are transient; 4xx, auth, decode, and build errors are not (they
+    /// are deterministic — retrying just wastes time and money). Single source
+    /// of truth for retry decisions across the HTTP and sync layers.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            HttpError::Network(_) => true,
+            HttpError::Relay { status, .. } => (500..600).contains(status),
+            HttpError::Unauthorized | HttpError::Decode(_) | HttpError::Build(_) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 enum TestMode {
     Offline,
@@ -168,8 +182,11 @@ impl RestClient {
     }
 
     /// Test-only constructor that wires the client to a guaranteed-unreachable
-    /// localhost port. Every `push_clip_json` call returns
-    /// `Err(HttpError::Network(_))` within milliseconds.
+    /// localhost port. Every request — push *and* every read path (backfill,
+    /// list, media) — returns `Err(HttpError::Network("offline test client"))`
+    /// within milliseconds: push short-circuits in `handle_test_push` and the
+    /// rest short-circuit at the `send_with_retry` choke point, so no test
+    /// touches the network or waits on retry backoff.
     #[cfg(test)]
     pub fn for_test_offline() -> Self {
         let mut c = Self::new(
@@ -275,6 +292,16 @@ impl RestClient {
     where
         F: Fn() -> Result<reqwest::Request, reqwest::Error>,
     {
+        // Offline test mode fails fast on every request path — not just
+        // `push_clip_json` — without touching the network or the backoff
+        // sleeps. `for_test_offline` also points at an unreachable port as a
+        // belt-and-suspenders, but short-circuiting here keeps read paths
+        // (backfill, list, media) from burning ~3s of retry backoff in tests.
+        #[cfg(test)]
+        if matches!(self.test_mode, Some(TestMode::Offline)) {
+            return Err(HttpError::Network("offline test client".into()));
+        }
+
         let mut last_err: Option<HttpError> = None;
         for attempt in 0..MAX_ATTEMPTS {
             if attempt > 0 {
@@ -302,11 +329,18 @@ async fn decode_json_response<T: serde::de::DeserializeOwned>(
         return Err(HttpError::Unauthorized);
     }
     if !status.is_success() {
-        let err: ErrorResponse = resp.json().await.unwrap_or_default();
+        // Read the body as text first, then try to parse it as a structured
+        // ErrorResponse. A non-JSON body (e.g. "Gateway timeout" from an
+        // upstream proxy) must not be silently dropped — fall back to the raw
+        // text so the diagnostic survives.
+        let raw = resp.text().await.unwrap_or_default();
+        let err: ErrorResponse = serde_json::from_str(&raw).unwrap_or_default();
         let message = if !err.message.is_empty() {
             err.message
-        } else {
+        } else if !err.error.is_empty() {
             err.error
+        } else {
+            raw
         };
         return Err(HttpError::Relay {
             status: status.as_u16(),

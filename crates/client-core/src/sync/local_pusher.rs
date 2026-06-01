@@ -13,10 +13,11 @@
 use std::sync::Arc;
 
 use crate::crypto;
-use crate::http::{HttpError, RestClient};
+use crate::http::HttpError;
 use crate::rest::{ContentType, PushRequest};
 use crate::store::models::StoredClip;
 use crate::store::{queries, Store, StoreError};
+use crate::transport::ClipTransport;
 
 /// Result of `LocalPusher::push_text` / `push_image_png`. The string in both
 /// variants is the clip id known to the local store. Callers that need to
@@ -38,7 +39,7 @@ pub enum PushOutcome {
 #[derive(Clone)]
 pub struct LocalPusher {
     store: Arc<Store>,
-    client: Arc<RestClient>,
+    client: Arc<dyn ClipTransport>,
     enc_key: Option<[u8; 32]>,
 }
 
@@ -60,7 +61,11 @@ pub enum IngestError {
 }
 
 impl LocalPusher {
-    pub fn new(store: Arc<Store>, client: Arc<RestClient>, enc_key: Option<[u8; 32]>) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        client: Arc<dyn ClipTransport>,
+        enc_key: Option<[u8; 32]>,
+    ) -> Self {
         Self {
             store,
             client,
@@ -172,7 +177,7 @@ impl LocalPusher {
         let req = PushRequest {
             content: ciphertext,
             content_type: clip.content_type.clone(),
-            label: String::new(),
+            label: clip.label.clone().unwrap_or_default(),
             source: clip.source.clone(),
             media_path: None,
             byte_size: clip.byte_size,
@@ -209,6 +214,10 @@ impl LocalPusher {
     ) -> Result<String, IngestError> {
         let ciphertext = crypto::encrypt(key, raw).map_err(IngestError::Crypto)?;
         let wire = content_type.as_wire();
+        // Capture the creation time once so the relay (client_created_at) and
+        // the local write-through agree on a single value — otherwise the clip
+        // lands at a different point in the timeline here vs. on the relay.
+        let created_at_ms = chrono::Utc::now().timestamp_millis();
         let req = PushRequest {
             content: ciphertext,
             content_type: wire.to_string(),
@@ -217,11 +226,21 @@ impl LocalPusher {
             media_path: None,
             byte_size: original_size,
             encrypted: true,
-            client_created_at: None,
+            client_created_at: Some(crate::sync::backlog_flusher::format_rfc3339_millis(
+                created_at_ms,
+            )),
             idempotency_key: None,
         };
         let resp = self.client.push_clip_json(&req).await?;
-        self.write_through(&resp.clip_id, source, wire, raw.to_vec(), original_size)?;
+        self.write_through(
+            &resp.clip_id,
+            source,
+            label,
+            wire,
+            raw.to_vec(),
+            original_size,
+            created_at_ms,
+        )?;
         Ok(resp.clip_id)
     }
 
@@ -234,6 +253,8 @@ impl LocalPusher {
         original_size: i64,
     ) -> Result<String, IngestError> {
         let ciphertext = crypto::encrypt(key, raw_png).map_err(IngestError::Crypto)?;
+        // Single creation time shared by the relay request and the local write.
+        let created_at_ms = chrono::Utc::now().timestamp_millis();
         let req = PushRequest {
             content: ciphertext,
             content_type: ContentType::Image.as_wire().into(),
@@ -242,43 +263,52 @@ impl LocalPusher {
             media_path: None,
             byte_size: original_size,
             encrypted: true,
-            client_created_at: None,
+            client_created_at: Some(crate::sync::backlog_flusher::format_rfc3339_millis(
+                created_at_ms,
+            )),
             idempotency_key: None,
         };
         let resp = self.client.push_clip_json(&req).await?;
         self.write_through(
             &resp.clip_id,
             source,
+            label,
             ContentType::Image.as_wire(),
             raw_png.to_vec(),
             original_size,
+            created_at_ms,
         )?;
         Ok(resp.clip_id)
     }
 
+    // Internal write-through: persist a relay-confirmed clip locally. The
+    // field list mirrors the push call it follows; `created_at` is threaded in
+    // so the local row and the relay agree on one creation time (see M2).
+    #[allow(clippy::too_many_arguments)]
     fn write_through(
         &self,
         clip_id: &str,
         source: &str,
+        label: &str,
         content_type: &str,
         raw: Vec<u8>,
         byte_size: i64,
+        created_at: i64,
     ) -> Result<(), IngestError> {
         let stored = StoredClip {
             id: clip_id.to_string(),
             source: source.to_string(),
-            source_key: None,
-            source_app_id: None,
-            source_app: None,
-            source_url: None,
+            label: if label.is_empty() {
+                None
+            } else {
+                Some(label.to_string())
+            },
             content_type: content_type.to_string(),
             content: Some(raw),
-            media_path: None,
             byte_size,
-            created_at: chrono::Utc::now().timestamp_millis(),
-            pinned: false,
-            pinned_at: None,
+            created_at,
             sync_state: crate::store::models::SyncState::Synced,
+            ..Default::default()
         };
         queries::insert_clip(&self.store, &stored)?;
         // Watermark is best-effort — failure here doesn't lose the clip.
@@ -290,7 +320,9 @@ impl LocalPusher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::RestClient;
     use crate::store::queries;
+    use crate::transport::MockTransport;
     use std::sync::Arc;
 
     fn fresh_store() -> Arc<Store> {
@@ -409,6 +441,24 @@ mod tests {
         assert!(matches!(outcome, PushOutcome::Synced(_)));
         assert_eq!(client.recorded_pushes().len(), 1, "exactly one relay push");
         // The local id was swapped for the relay id; old id is gone.
+        assert!(queries::get_clip(&store, &id).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn send_stored_works_against_mock_transport() {
+        // Proves LocalPusher depends only on the `ClipTransport` seam, not on
+        // the concrete RestClient: a network-free MockTransport drives a full
+        // send and records the push, with no reqwest involved.
+        let store = fresh_store();
+        let id =
+            crate::sync::capture::capture_local(&store, "remote:host", "text", b"hi".to_vec(), 2)
+                .unwrap();
+        let mock = std::sync::Arc::new(MockTransport::new());
+        let pusher = LocalPusher::new(store.clone(), mock.clone(), Some([9u8; 32]));
+
+        let outcome = pusher.send_stored(&id).await.expect("send_stored");
+        assert!(matches!(outcome, PushOutcome::Synced(_)));
+        assert_eq!(mock.recorded_pushes().len(), 1, "exactly one relay push");
         assert!(queries::get_clip(&store, &id).unwrap().is_none());
     }
 

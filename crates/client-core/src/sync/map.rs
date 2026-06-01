@@ -49,23 +49,20 @@ pub fn clip_wire_to_stored(c: &Clip) -> Result<Option<StoredClip>, String> {
         Some(c.content.as_bytes().to_vec())
     };
 
+    // Fields absent from the wire `Clip` (source_key, source_app*, source_url,
+    // label, pinned_at) default via struct-update; they're populated later if
+    // ever needed.
     Ok(Some(StoredClip {
         id: c.clip_id.clone(),
         source: c.source.clone(),
-        // source_key is not present on the wire Clip; populated later if needed.
-        source_key: None,
-        source_app_id: None,
-        source_app: None,
-        source_url: None,
         content_type: c.content_type.clone(),
         content,
         media_path: c.media_path.clone(),
         byte_size: c.byte_size,
         created_at,
         pinned: c.is_pinned,
-        // pinned_at is not present on the wire Clip.
-        pinned_at: None,
         sync_state: crate::store::models::SyncState::Synced,
+        ..Default::default()
     }))
 }
 

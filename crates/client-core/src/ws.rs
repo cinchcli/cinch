@@ -31,7 +31,9 @@ use crate::protocol::{
     Clip, WSMessage, ACTION_CLIP_DELETED, ACTION_KEY_EXCHANGE_REQUESTED, ACTION_NEW_CLIP,
     ACTION_PING, ACTION_REVOKED, ACTION_TOKEN_ROTATED,
 };
+use crate::transport::ClipTransport;
 use crate::version::ClientInfo;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum WsEvent {
@@ -100,7 +102,7 @@ pub struct WsConfig {
     /// `media_path` set + empty `content` (the relay D-routing path). When
     /// `None`, such clips surface as `ClipDecryptFailed` so the caller can
     /// see the misconfiguration instead of silently dropping the row.
-    pub media_fetcher: Option<crate::http::RestClient>,
+    pub media_fetcher: Option<Arc<dyn ClipTransport>>,
 }
 
 /// Outcome of a single decrypt attempt on an incoming clip.
@@ -125,7 +127,14 @@ pub enum DecryptFailReason {
 /// Connect to the relay and forward decoded events to `tx` until the
 /// caller drops the receiver. Reconnects on socket error with exponential
 /// backoff (1s, 2s, 4s … capped at 30s). Returns when `tx` is closed.
-pub async fn run(cfg: WsConfig, tx: mpsc::Sender<WsEvent>) {
+///
+/// `pub(crate)` on purpose: the sole production entry point is
+/// [`crate::transport::WsStreamTransport`], which both the sync
+/// [`Writer`](crate::sync::Writer) and the CLI `pull --watch` loop drive
+/// through the [`StreamTransport`](crate::transport::StreamTransport) seam.
+/// Routing every caller through that seam is what keeps the streaming side
+/// mockable; calling `run` directly would bypass it.
+pub(crate) async fn run(cfg: WsConfig, tx: mpsc::Sender<WsEvent>) {
     let mut attempt = 0u32;
     loop {
         if tx.is_closed() {
@@ -216,7 +225,7 @@ async fn connect_and_listen(cfg: &WsConfig, tx: &mpsc::Sender<WsEvent>) -> Resul
                 if let Some(event) = decode_and_finalize(
                     text.as_str(),
                     cfg.encryption_key,
-                    cfg.media_fetcher.as_ref(),
+                    cfg.media_fetcher.as_deref(),
                 )
                 .await
                 {
@@ -335,7 +344,7 @@ fn decode_message(text: &str, key: Option<[u8; 32]>) -> Option<DecodeOutcome> {
 async fn decode_and_finalize(
     text: &str,
     key: Option<[u8; 32]>,
-    media_fetcher: Option<&crate::http::RestClient>,
+    media_fetcher: Option<&dyn ClipTransport>,
 ) -> Option<WsEvent> {
     let outcome = decode_message(text, key)?;
     match outcome {

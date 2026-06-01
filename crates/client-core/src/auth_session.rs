@@ -211,11 +211,24 @@ pub fn persist_received_master_key(
     credstore::write_encryption_key(user_id, master_key)
         .map_err(|e| CredentialError::Io(format!("write encryption key: {}", e)))?;
     let mut mc = load_multi_config()?;
+    // Receiving the master key is a credential state change the desktop FS
+    // watcher must observe — it keys off `credential_version`. Always clear
+    // `key_pending` AND bump the version (even if `key_pending` was already
+    // false), otherwise a key that arrives after the flag was cleared lands
+    // silently and the desktop never re-derives. Bump exactly once, monotonic
+    // across all relay profiles (same scheme as `install_credentials`).
+    let next_version = mc
+        .relays
+        .iter()
+        .map(|r| r.credential_version)
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(|| CredentialError::BadConfig("credential_version overflow".into()))?;
     if let Some(profile) = mc.active_profile_mut() {
-        if profile.key_pending {
-            profile.key_pending = false;
-            save_multi_config(&mc)?;
-        }
+        profile.key_pending = false;
+        profile.credential_version = next_version;
+        save_multi_config(&mc)?;
     }
     Ok(())
 }

@@ -21,7 +21,8 @@ use super::{map, reader};
 use crate::http::RestClient;
 use crate::protocol::Clip;
 use crate::store::{queries, Store};
-use crate::ws::{self, DecryptFailReason, WsConfig, WsEvent, WsStatus};
+use crate::transport::{StreamTransport, WsStreamTransport};
+use crate::ws::{DecryptFailReason, WsConfig, WsEvent, WsStatus};
 
 /// Callback invoked after a remote `new_clip` event has been successfully
 /// decrypted and inserted into the local store. The closure receives the
@@ -69,6 +70,34 @@ impl Writer {
         on_new_clip: Option<OnNewClipCallback>,
         on_connected: Option<OnConnectedCallback>,
     ) -> std::io::Result<Option<Self>> {
+        Self::start_with_stream(
+            store,
+            client,
+            ws_cfg,
+            Arc::new(WsStreamTransport),
+            lock_path,
+            kind,
+            on_new_clip,
+            on_connected,
+        )
+        .await
+    }
+
+    /// Like [`start`](Self::start) but with an injectable [`StreamTransport`],
+    /// so tests can drive the event loop with a `MockStreamTransport` instead of
+    /// a real relay WebSocket. Production callers use [`start`](Self::start),
+    /// which supplies [`WsStreamTransport`].
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn start_with_stream(
+        store: Arc<Store>,
+        client: Arc<RestClient>,
+        ws_cfg: WsConfig,
+        stream: Arc<dyn StreamTransport>,
+        lock_path: PathBuf,
+        kind: LockKind,
+        on_new_clip: Option<OnNewClipCallback>,
+        on_connected: Option<OnConnectedCallback>,
+    ) -> std::io::Result<Option<Self>> {
         let lock = match Lockfile::try_acquire(&lock_path, kind)? {
             Some(l) => l,
             None => return Ok(None),
@@ -90,18 +119,19 @@ impl Writer {
             // the WebSocket stream takes over.
             let _ = reader::backfill_once(
                 &store_clone,
-                &client_clone,
+                client_clone.as_ref(),
                 reader::BackfillBudget::default(),
                 enc_key.as_ref(),
             )
             .await;
 
-            // Channel for WsEvent from the background ws::run task.
+            // Channel for WsEvent from the background stream task.
             let (tx, mut rx) = mpsc::channel::<WsEvent>(64);
 
-            // ws::run already reconnects internally with exponential backoff,
-            // so we just run it once and read from the channel until stop.
-            let _ws_handle = tokio::spawn(ws::run(ws_cfg, tx));
+            // The StreamTransport (WsStreamTransport in production) reconnects
+            // internally with exponential backoff, so we run it once and read
+            // from the channel until stop.
+            let _ws_handle = tokio::spawn(async move { stream.run_stream(ws_cfg, tx).await });
 
             loop {
                 tokio::select! {
@@ -393,5 +423,74 @@ mod tests {
             None,
         )
         .await;
+    }
+
+    /// End-to-end through the writer's event loop: a `MockStreamTransport`
+    /// emits one `NewClip`, and the writer (started via `start_with_stream`)
+    /// should decode it, insert it into the store, and fire `on_new_clip` —
+    /// all without a real relay. This is what the `StreamTransport` seam buys.
+    #[tokio::test]
+    async fn writer_processes_new_clip_from_stream_transport() {
+        use crate::transport::MockStreamTransport;
+        use std::sync::Mutex;
+
+        let store = make_test_store();
+        let client = make_test_client();
+
+        let clip = Clip {
+            clip_id: "01HSTREAMCLIP0000000000000".into(),
+            user_id: "u1".into(),
+            content: "hello from stream".into(),
+            content_type: "text".into(),
+            source: "remote:peer".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            encrypted: false,
+            ..Default::default()
+        };
+        let stream = Arc::new(MockStreamTransport::with_events(vec![WsEvent::NewClip {
+            clip: Box::new(clip),
+            plaintext: b"hello from stream".to_vec(),
+        }]));
+
+        let received = Arc::new(Mutex::new(Vec::<String>::new()));
+        let received_cb = received.clone();
+        let on_new_clip: OnNewClipCallback = Arc::new(move |c| {
+            received_cb.lock().unwrap().push(c.clip_id.clone());
+        });
+
+        let lock_dir = tempfile::tempdir().expect("tempdir");
+        let ws_cfg = WsConfig {
+            relay_url: "http://127.0.0.1:1".into(),
+            token: "t".into(),
+            encryption_key: None,
+            client_info: None,
+            media_fetcher: None,
+        };
+
+        let writer = Writer::start_with_stream(
+            store,
+            client,
+            ws_cfg,
+            stream,
+            lock_dir.path().join("writer.lock"),
+            LockKind::Desktop,
+            Some(on_new_clip),
+            None,
+        )
+        .await
+        .expect("start_with_stream returns Ok")
+        .expect("acquires the lock in a fresh tempdir");
+
+        // Let the spawned task run its (offline, fast-failing) backfill, drain
+        // the mock event, decode + insert it, and fire the callback.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        assert_eq!(
+            received.lock().unwrap().as_slice(),
+            &["01HSTREAMCLIP0000000000000".to_string()],
+            "streamed NewClip should be decoded, stored, and reported via on_new_clip"
+        );
+
+        writer.shutdown().await;
     }
 }

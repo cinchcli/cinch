@@ -54,6 +54,8 @@ chrono = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 fs2 = "0.4"
 bip39 = { workspace = true }
+semver = "1"
+async-trait = "0.1"
 
 [build-dependencies]
 prost-build = "0.13"

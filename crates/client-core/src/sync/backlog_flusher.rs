@@ -30,7 +30,7 @@ pub const MAX_UNSYNCED: usize = 1000;
 pub fn enqueue_local(
     store: &Store,
     source: &str,
-    _label: &str,
+    label: &str,
     content_type: &str,
     raw: Vec<u8>,
     byte_size: i64,
@@ -39,18 +39,17 @@ pub fn enqueue_local(
     let stored = StoredClip {
         id: clip_id.clone(),
         source: source.to_string(),
-        source_key: None,
-        source_app_id: None,
-        source_app: None,
-        source_url: None,
+        label: if label.is_empty() {
+            None
+        } else {
+            Some(label.to_string())
+        },
         content_type: content_type.to_string(),
         content: Some(raw),
-        media_path: None,
         byte_size,
         created_at: chrono::Utc::now().timestamp_millis(),
-        pinned: false,
-        pinned_at: None,
         sync_state: crate::store::models::SyncState::Pending,
+        ..Default::default()
     };
     queries::insert_clip(store, &stored)?;
     queries::enforce_offline_cap(store, MAX_UNSYNCED)?;
@@ -58,8 +57,9 @@ pub fn enqueue_local(
 }
 
 use crate::crypto;
-use crate::http::{HttpError, RestClient};
+use crate::http::HttpError;
 use crate::rest::PushRequest;
+use crate::transport::ClipTransport;
 
 /// Push every `synced=false` clip in `created_at ASC` order. Stops on the
 /// first transient (5xx / Network) error; drops rows on permanent (4xx /
@@ -69,7 +69,7 @@ use crate::rest::PushRequest;
 /// retries from interrupted flushes.
 pub async fn flush_once(
     store: &crate::store::Store,
-    client: &RestClient,
+    client: &dyn ClipTransport,
     enc_key: [u8; 32],
 ) -> Result<FlushReport, FlushError> {
     let pending = queries::list_pending_clips(store)?;
@@ -124,11 +124,9 @@ pub async fn flush_once(
 }
 
 pub(crate) fn is_transient(e: &HttpError) -> bool {
-    match e {
-        HttpError::Network(_) => true,
-        HttpError::Relay { status, .. } => (500..600).contains(status),
-        HttpError::Unauthorized | HttpError::Decode(_) | HttpError::Build(_) => false,
-    }
+    // Single source of truth lives on `HttpError`; kept as a thin alias so the
+    // existing call sites in this module read naturally.
+    e.is_transient()
 }
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -261,6 +259,7 @@ mod tests {
                 source_app_id: None,
                 source_app: None,
                 source_url: None,
+                label: None,
                 content_type: "text".into(),
                 content: Some(content.to_vec()),
                 media_path: None,
@@ -355,6 +354,7 @@ mod tests {
             source_app_id: None,
             source_app: None,
             source_url: None,
+            label: None,
             content_type: "text".into(),
             content: None,
             media_path: Some("/tmp/clip.png".into()),

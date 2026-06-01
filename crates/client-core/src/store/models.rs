@@ -2,10 +2,13 @@ use serde::{Deserialize, Serialize};
 
 /// Per-clip relay-sync state. The store default for a captured clip is
 /// `Local`: it never leaves the device until the user explicitly sends it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncState {
     /// Captured locally, no intent to send. Never picked up by the flusher.
+    /// Also the `Default`, so a `StoredClip` built via struct-update can never
+    /// be accidentally auto-sent.
+    #[default]
     Local,
     /// Explicitly requested to send, not yet relay-confirmed. The only state
     /// the backlog flusher retries.
@@ -34,7 +37,15 @@ impl SyncState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// A clip as persisted in the local store.
+///
+/// Derives `Default` so call sites can construct one with struct-update
+/// syntax (`StoredClip { id, content, ..Default::default() }`) and only spell
+/// out the fields they care about. This keeps the many construction sites
+/// (sync engine, desktop commands, tests) from breaking every time a new
+/// optional column is added — adding a field here no longer cascades into an
+/// E0063 at every literal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct StoredClip {
     pub id: String, // ULID
     pub source: String,
@@ -42,6 +53,7 @@ pub struct StoredClip {
     pub source_app_id: Option<String>,
     pub source_app: Option<String>,
     pub source_url: Option<String>,
+    pub label: Option<String>,
     pub content_type: String,
     pub content: Option<Vec<u8>>,
     pub media_path: Option<String>,
@@ -80,16 +92,11 @@ pub struct RetentionPref {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AlertPref {
-    pub source: String,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MatchInfo {
     pub id: String,
     pub source: String,
     pub content_type: String,
+    pub label: Option<String>,
     pub created_at: i64,
     pub preview: String, // first 40 chars of content or "[binary type · NkB]"
 }

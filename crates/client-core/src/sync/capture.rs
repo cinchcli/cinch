@@ -43,18 +43,15 @@ pub fn capture_local_with_metadata(
     let stored = StoredClip {
         id: clip_id.clone(),
         source: source.to_string(),
-        source_key: None,
         source_app_id: source_app_id.map(str::to_string),
         source_app: source_app.map(str::to_string),
         source_url: source_url.map(str::to_string),
         content_type: content_type_wire.to_string(),
         content: Some(raw),
-        media_path: None,
         byte_size,
         created_at: chrono::Utc::now().timestamp_millis(),
-        pinned: false,
-        pinned_at: None,
         sync_state: SyncState::Local,
+        ..Default::default()
     };
     queries::insert_clip(store, &stored)?;
     Ok(clip_id)

@@ -1,13 +1,8 @@
 //! Clip push + read endpoints on `RestClient`.
 
-use std::time::Duration;
+use reqwest::StatusCode;
 
-use reqwest::{multipart, StatusCode};
-
-use super::{
-    decode_json_response, decode_push_response, HttpError, ListClipsFilter, RestClient,
-    MAX_ATTEMPTS,
-};
+use super::{decode_json_response, decode_push_response, HttpError, ListClipsFilter, RestClient};
 use crate::protocol::Clip;
 use crate::rest::{PushRequest, PushResponse};
 
@@ -31,48 +26,6 @@ impl RestClient {
             })
             .await?;
         decode_push_response(resp).await
-    }
-
-    /// `POST /clips/binary` — multipart form for unencrypted binary.
-    /// `data` is the raw file bytes; metadata fields are sent as form fields.
-    pub async fn push_clip_binary(
-        &self,
-        data: Vec<u8>,
-        content_type: &str,
-        source: &str,
-        label: Option<&str>,
-    ) -> Result<PushResponse, HttpError> {
-        let url = format!("{}/clips/binary", self.base_url);
-        let mut last_err: Option<HttpError> = None;
-        for attempt in 0..MAX_ATTEMPTS {
-            if attempt > 0 {
-                tokio::time::sleep(Duration::from_secs(1u64 << attempt)).await;
-            }
-            // Multipart parts must be rebuilt per attempt because their bodies
-            // are consumed by `.send()`.
-            let mut form = multipart::Form::new()
-                .part(
-                    "file",
-                    multipart::Part::bytes(data.clone()).file_name("upload"),
-                )
-                .text("content_type", content_type.to_string())
-                .text("source", source.to_string());
-            if let Some(l) = label.filter(|s| !s.is_empty()) {
-                form = form.text("label", l.to_string());
-            }
-            let resp = self
-                .client
-                .post(&url)
-                .bearer_auth(&self.token)
-                .multipart(form)
-                .send()
-                .await;
-            match resp {
-                Ok(r) => return decode_push_response(r).await,
-                Err(e) => last_err = Some(HttpError::Network(e.to_string())),
-            }
-        }
-        Err(last_err.unwrap_or(HttpError::Network("max retries exceeded".into())))
     }
 
     /// `GET /clips/latest?source=...` — most recent clip matching `source`.

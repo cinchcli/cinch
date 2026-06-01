@@ -1,6 +1,7 @@
 use super::map;
-use crate::http::{HttpError, RestClient};
+use crate::http::HttpError;
 use crate::store::{queries, Store, StoreError};
+use crate::transport::ClipTransport;
 use crate::ws::{decrypt_clip_content, needs_media_fetch, DecryptOutcome};
 use std::time::{Duration, Instant};
 use tracing::warn;
@@ -23,7 +24,7 @@ impl Default for BackfillBudget {
 }
 
 /// Convert a stored ULID watermark string to a `chrono::DateTime<chrono::Utc>`
-/// so it can be passed to [`RestClient::list_clips_since`].
+/// so it can be passed to [`ClipTransport::list_clips_since`].
 ///
 /// Returns `None` if the string is empty or cannot be parsed as a ULID.
 fn ulid_to_datetime(ulid_str: &str) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -46,7 +47,7 @@ fn ulid_to_datetime(ulid_str: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 /// logged and skipped (same policy as design doc §9 risk item).
 pub async fn backfill_once(
     store: &Store,
-    client: &RestClient,
+    client: &dyn ClipTransport,
     budget: BackfillBudget,
     enc_key: Option<&[u8; 32]>,
 ) -> Result<usize, BackfillError> {
@@ -163,6 +164,7 @@ pub enum BackfillError {
 mod tests {
     use super::*;
     use crate::crypto;
+    use crate::http::RestClient;
     use crate::version::{ClientInfo, ClientType};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
