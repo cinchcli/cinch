@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use client_core::machine::hostname_or_unknown;
 use client_core::rest::ContentType;
 use client_core::session::source::SessionSelector;
-use client_core::session::{markdown, Answer, ClaudeSource, RenderOpts, Session, SessionSource};
+use client_core::session::{
+    answer_is_empty, markdown, Answer, ClaudeSource, RenderOpts, Session, SessionSource,
+};
 use client_core::store::models::{StoredClip, SyncState};
 use client_core::store::{self, queries, Store};
 use skim::prelude::*;
@@ -125,8 +127,8 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
         return Err(ExitError::new(GENERIC_ERROR, "Session has no answers.", ""));
     }
 
-    // 6. Render options — built up front so the interactive picker's live
-    //    preview shows exactly what will be copied.
+    // 6. Render options — built up front so the picker preview and the
+    //    empty-answer filter below both reflect exactly what will be copied.
     let opts = RenderOpts {
         with_prompt: args.with_prompt,
         include_thinking: args.include_thinking,
@@ -134,15 +136,30 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
         tool_result_max: TOOL_RESULT_MAX,
     };
 
-    // 7. Resolve which answer(s) to copy, always returned in session order.
-    let selected: Vec<&Answer> = if args.all {
-        session.answers.iter().collect()
+    // 7. Keep only answers that produce content under these options. An
+    //    in-progress trailing turn (a user prompt with no assistant reply) or a
+    //    thinking-only answer renders empty; copying it would save a useless
+    //    clip, so such answers are never offered or selected.
+    let renderable: Vec<Answer> = session
+        .answers
+        .iter()
+        .filter(|a| !answer_is_empty(a, opts))
+        .cloned()
+        .collect();
+    if renderable.is_empty() {
+        return Err(ExitError::new(
+            GENERIC_ERROR,
+            "This session has no answers with copyable content.",
+            "The latest turn may still be in progress. Try --with-prompt, or pick another session.",
+        ));
+    }
+
+    // 8. Select which answer(s) to copy, in ascending session order.
+    let owned: Vec<Answer> = if args.all {
+        renderable
     } else if let Some(n) = args.last {
-        let n = n.max(1).min(session.answers.len());
-        // Take the last N, then restore ascending session order.
-        let mut tail: Vec<&Answer> = session.answers.iter().rev().take(n).collect();
-        tail.reverse();
-        tail
+        let n = n.max(1).min(renderable.len());
+        renderable[renderable.len() - n..].to_vec()
     } else {
         // Interactive default — requires a TTY (skim draws a full-screen UI).
         if !std::io::stdin().is_terminal() {
@@ -152,12 +169,11 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
                 "Pass --last [N] or --all for non-interactive use.",
             ));
         }
-        let indices = pick_answers(&session.answers, opts)?;
-        indices.iter().map(|&i| &session.answers[i]).collect()
+        let indices = pick_answers(&renderable, opts)?;
+        indices.iter().map(|&i| renderable[i].clone()).collect()
     };
 
-    // 8. Render the selection to Markdown.
-    let owned: Vec<Answer> = selected.into_iter().cloned().collect();
+    // 9. Render the selection to Markdown.
     let md = markdown(&owned, opts);
 
     // 8. Output: stdout-only, or clip (+ clipboard).

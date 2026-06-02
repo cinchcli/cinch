@@ -22,7 +22,7 @@ pub mod render;
 pub mod source;
 
 pub use model::{Answer, AnswerPart, Prompt, Session, SessionRef};
-pub use render::{markdown, RenderOpts};
+pub use render::{answer_is_empty, markdown, RenderOpts};
 pub use source::{ClaudeSource, SessionSource};
 
 /// Errors surfaced while listing, loading, or parsing a session.

@@ -4,7 +4,9 @@ use crate::exit::ExitError;
 use client_core::machine::hostname_or_unknown;
 use client_core::rest::ContentType;
 use client_core::session::source::SessionSelector;
-use client_core::session::{markdown, Answer, ClaudeSource, RenderOpts, SessionSource};
+use client_core::session::{
+    answer_is_empty, markdown, Answer, ClaudeSource, RenderOpts, SessionSource,
+};
 use client_core::store::models::{StoredClip, SyncState};
 use client_core::store::{queries, Store};
 use serde_json::{json, Value};
@@ -284,13 +286,23 @@ fn handle_tool_call(
             if session.answers.is_empty() {
                 return Err((-32000, "session has no answers".to_string()));
             }
-            let chosen = select_answers(&session.answers, args.get("answers"))?;
             let opts = RenderOpts {
                 with_prompt: arg_bool(&args, "with_prompt"),
                 include_thinking: arg_bool(&args, "include_thinking"),
                 include_tools: !arg_bool(&args, "no_tools"),
                 tool_result_max: SESSION_TOOL_RESULT_MAX,
             };
+            let chosen: Vec<Answer> = select_answers(&session.answers, args.get("answers"))?
+                .into_iter()
+                .filter(|a| !answer_is_empty(a, opts))
+                .collect();
+            if chosen.is_empty() {
+                return Err((
+                    -32000,
+                    "selected answer(s) have no copyable content (in-progress or empty turn)"
+                        .to_string(),
+                ));
+            }
             let md = markdown(&chosen, opts);
             let mut payload = json!({
                 "markdown": md,

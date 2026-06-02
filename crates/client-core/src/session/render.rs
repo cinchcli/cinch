@@ -28,56 +28,87 @@ impl Default for RenderOpts {
 
 /// Render `answers` in order to clean Markdown per `opts`.
 ///
-/// Multiple answers are separated by a `---` rule. The output ends with
-/// exactly one trailing newline.
+/// Answers with no content under `opts` (e.g. an in-progress trailing turn, or
+/// a thinking-only answer when thinking is excluded) are skipped entirely — no
+/// lone `## Assistant` heading and no stray separators. Remaining answers are
+/// separated by a `---` rule. The output ends with exactly one trailing
+/// newline (so a fully-empty selection renders as just `"\n"`).
 pub fn markdown(answers: &[Answer], opts: RenderOpts) -> String {
-    let mut out = String::new();
-    for (i, answer) in answers.iter().enumerate() {
-        if i > 0 {
-            out.push_str("\n---\n\n");
-        }
-        if opts.with_prompt {
-            if let Some(prompt) = &answer.prompt {
-                out.push_str("## User\n\n");
-                out.push_str(&prompt.text);
-                out.push_str("\n\n");
-            }
-        }
-        out.push_str("## Assistant\n\n");
-        for part in &answer.parts {
-            match part {
-                AnswerPart::Text(t) => {
-                    out.push_str(t);
-                    out.push_str("\n\n");
-                }
-                AnswerPart::Thinking(t) => {
-                    if opts.include_thinking && !t.trim().is_empty() {
-                        out.push_str(&fenced("thinking", t));
-                    }
-                }
-                AnswerPart::ToolUse { name, input } => {
-                    if opts.include_tools {
-                        out.push_str(&fenced(&format!("tool: {name}"), input));
-                    }
-                }
-                AnswerPart::ToolResult { truncated_text } => {
-                    if opts.include_tools {
-                        let body = truncate(truncated_text, opts.tool_result_max);
-                        out.push_str(&fenced("tool-result", &body));
-                    }
-                }
-                AnswerPart::Attachment { label } => {
-                    out.push_str(&format!("[attachment: {label}]\n\n"));
-                }
-            }
-        }
-    }
+    let sections: Vec<String> = answers
+        .iter()
+        .filter_map(|a| render_answer(a, opts))
+        .collect();
+    let mut out = sections.join("\n---\n\n");
     // Trim trailing blank lines down to exactly one newline.
     while out.ends_with('\n') {
         out.pop();
     }
     out.push('\n');
     out
+}
+
+/// Render a single answer's Markdown section, or `None` when it has no content
+/// under `opts`. [`answer_is_empty`] is the public predicate for this.
+fn render_answer(answer: &Answer, opts: RenderOpts) -> Option<String> {
+    let mut body = String::new();
+    for part in &answer.parts {
+        match part {
+            AnswerPart::Text(t) => {
+                if !t.trim().is_empty() {
+                    body.push_str(t);
+                    body.push_str("\n\n");
+                }
+            }
+            AnswerPart::Thinking(t) => {
+                if opts.include_thinking && !t.trim().is_empty() {
+                    body.push_str(&fenced("thinking", t));
+                }
+            }
+            AnswerPart::ToolUse { name, input } => {
+                if opts.include_tools {
+                    body.push_str(&fenced(&format!("tool: {name}"), input));
+                }
+            }
+            AnswerPart::ToolResult { truncated_text } => {
+                if opts.include_tools {
+                    let truncated = truncate(truncated_text, opts.tool_result_max);
+                    body.push_str(&fenced("tool-result", &truncated));
+                }
+            }
+            AnswerPart::Attachment { label } => {
+                body.push_str(&format!("[attachment: {label}]\n\n"));
+            }
+        }
+    }
+
+    let prompt_md = if opts.with_prompt {
+        answer
+            .prompt
+            .as_ref()
+            .filter(|p| !p.text.trim().is_empty())
+            .map(|p| format!("## User\n\n{}\n\n", p.text))
+    } else {
+        None
+    };
+
+    // Nothing to show: no assistant body and (without --with-prompt) no prompt.
+    if body.trim().is_empty() && prompt_md.is_none() {
+        return None;
+    }
+
+    let mut section = String::new();
+    if let Some(prompt) = prompt_md {
+        section.push_str(&prompt);
+    }
+    section.push_str("## Assistant\n\n");
+    section.push_str(&body);
+    Some(section)
+}
+
+/// True when `answer` renders to no copyable content under `opts`. Callers use
+/// this to skip in-progress / empty turns when selecting answers to copy.
+pub fn answer_is_empty(answer: &Answer, opts: RenderOpts) -> bool {
+    render_answer(answer, opts).is_none()
 }
 
 /// Truncate `s` to `max` chars (UTF-8 safe), appending a truncation note.
@@ -234,5 +265,64 @@ mod tests {
         let md = markdown(&[a], RenderOpts::default());
         assert!(md.ends_with('\n'));
         assert!(!md.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn answer_is_empty_skips_in_progress_and_thinking_only() {
+        let d = RenderOpts::default();
+        // No assistant parts, prompt present but --with-prompt off → empty.
+        assert!(answer_is_empty(&answer(vec![]), d));
+        // With --with-prompt, the prompt itself is copyable content.
+        assert!(!answer_is_empty(
+            &answer(vec![]),
+            RenderOpts {
+                with_prompt: true,
+                ..d
+            }
+        ));
+        // Thinking-only is empty by default, non-empty when thinking is shown.
+        let thinking = answer(vec![AnswerPart::Thinking("plan".into())]);
+        assert!(answer_is_empty(&thinking, d));
+        assert!(!answer_is_empty(
+            &thinking,
+            RenderOpts {
+                include_thinking: true,
+                ..d
+            }
+        ));
+        // Any real text is content.
+        assert!(!answer_is_empty(
+            &answer(vec![AnswerPart::Text("hi".into())]),
+            d
+        ));
+    }
+
+    #[test]
+    fn empty_answers_are_skipped_in_markdown() {
+        let empty = Answer {
+            index: 0,
+            prompt: None,
+            parts: vec![],
+        };
+        let real = Answer {
+            index: 1,
+            prompt: None,
+            parts: vec![AnswerPart::Text("kept".into())],
+        };
+        let md = markdown(&[empty.clone(), real, empty], RenderOpts::default());
+        assert!(md.contains("kept"));
+        // No lone heading and no stray separators around skipped empties.
+        assert!(!md.contains("---"));
+        assert_eq!(md.matches("## Assistant").count(), 1);
+    }
+
+    #[test]
+    fn all_empty_selection_renders_just_newline() {
+        let empty = Answer {
+            index: 0,
+            prompt: None,
+            parts: vec![],
+        };
+        assert_eq!(markdown(&[empty], RenderOpts::default()), "\n");
     }
 }
