@@ -179,19 +179,21 @@ async fn run_monitor_loop(app: &AppHandle, service: &Arc<ClipboardService>, stor
     }
 }
 
-/// Cross-process echo guard. Returns true when a byte-identical clip was stored
+/// Cross-process echo guard. Returns the id of a byte-identical clip stored
 /// within the dedup window — typically because cinch itself just saved the clip
 /// and then wrote the same content to the system clipboard (e.g. `cinch session
 /// copy`), and this poll tick is observing that echo. The CLI and desktop share
 /// one store, so the just-saved clip is already visible here. This complements
 /// the in-memory `recent_hashes` window, which only sees writes this monitor
 /// captured — not writes another cinch process made directly to the store.
-fn is_recent_store_duplicate(store: &SharedStore, content: &[u8], now_secs: i64) -> bool {
+///
+/// Callers surface the returned id (rather than dropping the snapshot) so the
+/// clip cinch just saved still appears promptly in the UI, just not twice.
+fn recent_store_duplicate_id(store: &SharedStore, content: &[u8], now_secs: i64) -> Option<String> {
     let since_ms = (now_secs - DEDUP_WINDOW_SECS) * 1000;
-    matches!(
-        client_core::store::queries::recent_clip_id_by_content(store, content, since_ms),
-        Ok(Some(_))
-    )
+    client_core::store::queries::recent_clip_id_by_content(store, content, since_ms)
+        .ok()
+        .flatten()
 }
 
 fn handle_text_clip(
@@ -227,8 +229,22 @@ fn handle_text_clip(
     let raw = text.into_bytes();
     let content_type = client_core::classify::detect(&raw);
     let byte_size = raw.len() as i64;
-    if is_recent_store_duplicate(store, &raw, now) {
-        info!("clipboard: skipped echo of a clip cinch just saved (text)");
+    // Echo of a clip cinch itself just saved (e.g. `cinch session copy`): don't
+    // capture a duplicate, but still surface the existing clip so the UI shows
+    // it promptly. clipReceived re-queries the store, so the single saved clip
+    // appears once.
+    if let Some(existing_id) = recent_store_duplicate_id(store, &raw, now) {
+        info!("clipboard: surfacing existing clip {existing_id} (echo of a clip cinch just saved, text)");
+        let payload = clip_received_stub(
+            &existing_id,
+            source,
+            source_app_id,
+            source_app,
+            source_url,
+            byte_size,
+            content_type.as_wire(),
+        );
+        let _ = crate::events::ClipReceived(payload).emit(app);
         return;
     }
     match client_core::sync::capture::capture_local_with_metadata(
@@ -296,8 +312,20 @@ fn handle_image_clip(
 
     let byte_size = bytes.len() as i64;
     let content_type = client_core::rest::ContentType::Image.as_wire();
-    if is_recent_store_duplicate(store, &bytes, now) {
-        info!("clipboard: skipped echo of a clip cinch just saved (image)");
+    // Echo of a clip cinch itself just saved: surface the existing clip rather
+    // than capturing a duplicate (see the text handler).
+    if let Some(existing_id) = recent_store_duplicate_id(store, &bytes, now) {
+        info!("clipboard: surfacing existing clip {existing_id} (echo of a clip cinch just saved, image)");
+        let payload = clip_received_stub(
+            &existing_id,
+            source,
+            source_app_id,
+            source_app,
+            source_url,
+            byte_size,
+            content_type,
+        );
+        let _ = crate::events::ClipReceived(payload).emit(app);
         return;
     }
     match client_core::sync::capture::capture_local_with_metadata(
