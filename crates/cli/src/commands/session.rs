@@ -7,8 +7,8 @@
 //! `--all`), renders them to clean Markdown via [`client_core::session`], and
 //! then both saves the result as a syncing clip and copies it to the clipboard.
 
-use std::io::{BufRead, IsTerminal};
-use std::path::Path;
+use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 
 use client_core::machine::hostname_or_unknown;
 use client_core::rest::ContentType;
@@ -16,6 +16,7 @@ use client_core::session::source::SessionSelector;
 use client_core::session::{markdown, Answer, ClaudeSource, RenderOpts, Session, SessionSource};
 use client_core::store::models::{StoredClip, SyncState};
 use client_core::store::{self, queries, Store};
+use skim::prelude::*;
 
 use crate::exit::{ExitError, GENERIC_ERROR};
 use crate::io::{copy_text_to_clipboard, write_to_stdout};
@@ -124,7 +125,16 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
         return Err(ExitError::new(GENERIC_ERROR, "Session has no answers.", ""));
     }
 
-    // 6. Resolve which answer(s) to copy, always returned in session order.
+    // 6. Render options — built up front so the interactive picker's live
+    //    preview shows exactly what will be copied.
+    let opts = RenderOpts {
+        with_prompt: args.with_prompt,
+        include_thinking: args.include_thinking,
+        include_tools: !args.no_tools,
+        tool_result_max: TOOL_RESULT_MAX,
+    };
+
+    // 7. Resolve which answer(s) to copy, always returned in session order.
     let selected: Vec<&Answer> = if args.all {
         session.answers.iter().collect()
     } else if let Some(n) = args.last {
@@ -134,7 +144,7 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
         tail.reverse();
         tail
     } else {
-        // Interactive default — requires a TTY.
+        // Interactive default — requires a TTY (skim draws a full-screen UI).
         if !std::io::stdin().is_terminal() {
             return Err(ExitError::new(
                 GENERIC_ERROR,
@@ -142,17 +152,11 @@ async fn run_copy(args: CopyArgs) -> Result<(), ExitError> {
                 "Pass --last [N] or --all for non-interactive use.",
             ));
         }
-        let indices = pick_answers(&session.answers)?;
+        let indices = pick_answers(&session.answers, opts)?;
         indices.iter().map(|&i| &session.answers[i]).collect()
     };
 
-    // 7. Render the selection to Markdown.
-    let opts = RenderOpts {
-        with_prompt: args.with_prompt,
-        include_thinking: args.include_thinking,
-        include_tools: !args.no_tools,
-        tool_result_max: TOOL_RESULT_MAX,
-    };
+    // 8. Render the selection to Markdown.
     let owned: Vec<Answer> = selected.into_iter().cloned().collect();
     let md = markdown(&owned, opts);
 
@@ -243,8 +247,98 @@ fn derive_label(session: &Session) -> String {
     }
 }
 
-/// Interactive session picker. TTY-only. Prints a numbered list and reads a
-/// single index from stdin, returning a resolved [`SessionSelector::Path`].
+/// One session row in the `--pick` list. The preview pane shows a parsed
+/// overview (title + per-answer prompt table) so a session is recognizable.
+struct SessionItem {
+    path: PathBuf,
+    label: String,
+}
+
+impl SkimItem for SessionItem {
+    fn text(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.label)
+    }
+    fn preview(&self, _ctx: PreviewContext) -> ItemPreview {
+        ItemPreview::Text(session_overview(&self.path))
+    }
+}
+
+/// One answer row in the picker. The preview pane shows the exact Markdown that
+/// would be copied for this answer (current render flags applied).
+struct AnswerItem {
+    index: usize,
+    label: String,
+    preview_md: String,
+}
+
+impl SkimItem for AnswerItem {
+    fn text(&self) -> Cow<'_, str> {
+        Cow::Borrowed(&self.label)
+    }
+    fn preview(&self, _ctx: PreviewContext) -> ItemPreview {
+        ItemPreview::Text(self.preview_md.clone())
+    }
+}
+
+/// Render a one-screen overview of a session for the `--pick` preview pane:
+/// the title, id, answer count, and a numbered table of each answer's prompt.
+fn session_overview(path: &Path) -> String {
+    let source = ClaudeSource::new();
+    // `SessionSelector::Path` ignores the cwd, so any path works here.
+    match source.load(Path::new(""), &SessionSelector::Path(path.to_path_buf())) {
+        Ok(s) => {
+            let title = s.title.clone().unwrap_or_else(|| s.id.clone());
+            let mut out = format!("{title}\n{}\n\n{} answer(s)\n\n", s.id, s.answers.len());
+            for (i, a) in s.answers.iter().enumerate() {
+                out.push_str(&format!("{:>3}. {}\n", i + 1, a.preview()));
+            }
+            out
+        }
+        Err(e) => format!("(failed to load session: {e})"),
+    }
+}
+
+/// Run skim over `items` with a right-side preview pane and return the selected
+/// ones. `multi` enables TAB multi-select. Errors on abort / empty selection.
+fn run_skim(
+    items: Vec<Arc<dyn SkimItem>>,
+    multi: bool,
+    prompt: &str,
+) -> Result<Vec<Arc<dyn SkimItem>>, ExitError> {
+    let options = SkimOptionsBuilder::default()
+        .multi(multi)
+        .prompt(prompt.to_string())
+        .height("100%".to_string())
+        // A non-None `preview` enables the preview pane; each item supplies its
+        // own content via `SkimItem::preview`, so this command string is unused.
+        .preview(Some(String::new()))
+        .preview_window("right:60%:wrap".to_string())
+        .build()
+        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("Picker init failed: {e}"), ""))?;
+
+    let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
+    for item in items {
+        let _ = tx.send(item);
+    }
+    drop(tx);
+
+    let out = Skim::run_with(&options, Some(rx))
+        .ok_or_else(|| ExitError::new(GENERIC_ERROR, "Picker failed to start.", ""))?;
+    if out.is_abort {
+        return Err(ExitError::new(GENERIC_ERROR, "Selection cancelled.", ""));
+    }
+    if out.selected_items.is_empty() {
+        return Err(ExitError::new(
+            GENERIC_ERROR,
+            "Nothing selected.",
+            "Press Enter to pick (TAB toggles multi-select).",
+        ));
+    }
+    Ok(out.selected_items)
+}
+
+/// Interactive session picker (skim, TTY-only). Returns a resolved
+/// [`SessionSelector::Path`].
 fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, ExitError> {
     if !std::io::stdin().is_terminal() {
         return Err(ExitError::new(
@@ -263,96 +357,50 @@ fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, Ex
         ));
     }
 
-    eprintln!("Select a session:");
-    for (i, s) in sessions.iter().enumerate() {
-        let title = s.title.clone().unwrap_or_else(|| s.id.clone());
-        let id_prefix: String = s.id.chars().take(8).collect();
-        eprintln!("  {}. {}  \u{00B7}  {}", i + 1, title, id_prefix);
-    }
-    eprint!("Enter a number: ");
+    let items: Vec<Arc<dyn SkimItem>> = sessions
+        .iter()
+        .map(|s| {
+            let title = s.title.clone().unwrap_or_else(|| s.id.clone());
+            let id_prefix: String = s.id.chars().take(8).collect();
+            Arc::new(SessionItem {
+                path: s.path.clone(),
+                label: format!("{title}  \u{00B7}  {id_prefix}"),
+            }) as Arc<dyn SkimItem>
+        })
+        .collect();
 
-    let mut buf = String::new();
-    std::io::stdin().lock().read_line(&mut buf).ok();
-    let choice: usize = buf.trim().parse().map_err(|_| {
-        ExitError::new(
-            GENERIC_ERROR,
-            "No valid session selected.",
-            "Enter the number shown next to a session.",
-        )
-    })?;
-    if choice < 1 || choice > sessions.len() {
-        return Err(ExitError::new(
-            GENERIC_ERROR,
-            "Session number out of range.",
-            "Enter one of the listed numbers.",
-        ));
-    }
-    Ok(SessionSelector::Path(sessions[choice - 1].path.clone()))
+    let selected = run_skim(items, false, "session> ")?;
+    let item = selected[0]
+        .as_any()
+        .downcast_ref::<SessionItem>()
+        .ok_or_else(|| ExitError::new(GENERIC_ERROR, "Picker returned an unexpected item.", ""))?;
+    Ok(SessionSelector::Path(item.path.clone()))
 }
 
-/// Interactive answer picker. TTY-only. Prints a numbered, one-line preview per
-/// answer and reads a selection (numbers / ranges). Returns 0-based indices in
-/// ascending order.
-fn pick_answers(answers: &[Answer]) -> Result<Vec<usize>, ExitError> {
-    eprintln!("Select answer(s):");
-    for (i, a) in answers.iter().enumerate() {
-        eprintln!("  {}. {}", i + 1, a.preview());
-    }
-    eprint!("Enter numbers (e.g. `2` or `2-4` or `1 3 5`): ");
+/// Interactive answer picker (skim, multi-select, TTY-only). Returns deduped,
+/// ascending 0-based indices. `opts` drives the live preview rendering so the
+/// preview pane matches what would be copied.
+fn pick_answers(answers: &[Answer], opts: RenderOpts) -> Result<Vec<usize>, ExitError> {
+    let items: Vec<Arc<dyn SkimItem>> = answers
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            Arc::new(AnswerItem {
+                index: i,
+                label: format!("[#{}] {}", i + 1, a.preview()),
+                preview_md: markdown(std::slice::from_ref(a), opts),
+            }) as Arc<dyn SkimItem>
+        })
+        .collect();
 
-    let mut buf = String::new();
-    std::io::stdin().lock().read_line(&mut buf).ok();
-
-    parse_answer_selection(&buf, answers.len()).map_err(|message| {
-        ExitError::new(
-            GENERIC_ERROR,
-            message,
-            "Enter numbers like `2` or a range like `2-4`.",
-        )
-    })
-}
-
-/// Parse a 1-based answer selection string ("2", "1 3", "2-4", comma/space
-/// separated) into deduped, sorted, 0-based indices validated against `len`.
-fn parse_answer_selection(input: &str, len: usize) -> Result<Vec<usize>, String> {
-    let mut out: Vec<usize> = Vec::new();
-    for token in input.split([',', ' ', '\t', '\n', '\r']) {
-        let token = token.trim();
-        if token.is_empty() {
-            continue;
-        }
-        if let Some((lo, hi)) = token.split_once('-') {
-            let lo: usize = lo
-                .trim()
-                .parse()
-                .map_err(|_| format!("Invalid range: {token}"))?;
-            let hi: usize = hi
-                .trim()
-                .parse()
-                .map_err(|_| format!("Invalid range: {token}"))?;
-            if lo == 0 || hi == 0 || lo > hi || hi > len {
-                return Err(format!("Range out of bounds: {token}"));
-            }
-            for n in lo..=hi {
-                out.push(n - 1);
-            }
-        } else {
-            let n: usize = token
-                .parse()
-                .map_err(|_| format!("Invalid number: {token}"))?;
-            if n == 0 || n > len {
-                return Err(format!("Number out of range: {token}"));
-            }
-            out.push(n - 1);
-        }
-    }
-
-    if out.is_empty() {
-        return Err("No valid answer selected.".to_string());
-    }
-    out.sort_unstable();
-    out.dedup();
-    Ok(out)
+    let selected = run_skim(items, true, "answer> ")?;
+    let mut indices: Vec<usize> = selected
+        .iter()
+        .filter_map(|it| it.as_any().downcast_ref::<AnswerItem>().map(|ai| ai.index))
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    Ok(indices)
 }
 
 /// Map a [`client_core::session::SessionError`] onto a CLI [`ExitError`] with a
@@ -428,41 +476,6 @@ mod tests {
     fn from_defaults_to_claude() {
         let h = SessionHarness::try_parse_from(["copy"]).expect("parse ok");
         assert_eq!(copy_args(h).from, "claude");
-    }
-
-    // --- parse_answer_selection --------------------------------------------
-
-    #[test]
-    fn selection_single_number() {
-        assert_eq!(parse_answer_selection("2", 5).unwrap(), vec![1]);
-    }
-
-    #[test]
-    fn selection_space_separated() {
-        assert_eq!(parse_answer_selection("1 3", 5).unwrap(), vec![0, 2]);
-    }
-
-    #[test]
-    fn selection_range() {
-        assert_eq!(parse_answer_selection("2-4", 5).unwrap(), vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn selection_dedupes_and_sorts() {
-        assert_eq!(parse_answer_selection("3 1-2 1", 5).unwrap(), vec![0, 1, 2]);
-    }
-
-    #[test]
-    fn selection_out_of_range_errors() {
-        assert!(parse_answer_selection("9", 5).is_err());
-        assert!(parse_answer_selection("0", 5).is_err());
-        assert!(parse_answer_selection("2-9", 5).is_err());
-    }
-
-    #[test]
-    fn selection_empty_errors() {
-        assert!(parse_answer_selection("   ", 5).is_err());
-        assert!(parse_answer_selection("", 5).is_err());
     }
 
     // --- derive_label -------------------------------------------------------
@@ -545,5 +558,30 @@ mod tests {
             parts: vec![AnswerPart::Text("done".to_string())],
         };
         assert!(a.preview().contains("do the thing"));
+    }
+
+    #[test]
+    fn answer_item_exposes_text_and_preview() {
+        use skim::prelude::{ItemPreview, PreviewContext, SkimItem};
+        let item = AnswerItem {
+            index: 2,
+            label: "[#3] do the thing".to_string(),
+            preview_md: "## Assistant\n\ndone\n".to_string(),
+        };
+        assert_eq!(item.text().as_ref(), "[#3] do the thing");
+        let ctx = PreviewContext {
+            query: "",
+            cmd_query: "",
+            width: 80,
+            height: 24,
+            current_index: 0,
+            current_selection: "",
+            selected_indices: &[],
+            selections: &[],
+        };
+        match item.preview(ctx) {
+            ItemPreview::Text(body) => assert!(body.contains("done")),
+            _ => panic!("expected a text preview"),
+        }
     }
 }
