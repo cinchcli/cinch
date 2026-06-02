@@ -164,9 +164,73 @@ Saving as a clip + clipboard simultaneously is the whole point:
   syncs to another device. Interactive picker selects a mid-session answer.
 - Gates: `cargo build --workspace`, `cargo test`, `cargo clippy`, `cargo fmt`.
 
+## Iteration 2 (2026-06-02): skim picker + MCP tools
+
+Supersedes the numbered-list picker MVP and adds an AI-facing interface.
+
+### Picker — embedded `skim` (fzf in Rust) with right-side preview
+
+The numbered list + stdin picker made sessions/answers hard to recognize.
+Replace it with the [`skim`](https://crates.io/crates/skim) crate (a Rust fzf
+implementation) embedded in the CLI — **no external `fzf` binary**, and the
+preview is computed **in-process** (no shell callback / hidden subcommand /
+`current_exe`).
+
+- Add `skim` to `crates/cli/Cargo.toml`. The skim API is version-sensitive
+  (`SkimItem`, `SkimOptions`/builder, `Skim::run_with`, selected-items
+  extraction, multi-select) — the implementer pins the resolved version and
+  adapts to its actual API (read the resolved crate source under
+  `~/.cargo/registry`; do not guess).
+- Define `SkimItem` impls:
+  - **Answer item:** `text()` = `[#i] <prompt preview>`; `preview()` = the
+    rendered Markdown of *that one answer* via `client_core::session::render`
+    (exactly what would be copied, current flags applied). Multi-select on
+    (TAB) so several answers can be picked.
+  - **Session item** (`--pick`): `text()` = `<mtime> · <title> · N answers`;
+    `preview()` = a session overview — header (title · id · last activity · N
+    answers) + a numbered table of contents of each answer's prompt preview, so
+    the session is identifiable at a glance.
+- `SkimOptions`: enable the preview pane (right side, e.g. `right:60%`, wrap),
+  driven by the item `preview()` methods.
+- Non-TTY behavior is unchanged: when stdin is not a TTY and neither
+  `--last`/`--all` (nor `--pick` target) is given, error pointing at `--last`.
+  No numbered-picker fallback is needed (skim is always available; the only
+  failure mode is non-TTY, already guarded). The old numbered picker is removed.
+
+### AI interface — MCP tools in `cinch mcp`
+
+The existing hand-rolled JSON-RPC MCP server (`commands/mcp/protocol.rs`:
+`tools_list()` + `handle_tool_call()`, currently 3 read tools, `since_ms`
+exposure scope) gains 3 tools so an AI agent can browse and copy session
+answers directly. All reuse `client_core::session` (no logic duplication) and
+return the standard `content:[{type:text,text:<json>}]` envelope.
+
+- **`list_agent_sessions`** — params: `project_dir?` (default: server cwd),
+  `source?` (default `claude`). Returns sessions newest-first:
+  `{id, title, last_activity_ms, answer_count}`.
+- **`get_session_answers`** — params: `session?` (id prefix or `latest`),
+  `project_dir?`, `source?`. Returns `[{index, prompt_preview, part_count}]` so
+  the agent can choose.
+- **`copy_session_answer`** — params: `session?`, `answers` (`last` | `all` |
+  list of indices), `project_dir?`, `source?`, render flags (`with_prompt?`,
+  `include_thinking?`, `no_tools?`), `save_clip?` (default **false**). Returns
+  the rendered Markdown; saves a text clip (reusing the push path) only when
+  `save_clip=true`.
+
+> The MCP server's cwd is the agent's launch dir, which may differ from the
+> user's project — hence the explicit `project_dir` parameter (default: server
+> cwd) feeding `client_core::session`'s cwd→encoded-path resolution.
+
+### Testing (iteration 2)
+
+- Picker `SkimItem` `text()`/`preview()` are pure and unit-tested (the
+  interactive TUI loop itself is not). Non-TTY guard test retained.
+- MCP: extend `protocol.rs` tests — updated tool count, and per-tool
+  `handle_tool_call` cases (list/get/copy, `save_clip` on/off, bad params).
+
 ## Open / deferred
 
 - Multi-answer concatenation ordering: render selected answers in session order.
-- Exact picker keybindings: MVP is numbered list + stdin line; richer TUI later.
+- Phase 2 `--format handoff` (AI-distilled resume packet) remains deferred.
 - Agent-neutral naming is locked in (`session` group, `--from`), even though
   only `claude` ships now.
