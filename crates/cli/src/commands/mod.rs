@@ -19,6 +19,7 @@ pub mod retention;
 pub mod revoke;
 pub mod rm;
 pub mod search;
+pub mod shared;
 pub mod sources;
 pub mod telemetry;
 pub mod transform;

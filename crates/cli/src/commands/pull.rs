@@ -458,19 +458,10 @@ async fn pull_from_source(
 }
 
 async fn resolve_source(client: &RestClient, from: &str) -> String {
-    let default = format!("remote:{}", from);
     let Ok(devices) = client.list_devices().await else {
-        return default;
+        return format!("remote:{}", from);
     };
-    let lower = from.to_lowercase();
-    for d in devices {
-        let nick_match = !d.nickname.is_empty() && d.nickname.to_lowercase() == lower;
-        let host_match = d.hostname.to_lowercase() == lower;
-        if nick_match || host_match {
-            return d.source_key;
-        }
-    }
-    default
+    crate::commands::shared::match_device_source(&devices, from)
 }
 
 fn decrypt_clip(cfg: &Config, mut clip: Clip) -> Result<Clip, ExitError> {
