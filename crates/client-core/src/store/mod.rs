@@ -1,11 +1,16 @@
 //! Local SQLite store for clips, devices, prefs. Shared by CLI and desktop.
 
+pub mod clips;
+pub mod devices;
 pub mod migration;
 pub mod models;
 pub mod prefix;
 pub mod queries;
+pub mod retention;
 pub mod schema;
+pub mod search;
 pub mod settings;
+pub mod sync_state;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
