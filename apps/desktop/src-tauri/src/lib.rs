@@ -102,8 +102,8 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::updater::get_latest_versions,
             commands::updater::get_device_version_status,
             commands::updater::run_self_update,
-            commands::window::snap_drag_start,
-            commands::window::show_copy_toast,
+            commands::window::drag::snap_drag_start,
+            commands::window::copy_toast::show_copy_toast,
         ])
         .events(collect_events![
             events::AuthStateChanged,
@@ -161,29 +161,7 @@ pub fn run() {
     // The single store shared between the desktop and the CLI writer. The
     // desktop now runs entirely on this store; the legacy per-app SQLite DB
     // and its store::db module have been removed.
-    let shared_store: SharedStore = match client_core::store::default_db_path() {
-        Ok(path) => match client_core::store::Store::open(&path) {
-            Ok(s) => {
-                info!("client-core store opened at {}", path.display());
-                Arc::new(s)
-            }
-            Err(e) => {
-                log::warn!("client-core store open failed (non-fatal): {}", e);
-                // Construct an in-memory fallback so the app still starts.
-                Arc::new(
-                    client_core::store::Store::open(std::path::Path::new(":memory:"))
-                        .expect("in-memory store"),
-                )
-            }
-        },
-        Err(e) => {
-            log::warn!("cannot resolve store path (non-fatal): {}", e);
-            Arc::new(
-                client_core::store::Store::open(std::path::Path::new(":memory:"))
-                    .expect("in-memory store"),
-            )
-        }
-    };
+    let shared_store: SharedStore = startup::open_shared_store();
 
     // Build the NewClip notifier channel before Writer::start so the initial
     // writer — spawned synchronously below, before Tauri's AppHandle exists —
