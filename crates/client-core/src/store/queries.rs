@@ -58,6 +58,34 @@ pub fn insert_clip(store: &Store, c: &StoredClip) -> Result<(), StoreError> {
     })
 }
 
+/// Returns the id of an existing clip whose `content` is byte-identical to
+/// `content` and that was created at or after `since_ms`, if any.
+///
+/// This backs the clipboard monitor's cross-process echo guard: when cinch
+/// itself saves a clip and also writes it to the system clipboard (e.g.
+/// `cinch session copy` saves a clip, then copies the same markdown), the
+/// monitor would otherwise observe that clipboard write and re-capture it as a
+/// duplicate. The CLI and desktop share one store, so the just-saved clip is
+/// already visible here. The short recency window keeps the guard from
+/// collapsing genuinely-repeated copies made far apart in time.
+pub fn recent_clip_id_by_content(
+    store: &Store,
+    content: &[u8],
+    since_ms: i64,
+) -> Result<Option<String>, StoreError> {
+    store.with_conn(|conn| {
+        let id = conn
+            .query_row(
+                "SELECT id FROM clips WHERE content = ?1 AND created_at >= ?2 \
+                 ORDER BY created_at DESC LIMIT 1",
+                params![content, since_ms],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(id)
+    })
+}
+
 pub fn list_clips(
     store: &Store,
     from: Option<&str>,
@@ -631,6 +659,39 @@ mod tests {
             SyncState::Pending,
             "sync_state=Pending must survive an insert/read round-trip"
         );
+    }
+
+    #[test]
+    fn recent_clip_id_by_content_matches_within_window_only() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mk = |id: &str, content: &[u8], created_at: i64| StoredClip {
+            id: id.into(),
+            source: "atlas0".into(),
+            content_type: "text".into(),
+            content: Some(content.to_vec()),
+            byte_size: content.len() as i64,
+            created_at,
+            sync_state: SyncState::Pending,
+            ..Default::default()
+        };
+        // A clip saved "now" plus an identical-content clip saved long ago.
+        insert_clip(&store, &mk("recent", b"## Assistant\n\nhi", 10_000)).unwrap();
+        insert_clip(&store, &mk("old", b"old content", 1_000)).unwrap();
+
+        // Byte-identical content created at/after since_ms → found (the echo guard).
+        let hit = recent_clip_id_by_content(&store, b"## Assistant\n\nhi", 5_000).unwrap();
+        assert_eq!(hit.as_deref(), Some("recent"));
+
+        // Same content, but the only match predates since_ms → ignored.
+        let miss_old = recent_clip_id_by_content(&store, b"old content", 5_000).unwrap();
+        assert_eq!(
+            miss_old, None,
+            "matches older than since_ms must be ignored"
+        );
+
+        // Content that was never stored → no match.
+        let miss_diff = recent_clip_id_by_content(&store, b"never stored", 0).unwrap();
+        assert_eq!(miss_diff, None);
     }
 
     // ── Task 5: list_pending_clips ───────────────────────────────────────────
