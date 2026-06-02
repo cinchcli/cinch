@@ -353,6 +353,19 @@ fn run_skim(
     Ok(out.selected_items)
 }
 
+/// Recover the concrete picker item behind a skim selection.
+///
+/// `skim` hands selections back as `Arc<dyn SkimItem>`, and calling `.as_any()`
+/// directly on that `Arc` is a trap: `Arc<dyn SkimItem>` is itself
+/// `Sized + 'static`, so the blanket `impl<T: Any> AsAny` matches the *`Arc`* —
+/// `as_any()` then returns the pointer, not the item, and every
+/// `downcast_ref::<T>()` yields `None`. Dereferencing to the `dyn SkimItem`
+/// trait object first makes `as_any()` dispatch through the vtable to the real
+/// item (this mirrors skim's own `examples/downcast.rs`).
+fn downcast_item<T: SkimItem>(item: &Arc<dyn SkimItem>) -> Option<&T> {
+    (**item).as_any().downcast_ref::<T>()
+}
+
 /// Interactive session picker (skim, TTY-only). Returns a resolved
 /// [`SessionSelector::Path`].
 fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, ExitError> {
@@ -386,9 +399,7 @@ fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, Ex
         .collect();
 
     let selected = run_skim(items, false, "session> ")?;
-    let item = selected[0]
-        .as_any()
-        .downcast_ref::<SessionItem>()
+    let item = downcast_item::<SessionItem>(&selected[0])
         .ok_or_else(|| ExitError::new(GENERIC_ERROR, "Picker returned an unexpected item.", ""))?;
     Ok(SessionSelector::Path(item.path.clone()))
 }
@@ -412,10 +423,20 @@ fn pick_answers(answers: &[Answer], opts: RenderOpts) -> Result<Vec<usize>, Exit
     let selected = run_skim(items, true, "answer> ")?;
     let mut indices: Vec<usize> = selected
         .iter()
-        .filter_map(|it| it.as_any().downcast_ref::<AnswerItem>().map(|ai| ai.index))
+        .filter_map(|it| downcast_item::<AnswerItem>(it).map(|ai| ai.index))
         .collect();
     indices.sort_unstable();
     indices.dedup();
+    // Defense in depth: an empty selection here renders to an empty (`"\n"`)
+    // clip. The downcast bug failed exactly this way — silently saving a
+    // 1-byte clip and reporting "0 answer(s)". Refuse it loudly instead.
+    if indices.is_empty() {
+        return Err(ExitError::new(
+            GENERIC_ERROR,
+            "No answer selected.",
+            "Press Enter on an answer (TAB toggles multi-select).",
+        ));
+    }
     Ok(indices)
 }
 
@@ -574,6 +595,39 @@ mod tests {
             parts: vec![AnswerPart::Text("done".to_string())],
         };
         assert!(a.preview().contains("do the thing"));
+    }
+
+    #[test]
+    fn downcast_item_recovers_concrete_from_arc() {
+        // skim returns selections as `Arc<dyn SkimItem>`. The picker must
+        // recover the concrete item to read its `index` / `path`.
+        let answer: Arc<dyn SkimItem> = Arc::new(AnswerItem {
+            index: 3,
+            label: "[#4] hi".to_string(),
+            preview_md: "## Assistant\n\nhi\n".to_string(),
+        });
+        // Regression for the empty-clip bug: `.as_any()` on the `Arc` itself
+        // resolves to the `Arc`'s blanket impl and never downcasts to the item.
+        assert!(
+            answer.as_any().downcast_ref::<AnswerItem>().is_none(),
+            "Arc<dyn SkimItem>::as_any must be dereferenced before downcast",
+        );
+        // The helper derefs to the trait object, so it recovers the item.
+        assert_eq!(
+            downcast_item::<AnswerItem>(&answer).map(|a| a.index),
+            Some(3)
+        );
+
+        let session: Arc<dyn SkimItem> = Arc::new(SessionItem {
+            path: std::path::PathBuf::from("/tmp/s.jsonl"),
+            label: "title \u{00B7} abc".to_string(),
+        });
+        assert_eq!(
+            downcast_item::<SessionItem>(&session).map(|s| s.path.clone()),
+            Some(std::path::PathBuf::from("/tmp/s.jsonl"))
+        );
+        // A mismatched target type must stay `None` (no false positives).
+        assert!(downcast_item::<AnswerItem>(&session).is_none());
     }
 
     #[test]
