@@ -134,9 +134,12 @@ exercising every record/content shape and the answer-grouping boundary.
 
 ### Slash command — `.claude/commands/cinch-copy.md`
 
-A thin Claude Code slash command that runs, non-interactively:
-`cinch session copy --from claude --last $ARGUMENTS`
-(default: last answer). Lets the user trigger from inside a session.
+A thin Claude Code slash command that bridges Claude Code's built-in `/copy`
+into cinch (see "Leveraging Claude Code `/copy`" below). The user runs `/copy`
+(last answer → system clipboard), then `/cinch-copy [label]`, which ingests the
+clipboard into a synced + searchable clip via `pbpaste | cinch push`. The full
+`cinch session copy` command remains the path for cross-session selection /
+older answers / whole sessions.
 
 ## Value over plain copy (why this lands in cinch)
 
@@ -227,6 +230,42 @@ return the standard `content:[{type:text,text:<json>}]` envelope.
   interactive TUI loop itself is not). Non-TTY guard test retained.
 - MCP: extend `protocol.rs` tests — updated tool count, and per-tool
   `handle_tool_call` cases (list/get/copy, `save_clip` on/off, bad params).
+
+## Iteration 3 (2026-06-02): leveraging Claude Code `/copy`
+
+Claude Code ships a built-in `/copy` that copies the last answer to the system
+clipboard (and writes a temp `copy.bash`). Question raised: can `cinch` reuse
+it? Findings:
+
+- `/copy` **cannot be a data source.** It is a TUI-internal command — not
+  invokable from a shell/subprocess — and it only yields the *last* answer as
+  raw text (clipboard), losing multi-answer selection, tool-step structure,
+  cross-session access, and any persistence/sync/search. Wrapping it would be a
+  downgrade. `cinch session copy` reads the source-of-truth JSONL directly,
+  which is strictly more capable.
+- Where `/copy` **does** help: for the in-session "save the answer I'm looking
+  at right now" case, `/copy` reads in-memory state, so it is always perfectly
+  fresh — it sidesteps the JSONL-flush lag that makes the latest turn render
+  empty (the in-progress-turn bug, now also fixed in the renderer).
+
+Decision: the `/cinch-copy` **slash command** consumes `/copy`'s output via the
+system clipboard — a two-step flow (`/copy`, then `/cinch-copy`) implemented as
+`pbpaste | cinch push` (synced + searchable clip; no new Rust). The rich
+JSONL-based `cinch session copy` (picker / `--last N` / `--all` / MCP tools)
+stays the path for cross-session selection and older answers. A custom slash
+command cannot auto-trigger the built-in `/copy`, so the `/copy` step is manual
+by necessity; this is acceptable and is documented in the command.
+
+### In-progress-turn bug (fixed)
+
+Empty answers (an in-progress trailing turn — a user prompt with no assistant
+reply yet — or a thinking-only answer) previously rendered to a lone
+`## Assistant` heading, so copy reported "saved" but produced a ~1-byte clip.
+Fix: `render_answer()` returns `None` for content-less answers, `markdown()`
+filter_maps them out, and a public `answer_is_empty()` predicate lets the CLI
+picker and the MCP `copy_session_answer` tool filter to renderable answers (and
+error clearly when none remain). Verified end-to-end: a real save now stores
+~18 KB of markdown, never a 1-byte clip.
 
 ## Open / deferred
 
