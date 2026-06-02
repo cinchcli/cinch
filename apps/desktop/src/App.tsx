@@ -8,16 +8,9 @@ import { unwrap } from './lib/tauri';
 import { groupByTimeBucket } from './lib/timeBuckets';
 import { type ClipFilter } from './lib/clipFilters';
 import { physicalKey } from './lib/keyboard';
-import {
-  loadMachineTagColors,
-  MACHINE_TAG_COLORS_EVENT,
-  type MachineTagColorMap,
-} from './lib/machineTagColors';
-import {
-  loadMachineDisplayNames,
-  MACHINE_DISPLAY_NAMES_EVENT,
-  type MachineDisplayNameMap,
-} from './lib/machineDisplayNames';
+import { loadMachineDisplayNames } from './lib/machineDisplayNames';
+import { useMachineLabels } from './lib/state/machineLabels';
+import { useTheme } from './lib/state/theme';
 import { C } from './design';
 import { useAuthState, retryAuth, signOut, type AuthProgress, type AuthErrorReason } from './lib/state/auth';
 import { useNotifyOnRemoteLogin } from './lib/settings';
@@ -41,55 +34,6 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
 import packageJson from '../package.json';
 import './App.css';
-
-// ─── Theme ─────────────────────────────────────────────────
-// Three modes: 'light', 'dark', 'system'. 'system' tracks the OS via
-// prefers-color-scheme — on macOS Auto, that already flips at the real
-// sunrise/sunset boundary tied to Location Services.
-
-type Theme = 'dark' | 'light';
-type ThemeMode = Theme | 'system';
-
-const THEME_STORAGE_KEY = 'cinch-theme';
-
-function systemPreference(): Theme {
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-}
-
-function resolveMode(): ThemeMode {
-  const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
-  return 'system';
-}
-
-function useTheme(): { mode: ThemeMode; theme: Theme; setMode: (m: ThemeMode) => void } {
-  const [mode, setModeState] = useState<ThemeMode>(resolveMode);
-  const [systemTheme, setSystemTheme] = useState<Theme>(systemPreference);
-
-  // Track OS preference so 'system' mode reflows the moment macOS flips.
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e: MediaQueryListEvent) => {
-      setSystemTheme(e.matches ? 'light' : 'dark');
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  const theme: Theme = mode === 'system' ? systemTheme : mode;
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('light', theme === 'light');
-  }, [theme]);
-
-  const setMode = (next: ThemeMode) => {
-    localStorage.setItem(THEME_STORAGE_KEY, next);
-    setModeState(next);
-  };
-
-  return { mode, theme, setMode };
-}
-
 
 function handleWindowDrag(e: React.MouseEvent) {
   const target = e.target as HTMLElement;
@@ -165,8 +109,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [devices, setDevices] = useState<Device[]>([]);
-  const [tagColors, setTagColors] = useState<MachineTagColorMap>(() => loadMachineTagColors());
-  const [displayNames, setDisplayNames] = useState<MachineDisplayNameMap>(() => loadMachineDisplayNames());
+  const { tagColors, displayNames } = useMachineLabels();
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -198,25 +141,6 @@ function App() {
     return updated;
   }, [clipRecency]);
 
-  useEffect(() => {
-    const refreshTagColors = () => setTagColors(loadMachineTagColors());
-    window.addEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
-    window.addEventListener('storage', refreshTagColors);
-    return () => {
-      window.removeEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
-      window.removeEventListener('storage', refreshTagColors);
-    };
-  }, []);
-
-  useEffect(() => {
-    const refreshDisplayNames = () => setDisplayNames(loadMachineDisplayNames());
-    window.addEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
-    window.addEventListener('storage', refreshDisplayNames);
-    return () => {
-      window.removeEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
-      window.removeEventListener('storage', refreshDisplayNames);
-    };
-  }, []);
   const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' | 'error' } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

@@ -8,18 +8,7 @@ import {
   sourcePillVars,
   type SourceColorSlot,
 } from '../lib/sourceColor';
-import {
-  loadMachineTagColors,
-  MACHINE_TAG_COLORS_EVENT,
-  setMachineTagColor,
-  type MachineTagColorMap,
-} from '../lib/machineTagColors';
-import {
-  loadMachineDisplayNames,
-  MACHINE_DISPLAY_NAMES_EVENT,
-  setMachineDisplayName,
-  type MachineDisplayNameMap,
-} from '../lib/machineDisplayNames';
+import { useMachineLabels } from '../lib/state/machineLabels';
 import type { Device, SourceAlertSetting, SourceInfo } from '../bindings';
 import { useLatestVersions } from '../lib/state/versions';
 import { DeviceVersionCell } from './DeviceVersionCell';
@@ -58,8 +47,7 @@ export function DevicesPanel({
   const [devices, setDevices] = useState<Device[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [alertSettings, setAlertSettings] = useState<Record<string, boolean>>({});
-  const [tagColors, setTagColors] = useState<MachineTagColorMap>(() => loadMachineTagColors());
-  const [displayNames, setDisplayNames] = useState<MachineDisplayNameMap>(() => loadMachineDisplayNames());
+  const { tagColors, displayNames, setTagColor, setDisplayName } = useMachineLabels();
   const [loading, setLoading] = useState(true);
   const [editingSource, setEditingSource] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -109,26 +97,6 @@ export function DevicesPanel({
     };
   }, [fetchAll]);
 
-  useEffect(() => {
-    const handleColorChange = () => setTagColors(loadMachineTagColors());
-    window.addEventListener(MACHINE_TAG_COLORS_EVENT, handleColorChange);
-    window.addEventListener('storage', handleColorChange);
-    return () => {
-      window.removeEventListener(MACHINE_TAG_COLORS_EVENT, handleColorChange);
-      window.removeEventListener('storage', handleColorChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleDisplayNameChange = () => setDisplayNames(loadMachineDisplayNames());
-    window.addEventListener(MACHINE_DISPLAY_NAMES_EVENT, handleDisplayNameChange);
-    window.addEventListener('storage', handleDisplayNameChange);
-    return () => {
-      window.removeEventListener(MACHINE_DISPLAY_NAMES_EVENT, handleDisplayNameChange);
-      window.removeEventListener('storage', handleDisplayNameChange);
-    };
-  }, []);
-
   // ── Merge devices + sources ─────────────────────────────
   // Produce a combined list: paired devices first, then source-only
   // machines (sources without a matching device), then local.
@@ -171,7 +139,7 @@ export function DevicesPanel({
   const saveDisplayName = useCallback(
     async (source: string, deviceId: string | undefined, nickname: string) => {
       setSavingNickname(true);
-      setDisplayNames(setMachineDisplayName(source, nickname));
+      setDisplayName(source, nickname);
       let success = true;
       try {
         if (deviceId) {
@@ -197,7 +165,7 @@ export function DevicesPanel({
         }
       }
     },
-    [fetchAll, onDeviceChange],
+    [fetchAll, onDeviceChange, setDisplayName],
   );
 
   // ── Revoke ──────────────────────────────────────────────
@@ -240,9 +208,12 @@ export function DevicesPanel({
     [isAlertEnabled, onShowToast],
   );
 
-  const chooseTagColor = useCallback((source: string, color: SourceColorSlot | null) => {
-    setTagColors(setMachineTagColor(source, color));
-  }, []);
+  const chooseTagColor = useCallback(
+    (source: string, color: SourceColorSlot | null) => {
+      setTagColor(source, color);
+    },
+    [setTagColor],
+  );
 
   // ── Nickname edit interaction ───────────────────────────
 
