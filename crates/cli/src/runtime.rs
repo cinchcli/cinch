@@ -27,6 +27,10 @@ pub struct Ctx {
     /// (§3.4) distinguish `ENCRYPTION_PENDING` from `ENCRYPTION_REQUIRED`
     /// without re-resolving config.
     pub key_pending: bool,
+    /// This machine's active device id, from config. Empty when unauthenticated
+    /// or when resolved purely from `--token`/`--relay` flags (no disk config).
+    /// `fleet rename self` resolves the rename target from this.
+    pub active_device_id: String,
 }
 
 /// THE one shared env/flag overlay resolver (F8).
@@ -129,6 +133,7 @@ pub fn open_ctx_with(
         client,
         enc_key,
         key_pending: cfg.key_pending,
+        active_device_id: cfg.active_device_id.clone(),
     })
 }
 

@@ -47,12 +47,14 @@ enum Cmd {
     Pull(commands::pull::Args),
     /// AI workflows over explicit terminal or clipboard context.
     Ai(commands::ai::Args),
-    /// Operate on clips: list, search, get, rm.
-    Clip(commands::clip::Args),
-    /// Pin / unpin clips and list pinned clips.
+    /// Browse, search, and manage your LOCAL clip history (list/search/show/rm/transform).
+    History(commands::history::Args),
+    /// Pin a clip (fleet + local). --local to pin locally only.
     Pin(commands::pin::Args),
-    /// Manage paired devices on this account.
-    Device(commands::device::Args),
+    /// Unpin a clip (fleet + local). --local to unpin locally only.
+    Unpin(commands::unpin::Args),
+    /// Manage the machines paired to your account = your fleet.
+    Fleet(commands::fleet::Args),
     /// Manage authentication.
     Auth(commands::auth::Args),
     /// Account-level commands: plan tier + telemetry preference.
@@ -71,6 +73,15 @@ enum Cmd {
     SelfUpdate(update::SelfUpdateArgs),
     /// Run a read-only MCP server over your local clipboard (stdio).
     Mcp(commands::mcp::Args),
+    // --- hidden deprecated aliases (0.5–0.7 runway, removed in 0.8) ---
+    /// (deprecated) `clip *` → `history *`. Hidden; prints one note and routes
+    /// to the new handler.
+    #[command(hide = true)]
+    Clip(commands::clip::Args),
+    /// (deprecated) `device *` → `fleet *`. Hidden; prints one note and routes
+    /// to the new handler.
+    #[command(hide = true)]
+    Device(commands::device::Args),
     /// REMOVED in 0.5. Bare `cinch push` changed meaning, so it now hard-errors
     /// with a did-you-mean (copy/send) and never silently saves or sends. Kept
     /// as a hidden variant so old invocations route to that error, not a clap
@@ -88,15 +99,53 @@ fn print_completion_override(shell: Shell) {
     }
 }
 
+/// Rebuild `cmd` keeping only **non-hidden** subcommands, recursively.
+///
+/// clap_complete's AOT generators (bash/zsh/fish) iterate `get_subcommands()`
+/// without honoring `hide = true` (only the dynamic engine filters hidden), so
+/// the deprecated aliases (`clip`/`device`/`push`, `pin add/rm/list`, `auth
+/// set-name`) would otherwise leak into generated completions. clap exposes no
+/// subcommand-removal API, but `Arg`/`Command` are `Clone`, so we reconstruct
+/// the tree minus hidden children. Completions therefore emit ONLY the new
+/// names from 0.5 (redesign §4b/§4d).
+///
+/// Args are cloned (preserving value hints / possible-values, so e.g.
+/// `completion <shell>` still completes shell names). The auto `help`/`version`
+/// args are skipped so clap re-adds them on `build()` rather than panicking on
+/// a duplicate.
+fn strip_hidden_subcommands(cmd: &clap::Command) -> clap::Command {
+    // `Command::new` wants `Into<Str>`; `Str: From<&'static str>` is the one
+    // conversion guaranteed across clap_builder versions. Completion generation
+    // runs once and the process exits immediately after, so leaking the handful
+    // of small command-name strings is free.
+    let name: &'static str = Box::leak(cmd.get_name().to_string().into_boxed_str());
+    let mut rebuilt = clap::Command::new(name);
+    if let Some(about) = cmd.get_about() {
+        rebuilt = rebuilt.about(about.clone());
+    }
+    for arg in cmd.get_arguments() {
+        let id = arg.get_id().as_str();
+        if id == "help" || id == "version" {
+            continue;
+        }
+        rebuilt = rebuilt.arg(arg.clone());
+    }
+    for sub in cmd.get_subcommands().filter(|s| !s.is_hide_set()) {
+        rebuilt = rebuilt.subcommand(strip_hidden_subcommands(sub));
+    }
+    rebuilt
+}
+
 // Appended after clap_complete's static output.
 // Teaches the shell to complete device-name values (`pull --from`)
-// with `cinch device list --names`.
+// with `cinch fleet list --names` (the post-0.5 name; `device` is a hidden
+// deprecated alias and must not appear in generated completions, §4d).
 
 const ZSH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
 _cinch_devices_names() {
   local -a devs
-  devs=( ${(f)"$(cinch device list --names 2>/dev/null)"} )
+  devs=( ${(f)"$(cinch fleet list --names 2>/dev/null)"} )
   _describe 'device' devs
 }
 # clap_complete inlines subcommands inside _cinch, so we rename it
@@ -124,7 +173,7 @@ const BASH_FROM_OVERRIDE: &str = r#"
 # inspecting the token two slots back when the previous token is `=`.
 _cinch_devices_names() {
   local word="${COMP_WORDS[COMP_CWORD]}"
-  mapfile -t COMPREPLY < <(cinch device list --names 2>/dev/null | grep -- "^${word}")
+  mapfile -t COMPREPLY < <(cinch fleet list --names 2>/dev/null | grep -- "^${word}")
 }
 _cinch_with_from() {
   local cur prev prev2
@@ -148,7 +197,7 @@ const FISH_FROM_OVERRIDE: &str = r#"
 # cinch device-name dynamic completion
 complete -c cinch -n '__fish_seen_subcommand_from pull' -l from -f \
   -d 'Device nickname or hostname' \
-  -a '(cinch device list --names 2>/dev/null)'
+  -a '(cinch fleet list --names 2>/dev/null)'
 "#;
 
 fn command_name(cmd: &Cmd) -> &'static str {
@@ -159,8 +208,11 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
         Cmd::Ai(_) => "ai",
+        Cmd::History(_) => "history",
         Cmd::Clip(_) => "clip",
         Cmd::Pin(_) => "pin",
+        Cmd::Unpin(_) => "unpin",
+        Cmd::Fleet(_) => "fleet",
         Cmd::Device(_) => "device",
         Cmd::Auth(_) => "auth",
         Cmd::Account(_) => "account",
@@ -214,8 +266,11 @@ pub fn run() -> i32 {
     let cli = Cli::parse();
 
     if let Cmd::Completion { shell } = cli.cmd {
-        let mut cmd = Cli::command();
-        let bin_name = cmd.get_name().to_string();
+        let full = Cli::command();
+        let bin_name = full.get_name().to_string();
+        // AOT generators don't skip `hide = true` subcommands; rebuild the tree
+        // without them so deprecated aliases never appear as candidates (§4d).
+        let mut cmd = strip_hidden_subcommands(&full).version(env!("CARGO_PKG_VERSION"));
         clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
         print_completion_override(shell);
         return 0;
@@ -275,8 +330,11 @@ pub fn run() -> i32 {
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
             Cmd::Ai(args) => commands::ai::run(args).await,
+            Cmd::History(args) => commands::history::run(args).await,
             Cmd::Clip(args) => commands::clip::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
+            Cmd::Unpin(args) => commands::unpin::run(args).await,
+            Cmd::Fleet(args) => commands::fleet::run(args).await,
             Cmd::Device(args) => commands::device::run(args).await,
             Cmd::Auth(args) => commands::auth::run(args).await,
             Cmd::Account(args) => commands::account::run(args).await,
@@ -317,6 +375,142 @@ pub fn run() -> i32 {
         Err(err) => {
             err.print_stderr();
             err.code
+        }
+    }
+}
+
+#[cfg(test)]
+mod redesign_tests {
+    //! 0.5 command-surface redesign — top-level routing/parse matrix (§4d).
+    //! Behavioral assertions (the one-shot deprecation note, push hard-error,
+    //! completions) live in the process-level `tests/deprecation.rs`; these
+    //! prove every old spelling still *parses* to its (hidden) alias variant
+    //! and that the two collapsing merges keep their flags.
+    use super::*;
+
+    fn parse(argv: &[&str]) -> Cmd {
+        Cli::try_parse_from(argv).expect("argv should parse").cmd
+    }
+
+    // --- new spellings parse ------------------------------------------------
+
+    #[test]
+    fn new_top_level_verbs_parse() {
+        assert!(matches!(
+            parse(&["cinch", "history", "list"]),
+            Cmd::History(_)
+        ));
+        assert!(matches!(parse(&["cinch", "fleet", "list"]), Cmd::Fleet(_)));
+        assert!(matches!(parse(&["cinch", "unpin", "abcd"]), Cmd::Unpin(_)));
+        // New `pin <REF>` (no legacy subcommand).
+        match parse(&["cinch", "pin", "abcd"]) {
+            Cmd::Pin(a) => {
+                assert!(a.legacy.is_none());
+                assert_eq!(a.reference.as_deref(), Some("abcd"));
+            }
+            _ => panic!("expected Pin"),
+        }
+    }
+
+    #[test]
+    fn bare_history_and_fleet_parse_without_subcommand() {
+        assert!(matches!(parse(&["cinch", "history"]), Cmd::History(_)));
+        assert!(matches!(parse(&["cinch", "fleet"]), Cmd::Fleet(_)));
+    }
+
+    // --- the ~16 deprecated spellings still PARSE (route to hidden aliases) --
+
+    #[test]
+    fn deprecated_clip_group_parses() {
+        for sub in [
+            &["cinch", "clip", "list"][..],
+            &["cinch", "clip", "search", "q"][..],
+            &["cinch", "clip", "get", "abcd"][..],
+            &["cinch", "clip", "rm", "abcd"][..],
+            &["cinch", "clip", "transform", "abcd"][..],
+        ] {
+            assert!(matches!(parse(sub), Cmd::Clip(_)), "argv {sub:?}");
+        }
+    }
+
+    #[test]
+    fn deprecated_device_group_parses() {
+        for sub in [
+            &["cinch", "device", "list"][..],
+            &["cinch", "device", "pair", "user@host"][..],
+            &["cinch", "device", "set-name", "MyMac"][..],
+            &["cinch", "device", "nickname", "01J", "box"][..],
+            &["cinch", "device", "retention"][..],
+            &["cinch", "device", "revoke", "abcd"][..],
+            &["cinch", "device", "sources"][..],
+        ] {
+            assert!(matches!(parse(sub), Cmd::Device(_)), "argv {sub:?}");
+        }
+    }
+
+    #[test]
+    fn deprecated_pin_subforms_parse() {
+        match parse(&["cinch", "pin", "add", "abcd"]) {
+            Cmd::Pin(a) => assert!(matches!(a.legacy, Some(commands::pin::Legacy::Add(_)))),
+            _ => panic!("expected Pin/Add"),
+        }
+        match parse(&["cinch", "pin", "rm", "abcd"]) {
+            Cmd::Pin(a) => assert!(matches!(a.legacy, Some(commands::pin::Legacy::Rm(_)))),
+            _ => panic!("expected Pin/Rm"),
+        }
+        match parse(&["cinch", "pin", "list"]) {
+            Cmd::Pin(a) => assert!(matches!(a.legacy, Some(commands::pin::Legacy::List(_)))),
+            _ => panic!("expected Pin/List"),
+        }
+    }
+
+    #[test]
+    fn deprecated_auth_set_name_parses() {
+        match parse(&["cinch", "auth", "set-name", "MyMac"]) {
+            Cmd::Auth(a) => assert!(matches!(a.cmd, commands::auth::Cmd::SetName { .. })),
+            _ => panic!("expected Auth/SetName"),
+        }
+    }
+
+    #[test]
+    fn removed_push_still_routes_to_hidden_variant() {
+        // Hard-error happens at run-time; here we prove `push` parses to the
+        // hidden variant rather than clap rejecting it as unknown.
+        assert!(matches!(parse(&["cinch", "push"]), Cmd::Push(_)));
+    }
+
+    // --- the two collapsing-merge cases keep their flags (§4d) --------------
+
+    #[test]
+    fn merge_clip_get_meta_preserves_meta_flag() {
+        // `clip get --meta` → `history show --meta`: the --meta flag survives
+        // because the alias reuses the same `get::Args`.
+        match parse(&["cinch", "clip", "get", "abcd", "--meta"]) {
+            Cmd::Clip(a) => match a.cmd {
+                commands::clip::Cmd::Get(g) => {
+                    assert_eq!(g.id_or_index, "abcd");
+                    assert!(g.meta, "--meta must survive the clip→history alias");
+                }
+                _ => panic!("expected clip get"),
+            },
+            _ => panic!("expected Clip"),
+        }
+    }
+
+    #[test]
+    fn merge_device_set_name_parses_self_targeting_form() {
+        // `device set-name <NAME>` carries NO device positional (it targets
+        // THIS machine); the `self` target is injected at dispatch
+        // (device::run → fleet::run_rename("self", ...)).
+        match parse(&["cinch", "device", "set-name", "MyMac"]) {
+            Cmd::Device(a) => match a.cmd {
+                commands::device::Cmd::SetName { name, clear } => {
+                    assert_eq!(name.as_deref(), Some("MyMac"));
+                    assert!(!clear);
+                }
+                _ => panic!("expected device set-name"),
+            },
+            _ => panic!("expected Device"),
         }
     }
 }

@@ -1,44 +1,60 @@
-//! `cinch pin` — pin/unpin clips and list pinned clips.
+//! `cinch pin <REF>` — pin a clip (redesign §2; was `pin add`).
 //!
-//! Subcommands:
-//! - `cinch pin add <id-prefix>`    — pin a clip locally and on the relay.
-//! - `cinch pin rm <id-prefix>`     — unpin a clip locally and on the relay.
-//! - `cinch pin list`               — list pinned clips (alias of `clip list --pinned`).
+//! Cross-plane by default (eng-review D2): pins on the fleet (relay) AND
+//! locally. `--local` scopes it to the local store only. The counterpart
+//! `cinch unpin <REF>` lives in `unpin.rs`; both share [`set_pin`].
+//!
+//! The pre-0.5 group forms (`pin add` / `pin rm` / `pin list`) survive as
+//! hidden subcommands that print one deprecation note and route to the new
+//! behavior, through the 0.8 removal runway.
 
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use client_core::store::{self, Store};
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 
 #[derive(Debug, clap::Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct Args {
+    /// Deprecated pre-0.5 subforms (`pin add/rm/list`). Hidden; route to the
+    /// new behavior with a one-line deprecation note.
     #[command(subcommand)]
-    pub cmd: Cmd,
+    pub legacy: Option<Legacy>,
+
+    /// Clip reference (id prefix, min 4 chars) to pin. Cross-plane (fleet +
+    /// local) unless `--local`.
+    pub reference: Option<String>,
+
+    /// Pin locally only — do not touch the fleet (no relay call, no auth).
+    #[arg(long)]
+    pub local: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum Cmd {
-    /// Pin a clip by ID prefix.
-    Add(AddArgs),
-    /// Unpin a clip by ID prefix.
-    Rm(RmArgs),
-    /// List pinned clips.
-    List(ListArgs),
+pub enum Legacy {
+    /// (deprecated) `pin add <REF>` → `pin <REF>`.
+    #[command(hide = true)]
+    Add(LegacyPinArgs),
+    /// (deprecated) `pin rm <REF>` → `unpin <REF>`.
+    #[command(hide = true)]
+    Rm(LegacyPinArgs),
+    /// (deprecated) `pin list` → `history list --pinned`.
+    #[command(hide = true)]
+    List(LegacyListArgs),
 }
 
 #[derive(Debug, clap::Args)]
-pub struct AddArgs {
+pub struct LegacyPinArgs {
     /// ID prefix (minimum 4 characters).
-    pub id: String,
+    pub reference: String,
+    /// Pin/unpin locally only.
+    #[arg(long)]
+    pub local: bool,
 }
 
 #[derive(Debug, clap::Args)]
-pub struct RmArgs {
-    /// ID prefix (minimum 4 characters).
-    pub id: String,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct ListArgs {
+pub struct LegacyListArgs {
     /// Max number of clips to return. Hard cap is 200.
     #[arg(long, default_value_t = 50)]
     pub limit: u32,
@@ -48,69 +64,90 @@ pub struct ListArgs {
 }
 
 pub async fn run(args: Args) -> Result<(), ExitError> {
-    match args.cmd {
-        Cmd::Add(a) => run_add(a).await,
-        Cmd::Rm(a) => run_rm(a).await,
-        Cmd::List(a) => run_list(a).await,
+    if let Some(legacy) = args.legacy {
+        return match legacy {
+            Legacy::Add(a) => {
+                crate::commands::deprecation_note("pin add", "pin");
+                set_pin(&a.reference, a.local, true).await
+            }
+            Legacy::Rm(a) => {
+                crate::commands::deprecation_note("pin rm", "unpin");
+                set_pin(&a.reference, a.local, false).await
+            }
+            Legacy::List(a) => {
+                crate::commands::deprecation_note("pin list", "history list --pinned");
+                run_pinned_list(a.limit, a.json).await
+            }
+        };
     }
-}
 
-async fn run_add(args: AddArgs) -> Result<(), ExitError> {
-    let ctx = crate::runtime::open_ctx().map_err(|_| {
+    let reference = args.reference.ok_or_else(|| {
         ExitError::new(
-            AUTH_FAILURE,
-            "No auth token configured.",
-            "Run: cinch auth login",
+            GENERIC_ERROR,
+            "Pass a clip reference to pin.",
+            "Usage: cinch pin <REF>   (REF = id prefix)",
         )
     })?;
-    crate::runtime::opportunistic_backfill(&ctx).await;
+    set_pin(&reference, args.local, true).await
+}
 
-    let id = client_core::store::prefix::resolve_clip_id(&ctx.store, &args.id)
-        .map_err(crate::commands::get::render_resolve_error)?;
-    ctx.client
-        .set_clip_pin(&id, true, None)
-        .await
-        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("relay: {e}"), ""))?;
+/// Shared pin/unpin core for `pin`, `unpin`, and the deprecated subforms.
+///
+/// `pinned = true` pins, `false` unpins. `local` keeps it to the local store
+/// only (no relay, no auth); otherwise it is cross-plane (fleet + local) and
+/// the success output says which plane(s) it touched.
+pub(crate) async fn set_pin(reference: &str, local: bool, pinned: bool) -> Result<(), ExitError> {
+    let verb = if pinned { "Pinned" } else { "Unpinned" };
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
-    client_core::store::queries::set_pinned(&ctx.store, &id, true, now_ms)
-        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
-    println!("pinned {id}");
-    Ok(())
-}
 
-async fn run_rm(args: RmArgs) -> Result<(), ExitError> {
+    if local {
+        let store_path = store::default_db_path()
+            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store path: {e}"), ""))?;
+        let store = Store::open(&store_path)
+            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("open store: {e}"), ""))?;
+        let id = client_core::store::prefix::resolve_clip_id(&store, reference)
+            .map_err(crate::commands::get::render_resolve_error)?;
+        client_core::store::queries::set_pinned(&store, &id, pinned, now_ms)
+            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
+        // Plane-loud (eng-review D2).
+        eprintln!("\u{2713} {verb} {id} locally only");
+        return Ok(());
+    }
+
     let ctx = crate::runtime::open_ctx().map_err(|_| {
         ExitError::new(
             AUTH_FAILURE,
             "No auth token configured.",
-            "Run: cinch auth login",
+            "Run: cinch auth login (or use --local to pin locally only)",
         )
     })?;
     crate::runtime::opportunistic_backfill(&ctx).await;
 
-    let id = client_core::store::prefix::resolve_clip_id(&ctx.store, &args.id)
+    let id = client_core::store::prefix::resolve_clip_id(&ctx.store, reference)
         .map_err(crate::commands::get::render_resolve_error)?;
     ctx.client
-        .set_clip_pin(&id, false, None)
+        .set_clip_pin(&id, pinned, None)
         .await
         .map_err(|e| ExitError::new(GENERIC_ERROR, format!("relay: {e}"), ""))?;
-    // when_ms is ignored by the query when pinned=false (column is set to NULL).
-    client_core::store::queries::set_pinned(&ctx.store, &id, false, 0)
+    // when_ms is ignored by the query when pinned=false (column set to NULL).
+    client_core::store::queries::set_pinned(&ctx.store, &id, pinned, now_ms)
         .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
-    println!("unpinned {id}");
+    // Plane-loud (eng-review D2): the action crossed to the fleet.
+    eprintln!("\u{2713} {verb} {id} on your fleet + locally");
     Ok(())
 }
 
-async fn run_list(args: ListArgs) -> Result<(), ExitError> {
+/// `pin list` legacy path → `history list --pinned`.
+async fn run_pinned_list(limit: u32, json: bool) -> Result<(), ExitError> {
     let list_args = crate::commands::list::Args {
-        limit: args.limit,
+        limit,
         from: None,
         text_only: false,
         exclude_self: false,
-        json: args.json,
+        json,
         remote: false,
         pinned: true,
     };
@@ -129,41 +166,52 @@ mod tests {
     }
 
     #[test]
-    fn pin_add_parses() {
+    fn new_pin_ref_parses() {
+        let cli = TestCli::try_parse_from(["test", "abcd"]).expect("pin <REF> parses");
+        assert!(cli.args.legacy.is_none());
+        assert_eq!(cli.args.reference.as_deref(), Some("abcd"));
+        assert!(!cli.args.local);
+    }
+
+    #[test]
+    fn new_pin_ref_local_parses() {
+        let cli = TestCli::try_parse_from(["test", "abcd", "--local"]).expect("pin <REF> --local");
+        assert_eq!(cli.args.reference.as_deref(), Some("abcd"));
+        assert!(cli.args.local);
+    }
+
+    #[test]
+    fn legacy_pin_add_parses_to_legacy_add() {
         let cli = TestCli::try_parse_from(["test", "add", "abcd"]).expect("pin add parses");
-        match cli.args.cmd {
-            Cmd::Add(a) => assert_eq!(a.id, "abcd"),
-            _ => panic!("expected Add"),
+        match cli.args.legacy {
+            Some(Legacy::Add(a)) => assert_eq!(a.reference, "abcd"),
+            _ => panic!("expected Legacy::Add"),
         }
     }
 
     #[test]
-    fn pin_rm_parses() {
+    fn legacy_pin_rm_parses_to_legacy_rm() {
         let cli = TestCli::try_parse_from(["test", "rm", "abcd"]).expect("pin rm parses");
-        match cli.args.cmd {
-            Cmd::Rm(a) => assert_eq!(a.id, "abcd"),
-            _ => panic!("expected Rm"),
-        }
+        assert!(matches!(cli.args.legacy, Some(Legacy::Rm(_))));
     }
 
     #[test]
-    fn pin_list_parses() {
-        let cli = TestCli::try_parse_from(["test", "list", "--limit", "10", "--json"])
-            .expect("pin list parses");
-        match cli.args.cmd {
-            Cmd::List(a) => {
+    fn legacy_pin_list_parses_to_legacy_list() {
+        let cli =
+            TestCli::try_parse_from(["test", "list", "--limit", "10", "--json"]).expect("pin list");
+        match cli.args.legacy {
+            Some(Legacy::List(a)) => {
                 assert_eq!(a.limit, 10);
                 assert!(a.json);
             }
-            _ => panic!("expected List"),
+            _ => panic!("expected Legacy::List"),
         }
     }
 
     #[test]
     fn list_args_field_parity_with_list_module() {
-        // Compile-time test: ensure run_list's explicit construction of
-        // list::Args stays in sync. If a new required field is added to
-        // list::Args, this must be updated.
+        // Compile-time guard: if list::Args gains a required field, update
+        // run_pinned_list's explicit construction.
         let _ = crate::commands::list::Args {
             limit: 10,
             from: None,
