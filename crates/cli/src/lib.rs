@@ -37,8 +37,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Push stdin to your local clipboard.
-    Push(commands::push::Args),
+    /// Save stdin (or INPUT) to your LOCAL clip history. Never contacts the relay. (pbcopy-shaped)
+    Copy(commands::copy::Args),
+    /// Print a LOCAL clip to stdout (latest by default). (pbpaste-shaped)
+    Paste(commands::paste::Args),
+    /// Send stdin to your fleet via the relay — E2EE, broadcast to all your devices.
+    Send(commands::send::Args),
     /// Pull clipboard content to stdout.
     Pull(commands::pull::Args),
     /// AI workflows over explicit terminal or clipboard context.
@@ -67,6 +71,12 @@ enum Cmd {
     SelfUpdate(update::SelfUpdateArgs),
     /// Run a read-only MCP server over your local clipboard (stdio).
     Mcp(commands::mcp::Args),
+    /// REMOVED in 0.5. Bare `cinch push` changed meaning, so it now hard-errors
+    /// with a did-you-mean (copy/send) and never silently saves or sends. Kept
+    /// as a hidden variant so old invocations route to that error, not a clap
+    /// "unknown subcommand".
+    #[command(hide = true)]
+    Push(commands::push::Args),
 }
 
 fn print_completion_override(shell: Shell) {
@@ -143,6 +153,9 @@ complete -c cinch -n '__fish_seen_subcommand_from pull' -l from -f \
 
 fn command_name(cmd: &Cmd) -> &'static str {
     match cmd {
+        Cmd::Copy(_) => "copy",
+        Cmd::Paste(_) => "paste",
+        Cmd::Send(_) => "send",
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
         Cmd::Ai(_) => "ai",
@@ -178,8 +191,9 @@ fn print_first_run_welcome() {
     eprintln!();
     eprintln!("Get started:");
     eprintln!("  cinch auth login              Sign in via browser");
-    eprintln!("  echo \"hello\" | cinch push     Send your clipboard");
-    eprintln!("  cinch pull                    Receive the latest clip");
+    eprintln!("  echo \"hello\" | cinch copy     Save to local history");
+    eprintln!("  echo \"hello\" | cinch send     Send to your fleet (E2EE)");
+    eprintln!("  cinch pull                    Receive the latest fleet clip");
     eprintln!();
     eprintln!("Setting up a remote machine? From your laptop, run:");
     eprintln!("  cinch pair user@host");
@@ -255,6 +269,9 @@ pub fn run() -> i32 {
             }
         }
         let cmd_result = match cli.cmd {
+            Cmd::Copy(args) => commands::copy::run(args).await,
+            Cmd::Paste(args) => commands::paste::run(args).await,
+            Cmd::Send(args) => commands::send::run(args).await,
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
             Cmd::Ai(args) => commands::ai::run(args).await,

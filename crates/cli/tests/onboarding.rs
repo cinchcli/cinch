@@ -52,7 +52,11 @@ fn cinch_help_does_not_print_welcome() {
 }
 
 #[test]
-fn push_without_auth_returns_auth_failure_exit_code() {
+fn push_is_removed_and_hard_errors_with_did_you_mean() {
+    // `cinch push` was removed in 0.5 (its meaning changed). Bare `push` must
+    // hard-error WITHOUT doing any work — no store open, no stdin save, no
+    // network — and point at both replacement verbs. It no longer reaches the
+    // auth path, so the old "exit 2 + cinch auth login" contract is gone.
     let tmp_home = tempfile::tempdir().expect("tempdir");
     let output = Command::new(cinch_binary())
         .arg("push")
@@ -63,14 +67,17 @@ fn push_without_auth_returns_auth_failure_exit_code() {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
-        "expected exit 2 (AUTH_FAILURE), got {:?}",
+        Some(1),
+        "expected exit 1 (GENERIC_ERROR), got {:?}",
         output.status.code()
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("cinch auth login"),
-        "missing hint in stderr: {}",
-        stderr
+        stderr.contains("cinch copy"),
+        "removed-push error must point at `cinch copy`, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cinch send"),
+        "removed-push error must point at `cinch send`, got:\n{stderr}"
     );
 }
