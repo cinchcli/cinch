@@ -69,11 +69,17 @@ fn set_ns_app_icon(png: &'static [u8]) {
         }
         let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![ns_app, setApplicationIconImage: image];
+        // `setApplicationIconImage:` retains its own reference; release the +1
+        // from `alloc`/`initWithData:` so we don't leak an NSImage per call.
+        let _: () = msg_send![image, release];
     }
 }
 
 /// Stage the initial themed Dock icon and install a `ThemeChanged` listener on
 /// the main window so the icon live-swaps when the user toggles appearance.
+///
+/// Call exactly once (from the app `.setup`): a second call would stack another
+/// `ThemeChanged` listener and apply the icon multiple times per toggle.
 pub(crate) fn setup(app: &tauri::AppHandle) {
     apply_dock_icon(app, current_theme(app));
 
