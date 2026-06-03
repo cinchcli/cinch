@@ -97,6 +97,7 @@ pub fn focus_previous_app(
 
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
+        crate::window_manage::set_dock_visible(&app, false);
     }
 
     Ok(())

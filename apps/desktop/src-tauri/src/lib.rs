@@ -6,6 +6,7 @@ mod clipboard;
 mod commands;
 pub mod crypto;
 mod deep_link;
+mod dock_icon;
 pub mod events;
 pub mod media;
 mod paths;
@@ -279,6 +280,9 @@ pub fn run() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
+                if window.label() == "main" {
+                    crate::window_manage::set_dock_visible(window.app_handle(), false);
+                }
             }
             tauri::WindowEvent::Moved(_) if window.label() == "main" => {
                 commands::window::on_window_moved(window.app_handle());
@@ -382,6 +386,10 @@ pub fn run() {
             // Run as a background menu-bar agent: no Dock icon, hidden from the
             // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
             window_manage::configure_activation_policy(handle);
+
+            // Stage the themed Dock icon (shown only while a window is open)
+            // and install the ThemeChanged listener for live light/dark swaps.
+            dock_icon::setup(handle);
 
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {
