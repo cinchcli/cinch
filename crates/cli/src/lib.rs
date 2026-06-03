@@ -308,6 +308,10 @@ pub fn run() -> i32 {
     let started_at = std::time::Instant::now();
     if instrument {
         telemetry::capture(telemetry::Event::new("cli.command.invoked").with("command", cmd_label));
+        // Drain any MCP session counter files (§7 item 2): the quiet MCP path
+        // can't emit telemetry itself, so the next ordinary CLI invocation
+        // emits `mcp.session.completed` for it. Best-effort; never blocks.
+        commands::mcp::metrics::drain_and_emit();
     }
 
     let rt = tokio::runtime::Builder::new_current_thread()

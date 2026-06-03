@@ -25,6 +25,10 @@ pub fn serve_stdio(store: &Store) -> Result<(), ExitError> {
     // re-runs in the same session — even if the backfill itself errored.
     let mut fleet_backfill_done = false;
 
+    // Validation-gate counter (§7 item 2). Best-effort, never touches stdout;
+    // drained by the next ordinary `cinch` invocation. See `metrics.rs`.
+    let mut metrics = super::metrics::FleetMetrics::new(chrono::Utc::now().timestamp_millis());
+
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -38,13 +42,14 @@ pub fn serve_stdio(store: &Store) -> Result<(), ExitError> {
         if line.trim().is_empty() {
             continue;
         }
-        let response = match serde_json::from_str::<Value>(&line) {
+        let parsed = serde_json::from_str::<Value>(&line);
+        let response = match &parsed {
             Ok(msg) => {
                 // Lazy fleet backfill: runs AFTER this request line is fully read
                 // and BEFORE its response is written, so stdout stays silent while
                 // it blocks (the stdio JSON-RPC contract). At most once per session.
-                maybe_fleet_backfill(store, &self_source, &msg, &mut fleet_backfill_done);
-                handle_request(store, since_ms, &self_source, &msg)
+                maybe_fleet_backfill(store, &self_source, msg, &mut fleet_backfill_done);
+                handle_request(store, since_ms, &self_source, msg)
             }
             // Parse error: reply per JSON-RPC with a null id.
             Err(e) => Some(json!({
@@ -52,6 +57,10 @@ pub fn serve_stdio(store: &Store) -> Result<(), ExitError> {
                 "error": { "code": -32700, "message": format!("parse error: {e}") }
             })),
         };
+        // Record the gate metric (best-effort) before writing the response.
+        if let Ok(msg) = &parsed {
+            metrics.record(msg, &response);
+        }
         if let Some(resp) = response {
             let line = serde_json::to_string(&resp).map_err(|e| {
                 ExitError::new(
@@ -70,6 +79,9 @@ pub fn serve_stdio(store: &Store) -> Result<(), ExitError> {
             stdout.flush().ok();
         }
     }
+    // Clean EOF: final flush. Correctness does not depend on reaching this —
+    // the per-fleet-call flushes already persisted the gate metric.
+    metrics.finalize();
     Ok(())
 }
 

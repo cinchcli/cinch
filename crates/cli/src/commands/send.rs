@@ -88,6 +88,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     let hostname = hostname_or_unknown();
     let source = format!("remote:{}", hostname);
     let label = args.label.unwrap_or_default();
+    // Capture before `data` is moved into the pusher.
+    let byte_size = data.len();
 
     let pusher = LocalPusher::new(ctx.store.clone(), ctx.client.clone(), ctx.enc_key);
     let outcome = match plan.wire_type {
@@ -95,7 +97,39 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         ct => pusher.push_text(data, &source, &label, ct).await,
     };
 
+    // Validation-gate event (§7 item 1): the remote-origin send signal. Emitted
+    // only on a real outcome (synced/queued); permanent errors already carry a
+    // `cli.command.completed{success=false}` from the dispatch path.
+    if let Ok(oc) = &outcome {
+        let outcome_str = match oc {
+            PushOutcome::Synced(_) => "synced",
+            PushOutcome::Queued(_) => "queued",
+        };
+        crate::telemetry::capture(
+            crate::telemetry::Event::new("cli.send.completed")
+                .with("outcome", outcome_str)
+                .with("content_type", plan.wire_type.as_wire())
+                .with("source_is_remote", true)
+                .with("byte_size_bucket", byte_size_bucket(byte_size))
+                .with("require_online", args.require_online),
+        );
+    }
+
     map_outcome(outcome, args.require_online, args.silent)
+}
+
+/// Coarse size bucket for telemetry — never the exact byte count (privacy §7).
+fn byte_size_bucket(n: usize) -> &'static str {
+    const KB: usize = 1024;
+    const MB: usize = 1024 * 1024;
+    match n {
+        0..=KB => "<=1KB",
+        x if x <= 10 * KB => "1-10KB",
+        x if x <= 100 * KB => "10-100KB",
+        x if x <= MB => "100KB-1MB",
+        x if x <= 10 * MB => "1-10MB",
+        _ => ">10MB",
+    }
 }
 
 /// Stdin classification result (guards already passed).

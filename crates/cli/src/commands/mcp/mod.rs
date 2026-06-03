@@ -3,6 +3,7 @@
 //! no async runtime) so the stdio JSON-RPC stream is never corrupted.
 
 mod mapping;
+pub mod metrics;
 mod protocol;
 mod query;
 

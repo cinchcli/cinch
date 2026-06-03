@@ -11,17 +11,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and the 
 - Add `cinch mcp`: a read-only MCP stdio server exposing local clipboard
   history (`search_clipboard`, `list_recent_clipboard`, `get_clipboard_item`)
   to AI tools like Claude Code and Cursor.
+- **`cinch send`** — send stdin to your fleet via the relay (E2EE always-on,
+  broadcast to all your devices). The explicit fleet-send verb. (Directed send
+  to one machine is planned for a later build.)
+- **`cinch copy`** / **`cinch paste`** — local clip I/O (pbcopy/pbpaste-shaped).
+  `copy` saves stdin to local history (never contacts the relay); `paste`
+  prints a local clip to stdout (`latest` | id-prefix | index).
+- **Fleet-scoped MCP read** — `search_clipboard` / `list_recent_clipboard`
+  accept `scope:"fleet"` to read clips that originated on *other* machines
+  (this device excluded), decrypted locally. On a headless reader box set
+  `CINCH_MCP_FLEET=1` to enable a lazy, once-per-session backfill on the first
+  fleet call. See `docs/headless-send-and-fleet-read.md` for the provisioning
+  recipe + the agent loop.
 
 ### Changed (breaking)
 
-- Top-level command surface restructured into hierarchical groups. `cinch --help` now shows 11 commands (`push`, `pull`, `clip`, `pin`, `device`, `auth`, `account`, `admin`, `completion`, `self-update`, `help`) instead of 22. Mapping:
-  - `cinch list` / `search` / `get` / `rm` → `cinch clip {list, search, get, rm}`
-  - `cinch pin <id>` / `unpin <id>` / `pinned` → `cinch pin {add, rm, list}`
-  - `cinch devices` / `pair` / `nickname` / `retention` / `revoke` / `sources` → `cinch device {list, pair, nickname, retention, revoke, sources}` (`cinch device set-name` already existed for the active device)
+- **`cinch push` changed meaning and is removed.** Local save is now
+  **`cinch copy`**; sending to your fleet is the new **`cinch send`**. Bare
+  `cinch push` now **hard-errors** with guidance (exit non-zero) — it will
+  never silently save or send. This is a meaning-swap (old `push` = silent
+  local save), so it fails loudly rather than doing the opposite of what old
+  scripts expect; update scripts/aliases.
+- Top-level command surface restructured into hierarchical groups, then
+  renamed for the local/fleet two-plane model. `cinch --help` shows the new
+  surface. Mapping from the pre-group flat commands:
+  - `cinch list` / `search` / `get` / `rm` / `transform` → `cinch history {list, search, show, rm, transform}` (`get`→`show`; `rm` is now variadic + `--local`)
+  - `cinch pin <id>` / `unpin <id>` / `pinned` → `cinch pin <ref>` / `cinch unpin <ref>` / `cinch history list --pinned` (both cross-plane by default; `--local` to scope to the local store)
+  - `cinch devices` / `pair` / `nickname` / `set-name` / `retention` / `revoke` / `sources` → `cinch fleet {list, add, rename <dev>, rename self, retention, revoke, sources}` (`pair`→`add`; `set-name`+`nickname` merge into `fleet rename`)
   - `cinch plan` / `telemetry` → `cinch account {plan, telemetry}`
-  - `push`, `pull`, `auth`, `admin` are unchanged.
-- No aliases — old top-level commands now error. Update scripts, dotfiles, and shell completions (re-run `cinch completion <shell>`).
-- The dynamic-completion helper now invokes `cinch device list --names` (was `cinch devices --names`).
+  - `cinch auth set-name` → `cinch auth name`
+  - `pull`, `ai`, `auth login/status/logout/approve/retry-key/recovery`, `admin`, `completion`, `self-update`, `mcp` are unchanged.
+- **Old group spellings still work with a deprecation warning until 0.8.**
+  `clip *`→`history *`, `device *`→`fleet *`, `pin add/rm/list`→
+  `pin`/`unpin`/`history list --pinned`, `auth set-name`→`auth name` each print
+  one stderr note and route to the new handler. Shell completions emit **only**
+  the new names from 0.5 — re-run `cinch completion <shell>` to retrain
+  muscle memory.
+- The dynamic-completion helper now invokes `cinch fleet list --names` (was `cinch device list --names`).
 - Desktop now shares its local store with the CLI (single SQLite DB at `~/.cinch/store.db`). On this update, desktop app settings — global shortcut, send shortcut, local/remote retention days, excluded-apps list, per-source auto-copy/alert preferences, and saved window placement — reset to defaults. The "bump recently-copied clip" behavior (`mark_clip_copied`) was removed.
 
 ## 0.1.9 — 2026-05-18
