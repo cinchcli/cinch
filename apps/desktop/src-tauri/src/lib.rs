@@ -387,6 +387,10 @@ pub fn run() {
             // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
             window_manage::configure_activation_policy(handle);
 
+            // Stage the themed Dock icon (shown only while a window is open)
+            // and install the ThemeChanged listener for live light/dark swaps.
+            dock_icon::setup(handle);
+
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {
                 let auth_handle: AuthStateHandle = app.state::<AuthStateHandle>().inner().clone();
