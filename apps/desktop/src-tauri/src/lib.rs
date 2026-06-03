@@ -280,6 +280,9 @@ pub fn run() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
+                if window.label() == "main" {
+                    crate::window_manage::set_dock_visible(window.app_handle(), false);
+                }
             }
             tauri::WindowEvent::Moved(_) if window.label() == "main" => {
                 commands::window::on_window_moved(window.app_handle());

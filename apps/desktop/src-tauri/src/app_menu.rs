@@ -79,6 +79,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     if event.id().as_ref() == CLOSE_DASHBOARD_ID {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
+            crate::window_manage::set_dock_visible(app, false);
         }
     }
 }
