@@ -6,6 +6,7 @@ mod clipboard;
 mod commands;
 pub mod crypto;
 mod deep_link;
+mod dock_icon;
 pub mod events;
 pub mod media;
 mod paths;
