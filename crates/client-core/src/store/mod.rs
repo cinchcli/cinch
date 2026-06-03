@@ -134,7 +134,8 @@ mod tests {
             sync_state: crate::store::models::SyncState::Synced,
         };
         super::queries::insert_clip(&store, &clip).unwrap();
-        let rows = super::queries::list_clips(&store, None, None, None, None, false, 10).unwrap();
+        let rows =
+            super::queries::list_clips(&store, None, None, None, None, None, false, 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "01HXABC");
         assert_eq!(rows[0].content.as_deref(), Some(b"hello" as &[u8]));
@@ -167,7 +168,7 @@ mod tests {
             )
             .unwrap();
         }
-        let hits = super::queries::search_clips(&store, "hello", 10, None).unwrap();
+        let hits = super::queries::search_clips(&store, "hello", 10, None, None).unwrap();
         assert_eq!(hits.len(), 2);
     }
 

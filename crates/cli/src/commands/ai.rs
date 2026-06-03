@@ -152,9 +152,17 @@ pub(crate) fn context_from_store(
     selector: &str,
 ) -> Result<FixContext, ExitError> {
     let clip = if selector == "latest" {
-        let mut rows =
-            client_core::store::queries::list_clips(store, None, Some(1), Some(0), None, false, 1)
-                .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
+        let mut rows = client_core::store::queries::list_clips(
+            store,
+            None,
+            None,
+            Some(1),
+            Some(0),
+            None,
+            false,
+            1,
+        )
+        .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
         rows.pop().ok_or_else(|| {
             ExitError::new(
                 GENERIC_ERROR,

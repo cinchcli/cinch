@@ -40,6 +40,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         let mut rows = client_core::store::queries::list_clips(
             &ctx.store,
             None,
+            None,
             Some(1),
             Some(index - 1),
             None,

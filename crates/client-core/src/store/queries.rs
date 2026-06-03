@@ -60,12 +60,14 @@ mod tests {
         .unwrap();
 
         // Exact-source match (the device-resolution path falls through to it).
-        let hits = query_clips(&store, "from:deviceA", 10).unwrap();
+        let hits = query_clips(&store, "from:deviceA", 10, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c-from");
 
         // A `from:` value with no match also returns promptly (no hang).
-        assert!(query_clips(&store, "from:nope", 10).unwrap().is_empty());
+        assert!(query_clips(&store, "from:nope", 10, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -396,7 +398,7 @@ mod tests {
         )
         .unwrap();
 
-        let hits = search_clips(&store, "api", 10, None).unwrap();
+        let hits = search_clips(&store, "api", 10, None, None).unwrap();
         assert_eq!(hits.len(), 2);
         // Even though it's older, the label match should come first.
         assert_eq!(
@@ -455,7 +457,7 @@ mod tests {
         )
         .unwrap();
 
-        let hits = search_clips(&store, "needle", 10, None).unwrap();
+        let hits = search_clips(&store, "needle", 10, None, None).unwrap();
         // BEFORE FIX: this will likely be 2.
         // AFTER FIX: this should be 1 (only text-1).
         assert_eq!(
@@ -493,12 +495,12 @@ mod tests {
         .unwrap();
 
         // Match app name
-        let hits = search_clips(&store, "Slack", 10, None).unwrap();
+        let hits = search_clips(&store, "Slack", 10, None, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "meta-1");
 
         // Match URL
-        let hits = search_clips(&store, "cinchcli", 10, None).unwrap();
+        let hits = search_clips(&store, "cinchcli", 10, None, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "meta-1");
     }
@@ -533,12 +535,12 @@ mod tests {
         insert_clip(&store, &i1).unwrap();
 
         // Search for needle in code only
-        let hits = search_clips(&store, "needle", 10, Some("code")).unwrap();
+        let hits = search_clips(&store, "needle", 10, Some("code"), None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "c1");
 
         // Search for needle in images only — matched via label, not content.
-        let hits = search_clips(&store, "needle", 10, Some("image")).unwrap();
+        let hits = search_clips(&store, "needle", 10, Some("image"), None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "i1");
 
@@ -546,7 +548,7 @@ mod tests {
         // found — that base64 noise is exactly what schema v7 stops indexing.
         let i2 = make("i2", "image/png");
         insert_clip(&store, &i2).unwrap();
-        let hits = search_clips(&store, "needle", 10, Some("image")).unwrap();
+        let hits = search_clips(&store, "needle", 10, Some("image"), None).unwrap();
         assert_eq!(hits.len(), 1, "image content must not be FTS-searchable");
         assert_eq!(hits[0].id, "i1");
     }
@@ -575,12 +577,141 @@ mod tests {
             insert_clip(&store, &make(id, ts)).unwrap();
         }
         // Descending order: c(30), b(20), a(10)
-        let rows = list_clips(&store, None, Some(1), Some(1), None, false, 10).unwrap();
+        let rows = list_clips(&store, None, None, Some(1), Some(1), None, false, 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "b");
 
-        let rows = list_clips(&store, None, Some(1), Some(2), None, false, 10).unwrap();
+        let rows = list_clips(&store, None, None, Some(1), Some(2), None, false, 10).unwrap();
         assert_eq!(rows[0].id, "a");
+    }
+
+    // ── exclude_source (fleet-read scope:"fleet" predicate) ──────────────────
+
+    #[test]
+    fn list_clips_exclude_source_filters_self() {
+        // Fleet-read predicate: exclude_source = Some(self) must return every
+        // clip whose source is NOT self, and None must return all rows
+        // regardless of source. Mirrors the §9 spec case — seed remote:hostA +
+        // remote:hostB and assert the split.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, source: &str, ts: i64| StoredClip {
+            id: id.into(),
+            source: source.into(),
+            content_type: "text".into(),
+            content: Some(b"x".to_vec()),
+            byte_size: 1,
+            created_at: ts,
+            sync_state: SyncState::Synced,
+            ..Default::default()
+        };
+        insert_clip(&store, &make("a1", "remote:hostA", 10)).unwrap();
+        insert_clip(&store, &make("a2", "remote:hostA", 20)).unwrap();
+        insert_clip(&store, &make("b1", "remote:hostB", 30)).unwrap();
+
+        // None → all three rows, regardless of source.
+        let all = list_clips(&store, None, None, None, None, None, false, 10).unwrap();
+        assert_eq!(all.len(), 3);
+
+        // exclude_source = Some(hostA) → only the hostB row.
+        let not_a = list_clips(
+            &store,
+            None,
+            Some("remote:hostA"),
+            None,
+            None,
+            None,
+            false,
+            10,
+        )
+        .unwrap();
+        assert_eq!(not_a.len(), 1);
+        assert_eq!(not_a[0].id, "b1");
+        assert!(not_a.iter().all(|c| c.source == "remote:hostB"));
+
+        // exclude_source = Some(hostB) → only the two hostA rows, newest first
+        // (created_at DESC ordering is preserved through the residual filter).
+        let not_b = list_clips(
+            &store,
+            None,
+            Some("remote:hostB"),
+            None,
+            None,
+            None,
+            false,
+            10,
+        )
+        .unwrap();
+        assert_eq!(not_b.len(), 2);
+        assert!(not_b.iter().all(|c| c.source == "remote:hostA"));
+        assert_eq!(not_b[0].id, "a2");
+
+        // Excluding an absent source drops nothing.
+        let none_excluded = list_clips(
+            &store,
+            None,
+            Some("remote:ghost"),
+            None,
+            None,
+            None,
+            false,
+            10,
+        )
+        .unwrap();
+        assert_eq!(none_excluded.len(), 3);
+
+        // `from` (include) and `exclude_source` are independent predicates:
+        // including and excluding the same source yields an empty set.
+        let contradictory = list_clips(
+            &store,
+            Some("remote:hostA"),
+            Some("remote:hostA"),
+            None,
+            None,
+            None,
+            false,
+            10,
+        )
+        .unwrap();
+        assert!(contradictory.is_empty());
+    }
+
+    #[test]
+    fn query_clips_exclude_source_filters_self() {
+        // The search path (query_clips/search_clips) must honor exclude_source
+        // on BOTH its branches: the FTS path (search term present) and the
+        // empty-term list path.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let make = |id: &str, source: &str, body: &str, ts: i64| StoredClip {
+            id: id.into(),
+            source: source.into(),
+            content_type: "text".into(),
+            content: Some(body.as_bytes().to_vec()),
+            byte_size: body.len() as i64,
+            created_at: ts,
+            sync_state: SyncState::Synced,
+            ..Default::default()
+        };
+        insert_clip(&store, &make("a1", "remote:hostA", "needle alpha", 10)).unwrap();
+        insert_clip(&store, &make("b1", "remote:hostB", "needle beta", 20)).unwrap();
+
+        // FTS path: search term present, exclude self → only the other host.
+        let fleet = query_clips(&store, "needle", 10, Some("remote:hostA")).unwrap();
+        assert_eq!(fleet.len(), 1);
+        assert_eq!(fleet[0].id, "b1");
+
+        // FTS path, no exclude → both hosts.
+        let all_fts = query_clips(&store, "needle", 10, None).unwrap();
+        assert_eq!(all_fts.len(), 2);
+
+        // Empty-term (list) path of query_clips also honors exclude_source.
+        let fleet_list = query_clips(&store, "", 10, Some("remote:hostB")).unwrap();
+        assert_eq!(fleet_list.len(), 1);
+        assert_eq!(fleet_list[0].id, "a1");
+
+        // search_clips threads exclude_source straight through to query_clips.
+        let via_search = search_clips(&store, "needle", 10, None, Some("remote:hostA")).unwrap();
+        assert_eq!(via_search.len(), 1);
+        assert_eq!(via_search[0].id, "b1");
     }
 
     // ── purge_clips_before / count_clips_before ──────────────────────────────

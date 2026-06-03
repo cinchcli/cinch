@@ -158,6 +158,7 @@ fn handle_tool_call(
                 client_core::store::queries::list_clips(
                     store,
                     None,
+                    None,
                     Some(limit),
                     None,
                     since_ms,
@@ -165,7 +166,7 @@ fn handle_tool_call(
                     limit,
                 )
             } else {
-                client_core::store::queries::search_clips(store, query, limit, filter_type)
+                client_core::store::queries::search_clips(store, query, limit, filter_type, None)
             }
             .map_err(|e| (-32000, format!("store error: {e}")))?;
             let clips: Vec<_> = rows
@@ -181,6 +182,7 @@ fn handle_tool_call(
             let rows = client_core::store::queries::list_clips(
                 store,
                 source,
+                None,
                 Some(limit),
                 None,
                 since_ms,
