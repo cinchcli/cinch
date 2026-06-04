@@ -41,6 +41,8 @@ enum Cmd {
     Push(commands::push::Args),
     /// Pull clipboard content to stdout.
     Pull(commands::pull::Args),
+    /// Send stdin to all your devices (relay broadcast + local + clipboard).
+    Send(commands::send::Args),
     /// AI workflows over explicit terminal or clipboard context.
     Ai(commands::ai::Args),
     /// Operate on clips: list, search, get, rm.
@@ -145,6 +147,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
     match cmd {
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
+        Cmd::Send(_) => "send",
         Cmd::Ai(_) => "ai",
         Cmd::Clip(_) => "clip",
         Cmd::Pin(_) => "pin",
@@ -257,6 +260,7 @@ pub fn run() -> i32 {
         let cmd_result = match cli.cmd {
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
+            Cmd::Send(args) => commands::send::run(args).await,
             Cmd::Ai(args) => commands::ai::run(args).await,
             Cmd::Clip(args) => commands::clip::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
