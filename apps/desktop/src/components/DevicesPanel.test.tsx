@@ -80,29 +80,6 @@ describe('DevicesPanel', () => {
     });
   });
 
-  it('shows device customization inline and persists a tag color', async () => {
-    render(
-      <DevicesPanel
-        currentDeviceID="local-device"
-        onShowToast={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole('button', { name: /customize prod/i }));
-    const settings = screen.getByRole('region', { name: /device settings for prod/i });
-    fireEvent.click(screen.getByRole('button', { name: /amber color for prod/i }));
-
-    expect(localStorage.getItem('cinch.machineTagColors.v1')).toBe(
-      JSON.stringify({ 'remote:prod': 'amber' }),
-    );
-    expect(screen.queryByLabelText(/choose tag color for prod/i)).not.toBeInTheDocument();
-    expect(settings).toContainElement(screen.getByRole('button', { name: /amber color for prod/i }));
-    expect(screen.getAllByText('Prod')[0]).toHaveStyle({
-      background: 'var(--pill-2-bg)',
-      color: 'var(--pill-2-fg)',
-    });
-  });
-
   it('makes device name editing explicit and persists the new name', async () => {
     render(
       <DevicesPanel

@@ -1,13 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useId } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { commands, events } from '../bindings';
 import { unwrap } from '../lib/tauri';
 import { C, formatTime } from '../design';
-import {
-  SOURCE_COLOR_OPTIONS,
-  sourceColorSlotVars,
-  sourcePillVars,
-  type SourceColorSlot,
-} from '../lib/sourceColor';
+import { sourcePillVars } from '../lib/sourceColor';
 import { useMachineLabels } from '../lib/state/machineLabels';
 import type { Device, SourceAlertSetting, SourceInfo } from '../bindings';
 import { useLatestVersions } from '../lib/state/versions';
@@ -47,7 +42,7 @@ export function DevicesPanel({
   const [devices, setDevices] = useState<Device[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [alertSettings, setAlertSettings] = useState<Record<string, boolean>>({});
-  const { tagColors, displayNames, setTagColor, setDisplayName } = useMachineLabels();
+  const { displayNames, setDisplayName } = useMachineLabels();
   const [loading, setLoading] = useState(true);
   const [editingSource, setEditingSource] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -206,13 +201,6 @@ export function DevicesPanel({
       }
     },
     [isAlertEnabled, onShowToast],
-  );
-
-  const chooseTagColor = useCallback(
-    (source: string, color: SourceColorSlot | null) => {
-      setTagColor(source, color);
-    },
-    [setTagColor],
   );
 
   // ── Nickname edit interaction ───────────────────────────
@@ -442,31 +430,14 @@ export function DevicesPanel({
             const sourceLabel = s.source.replace(/^remote:/, '');
             const storedName = displayNames[s.source] ?? '';
             const displayName = storedName || sourceLabel;
-            const colorSlot = tagColors[s.source];
-            const pillVars = sourcePillVars(s.source, colorSlot);
             const settingsOpen = openSettingsSource === s.source;
             return (
               <li key={s.source} style={{ ...S.rowWrap, listStyle: 'none' }}>
                 <div style={S.row}>
-                  <div
-                    style={{
-                      ...S.rowAccent,
-                      background: pillVars.bg,
-                      opacity: 0.85,
-                    }}
-                    aria-hidden
-                  />
+                  <div style={{ ...S.rowAccent, background: sourcePillVars(s.source).fg }} aria-hidden />
                   <div style={S.rowMain}>
                     <div style={S.rowTop}>
-                      <span
-                        style={{
-                          ...S.sourcePill,
-                          background: pillVars.bg,
-                          color: pillVars.fg,
-                        }}
-                      >
-                        {displayName}
-                      </span>
+                      <span style={S.sourcePill}>{displayName}</span>
                       <span style={{ ...S.thisDeviceBadge, color: C.t4 }}>
                         Not paired
                       </span>
@@ -495,10 +466,8 @@ export function DevicesPanel({
                 </div>
                 {settingsOpen && (
                   <DeviceSettingsPanel
-                    source={s.source}
                     name={displayName}
                     sourceLabel={sourceLabel}
-                    colorSlot={colorSlot}
                     editValue={editingSource === s.source ? editValue : storedName}
                     saving={savingNickname}
                     error={nicknameError}
@@ -506,7 +475,6 @@ export function DevicesPanel({
                     onEditValueChange={setEditValue}
                     onCommit={() => commitEdit(s.source)}
                     onCancel={cancelEdit}
-                    onColorSelect={(color) => chooseTagColor(s.source, color)}
                   />
                 )}
               </li>
@@ -521,8 +489,6 @@ export function DevicesPanel({
           const sourceKey = device.source_key ?? device.id ?? '';
           const storedName = displayNames[sourceKey] ?? device.nickname ?? '';
           const displayName = storedName || device.hostname || '';
-          const colorSlot = tagColors[sourceKey];
-          const pillVars = sourcePillVars(sourceKey, colorSlot);
           const alertSource = device.source_key;
           const alertName = device.hostname || displayName || 'device';
           const editLabelName = device.hostname || displayName || 'device';
@@ -531,23 +497,10 @@ export function DevicesPanel({
           return (
             <li key={device.id} style={{ ...S.rowWrap, listStyle: 'none' }}>
               <div style={{ ...S.row, ...(isCurrentDevice ? S.rowCurrent : {}) }}>
-                <div
-                  style={{
-                    ...S.rowAccent,
-                    background: pillVars.bg,
-                    opacity: 0.85,
-                  }}
-                  aria-hidden
-                />
+                <div style={{ ...S.rowAccent, background: sourcePillVars(sourceKey).fg }} aria-hidden />
                 <div style={S.rowMain}>
                   <div style={S.rowTop}>
-                    <span
-                      style={{
-                        ...S.sourcePill,
-                        background: pillVars.bg,
-                        color: pillVars.fg,
-                      }}
-                    >
+                    <span style={S.sourcePill}>
                       {displayName || device.hostname || 'unknown'}
                     </span>
                     {isCurrentDevice && (
@@ -598,10 +551,8 @@ export function DevicesPanel({
               </div>
               {settingsOpen && (
                 <DeviceSettingsPanel
-                  source={sourceKey}
                   name={editLabelName}
                   sourceLabel={device.hostname ?? sourceKey}
-                  colorSlot={colorSlot}
                   editValue={editingSource === sourceKey ? editValue : storedName}
                   saving={savingNickname}
                   error={nicknameError}
@@ -609,7 +560,6 @@ export function DevicesPanel({
                   onEditValueChange={setEditValue}
                   onCommit={() => commitEdit(sourceKey, device.id)}
                   onCancel={cancelEdit}
-                  onColorSelect={(color) => chooseTagColor(sourceKey, color)}
                 />
               )}
             </li>
@@ -697,10 +647,8 @@ function AlertToggle({
 }
 
 function DeviceSettingsPanel({
-  source,
   name,
   sourceLabel,
-  colorSlot,
   editValue,
   saving,
   error,
@@ -708,12 +656,9 @@ function DeviceSettingsPanel({
   onEditValueChange,
   onCommit,
   onCancel,
-  onColorSelect,
 }: {
-  source: string;
   name: string;
   sourceLabel: string;
-  colorSlot?: SourceColorSlot;
   editValue: string;
   saving: boolean;
   error: string | null;
@@ -721,10 +666,7 @@ function DeviceSettingsPanel({
   onEditValueChange: (value: string) => void;
   onCommit: () => void;
   onCancel: () => void;
-  onColorSelect: (color: SourceColorSlot | null) => void;
 }) {
-  const tagColorFieldId = useId();
-
   return (
     <section
       style={S.settingsPanel}
@@ -760,58 +702,6 @@ function DeviceSettingsPanel({
           aria-label="Device display name"
         />
         {error && <span style={S.nicknameErrorText}>{error}</span>}
-      </div>
-
-      <div style={S.fieldBlock}>
-        <div style={S.fieldHeader}>
-          <span id={tagColorFieldId} style={S.fieldLabel}>
-            Tag color
-          </span>
-          <span style={S.fieldHint}>{source.replace(/^remote:/, '')}</span>
-        </div>
-        <fieldset
-          style={{ ...S.colorGrid, ...S.colorFieldset }}
-          aria-labelledby={tagColorFieldId}
-        >
-          <button
-            type="button"
-            style={{
-              ...S.colorOption,
-              ...(colorSlot ? {} : S.colorOptionActive),
-            }}
-            onClick={() => onColorSelect(null)}
-            aria-label={`Auto color for ${name}`}
-          >
-            <span aria-hidden="true" style={S.autoColorSwatch} />
-            Auto
-          </button>
-          {SOURCE_COLOR_OPTIONS.map((option) => {
-            const vars = sourceColorSlotVars(option.value);
-            const active = colorSlot === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                style={{
-                  ...S.colorOption,
-                  ...(active ? S.colorOptionActive : {}),
-                }}
-                onClick={() => onColorSelect(option.value)}
-                aria-label={`${option.label} color for ${name}`}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    ...S.colorOptionSwatch,
-                    background: vars.fg,
-                    boxShadow: `0 0 0 3px ${vars.bg}`,
-                  }}
-                />
-                {option.label}
-              </button>
-            );
-          })}
-        </fieldset>
       </div>
 
       <div style={S.settingsActions}>
@@ -930,8 +820,8 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   toolbarPrimary: {
-    background: C.t1,
-    color: C.bg,
+    background: C.accent,
+    color: C.accentOn,
     border: 'none',
     borderRadius: 'var(--radius-md)',
     padding: 'var(--sp-sm) var(--sp-md)',
@@ -1033,7 +923,7 @@ const S: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     fontSize: 20,
     fontWeight: 500,
-    color: C.accent,
+    color: C.t2,
     flexShrink: 0,
     lineHeight: 1,
   },
@@ -1046,15 +936,15 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   sourcePill: {
-    fontSize: 11,
-    fontWeight: 600,
-    padding: '2px var(--sp-sm)',
-    borderRadius: 'var(--radius-sm)',
+    fontSize: 13,
+    fontWeight: 500,
+    color: C.t1,
+    letterSpacing: '-0.01em',
     fontFamily: 'var(--font-body)',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    maxWidth: 200,
+    maxWidth: 220,
   },
 
   thisDeviceBadge: {
@@ -1145,9 +1035,9 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   settingsSaveBtn: {
-    background: C.t1,
-    color: C.bg,
-    border: `1px solid ${C.t1}`,
+    background: C.accent,
+    color: C.accentOn,
+    border: `1px solid ${C.accent}`,
     borderRadius: 'var(--radius-md)',
     padding: 'var(--sp-xs) var(--sp-md)',
     fontSize: 12,
@@ -1202,57 +1092,6 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-mono)',
   },
 
-  colorGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 5,
-  },
-
-  colorFieldset: {
-    border: 'none',
-    margin: 0,
-    padding: 0,
-    minWidth: 0,
-    minInlineSize: 0,
-  },
-
-  colorOption: {
-    background: C.card,
-    color: C.t2,
-    border: `1px solid ${C.border}`,
-    borderRadius: 6,
-    padding: '6px 7px',
-    fontSize: 11,
-    fontWeight: 600,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    cursor: 'pointer',
-    minWidth: 0,
-  },
-
-  colorOptionActive: {
-    background: C.selected,
-    border: `1px solid ${C.borderHover}`,
-    color: C.t1,
-  },
-
-  colorOptionSwatch: {
-    width: 9,
-    height: 9,
-    borderRadius: 9999,
-    flexShrink: 0,
-  },
-
-  autoColorSwatch: {
-    width: 9,
-    height: 9,
-    borderRadius: 9999,
-    border: `1px solid ${C.t4}`,
-    background: 'linear-gradient(135deg, var(--pill-1-fg), var(--pill-3-fg), var(--pill-5-fg))',
-    flexShrink: 0,
-  },
-
   revokeBtn: {
     background: 'transparent',
     color: C.error,
@@ -1287,7 +1126,7 @@ const S: Record<string, React.CSSProperties> = {
   pairHeading: {
     fontSize: 13,
     fontWeight: 600,
-    color: C.accent,
+    color: C.t1,
     fontFamily: 'var(--font-body)',
   },
 
@@ -1351,8 +1190,8 @@ const S: Record<string, React.CSSProperties> = {
   },
   emptyPrimaryBtn: {
     marginTop: 'var(--sp-sm)',
-    background: C.t1,
-    color: C.bg,
+    background: C.accent,
+    color: C.accentOn,
     border: 'none',
     borderRadius: 'var(--radius-md)',
     padding: 'var(--sp-sm) var(--sp-lg)',

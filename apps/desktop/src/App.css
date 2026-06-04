@@ -241,7 +241,7 @@ code {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--selection-bar);
   border: 1px solid var(--bg);
   margin-top: -5px; /* center on 4px track */
   box-shadow: 0 1px 2.377px rgba(0, 0, 0, 0.28);
@@ -379,6 +379,26 @@ html.light {
 .pair-row:hover {
   background: var(--hover) !important;
   border-color: var(--border-hover) !important;
+}
+
+/* Onboarding (first-run) — accent primary CTA, bordered ghost, quiet links */
+.onb-signin {
+  transition: background 120ms ease;
+}
+.onb-signin:hover {
+  background: var(--accent-muted);
+}
+.onb-link {
+  transition: color 120ms ease;
+}
+.onb-link:hover {
+  color: var(--text-primary);
+}
+.onb-more {
+  transition: border-color 120ms ease;
+}
+.onb-more:hover {
+  border-bottom-color: var(--text-muted);
 }
 
 /* ─── Skeleton shimmer (applied via className) ─── */

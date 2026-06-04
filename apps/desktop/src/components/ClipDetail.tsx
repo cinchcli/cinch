@@ -70,14 +70,13 @@ export function ClipDetail({
             <>
               <span style={{ color: C.t4 }}>·</span>
               <span style={{
-                background: 'rgba(255, 107, 107, 0.1)',
-                color: '#ff6b6b',
+                background: C.card2,
+                color: C.t2,
                 fontSize: 10,
-                fontWeight: 700,
+                fontWeight: 500,
                 padding: '1px 8px',
                 borderRadius: 999,
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
+                letterSpacing: '0.02em',
               }}>
                 {clip.label}
               </span>
@@ -344,8 +343,8 @@ const S: Record<string, CSSProperties> = {
   actions: { display: 'flex', gap: 'var(--sp-sm)', alignItems: 'center' },
   btnPrimary: {
     padding: '6px var(--sp-md)',
-    background: C.t1,
-    color: C.bg,
+    background: C.accent,
+    color: C.accentOn,
     border: 'none',
     borderRadius: 5,
     fontFamily: 'inherit',
