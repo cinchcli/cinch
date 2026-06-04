@@ -63,7 +63,13 @@ pub enum Cmd {
     },
     /// Ask another paired device to re-share the encryption key.
     RetryKey,
-    /// Set your display name (overrides the OAuth-fetched name).
+    /// Set the account-wide display name (overrides the OAuth-fetched name).
+    Name {
+        /// Display name — trimmed; max 64 bytes UTF-8.
+        name: String,
+    },
+    /// (deprecated) `auth set-name` → `auth name`.
+    #[command(hide = true)]
     SetName {
         /// Display name — trimmed; max 64 bytes UTF-8.
         name: String,
@@ -108,7 +114,11 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         Cmd::Logout => logout::run_logout().await,
         Cmd::Approve { user_code, relay } => approve::run_approve(&user_code, relay).await,
         Cmd::RetryKey => retry_key::run_retry_key().await,
-        Cmd::SetName { name } => set_name::run_set_name(&name).await,
+        Cmd::Name { name } => set_name::run_set_name(&name).await,
+        Cmd::SetName { name } => {
+            crate::commands::deprecation_note("auth set-name", "auth name");
+            set_name::run_set_name(&name).await
+        }
         Cmd::Recovery(rec) => crate::commands::auth_recovery::run(rec).await,
     }
 }

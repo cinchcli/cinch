@@ -34,10 +34,16 @@ pub fn parse_query_string(raw: &str) -> ParsedQuery {
     pq
 }
 
+/// Ranked clip search. `raw_query` may embed `from:`/`type:`/`is:pinned`
+/// filters (parsed by [`parse_query_string`]); `exclude_source`, when `Some`,
+/// adds an exact-EXCLUDE `source != ?` predicate so the MCP `scope:"fleet"`
+/// read can drop this machine's own clips. See [`super::clips::list_clips`]
+/// for the note on `source != ?` being a residual filter, not an index seek.
 pub fn query_clips(
     store: &Store,
     raw_query: &str,
     limit: i64,
+    exclude_source: Option<&str>,
 ) -> Result<Vec<StoredClip>, StoreError> {
     let pq = parse_query_string(raw_query);
     let fts_query = sanitize_fts_query(&pq.search_term);
@@ -82,6 +88,14 @@ pub fn query_clips(
                 sql.push_str(" AND source = ?");
                 binds.push(Box::new(from_val));
             }
+        }
+
+        // Fleet-read exclude-self predicate (scope:"fleet"). Independent of the
+        // `from:` include above; the MCP layer passes the unresolved
+        // self_source_key directly, so no device-table resolution is needed.
+        if let Some(s) = exclude_source {
+            sql.push_str(" AND source != ?");
+            binds.push(Box::new(s.to_string()));
         }
 
         if let Some(ct) = pq.content_type {
@@ -134,17 +148,21 @@ pub fn query_clips(
     })
 }
 
+/// Convenience wrapper over [`query_clips`] that appends an optional
+/// `type:<filter_type>` term. `exclude_source` is threaded straight through
+/// to power the MCP `scope:"fleet"` read on `search_clipboard`.
 pub fn search_clips(
     store: &Store,
     query: &str,
     limit: i64,
     filter_type: Option<&str>,
+    exclude_source: Option<&str>,
 ) -> Result<Vec<StoredClip>, StoreError> {
     let mut full_query = query.to_string();
     if let Some(t) = filter_type {
         full_query.push_str(&format!(" type:{}", t));
     }
-    query_clips(store, &full_query, limit)
+    query_clips(store, &full_query, limit, exclude_source)
 }
 
 /// Make an arbitrary natural-language query safe for SQLite FTS5 `MATCH`.

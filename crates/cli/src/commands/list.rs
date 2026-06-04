@@ -301,6 +301,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     let rows = client_core::store::queries::list_clips(
         &ctx.store,
         local_from.as_deref(),
+        None, // exclude_source: --exclude-self already routed to run_remote() above
         Some(args.limit as i64),
         None,        // offset: default to 0
         None,        // since_ms: not yet exposed as a CLI flag

@@ -21,7 +21,7 @@ use client_core::store::queries;
 #[tauri::command]
 #[specta::specta]
 pub fn list_pinned_clips(store: State<'_, SharedStore>) -> Result<Vec<LocalClip>, String> {
-    queries::list_clips(&store, None, None, None, None, true, 200)
+    queries::list_clips(&store, None, None, None, None, None, true, 200)
         .map(|v| v.into_iter().map(stored_to_local).collect())
         .map_err(|e| e.to_string())
 }
@@ -86,9 +86,14 @@ pub fn list_clips(
     query: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<LocalClip>, String> {
-    queries::query_clips(&store, &query.unwrap_or_default(), limit.unwrap_or(50))
-        .map(|v| v.into_iter().map(stored_to_local).collect())
-        .map_err(|e| e.to_string())
+    queries::query_clips(
+        &store,
+        &query.unwrap_or_default(),
+        limit.unwrap_or(50),
+        None,
+    )
+    .map(|v| v.into_iter().map(stored_to_local).collect())
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -98,7 +103,7 @@ pub fn search_clips(
     query: String,
     limit: Option<i64>,
 ) -> Result<Vec<LocalClip>, String> {
-    queries::search_clips(&store, &query, limit.unwrap_or(50), None)
+    queries::search_clips(&store, &query, limit.unwrap_or(50), None, None)
         .map(|v| v.into_iter().map(stored_to_local).collect())
         .map_err(|e| e.to_string())
 }

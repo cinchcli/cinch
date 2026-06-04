@@ -88,9 +88,23 @@ pub fn recent_clip_id_by_content(
     })
 }
 
+/// List clips, newest first.
+///
+/// `from` is an exact-INCLUDE source filter (`source = ?`); `exclude_source`
+/// is its exact-EXCLUDE counterpart (`source != ?`), used to serve the MCP
+/// `scope:"fleet"` read — "every clip whose source is not this machine".
+/// The two are independent: passing both yields `source = a AND source != b`.
+///
+/// Note: `source != ?` is a **residual filter**, not an index seek. The
+/// `clips_source_idx (source, created_at DESC)` index cannot range-seek on an
+/// inequality, so it serves only the `created_at DESC` ordering while the
+/// excluded rows are scanned and filtered out. This is negligible at
+/// single-machine local-history scale, so no new index is warranted.
+#[allow(clippy::too_many_arguments)]
 pub fn list_clips(
     store: &Store,
     from: Option<&str>,
+    exclude_source: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
     since_ms: Option<i64>,
@@ -101,6 +115,10 @@ pub fn list_clips(
     let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(s) = from {
         sql.push_str(" AND source = ?");
+        binds.push(Box::new(s.to_string()));
+    }
+    if let Some(s) = exclude_source {
+        sql.push_str(" AND source != ?");
         binds.push(Box::new(s.to_string()));
     }
     if let Some(t) = since_ms {

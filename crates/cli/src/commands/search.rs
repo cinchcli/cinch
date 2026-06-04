@@ -32,6 +32,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         &args.query,
         args.limit,
         args.filter_type.as_deref(),
+        None, // exclude_source: `cinch search` is a local-history view
     )
     .map_err(|e| ExitError::new(GENERIC_ERROR, format!("search failed: {e}"), ""))?;
 
