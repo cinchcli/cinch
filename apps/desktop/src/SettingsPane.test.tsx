@@ -68,6 +68,13 @@ describe("SettingsPane", () => {
       if (cmd === "set_send_shortcut") {
         return Promise.resolve(null);
       }
+      if (cmd === "get_user_profile") {
+        return Promise.resolve({
+          email: "user@example.com",
+          identity_provider: "google",
+          user_id: "user_123",
+        });
+      }
       return Promise.resolve();
     });
   });
@@ -75,7 +82,7 @@ describe("SettingsPane", () => {
   describe("Global shortcut field", () => {
     it("renders the global shortcut input with label", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       expect(input).toBeInTheDocument();
       expect(screen.getByText(/Press a new key combination/i)).toBeInTheDocument();
@@ -83,7 +90,7 @@ describe("SettingsPane", () => {
 
     it("displays the shortcut in macOS symbol format", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       // CmdOrCtrl+Shift+V should display as command+shift+V symbols
       await waitFor(() => {
@@ -93,7 +100,7 @@ describe("SettingsPane", () => {
 
     it("shows error for key press without modifier", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       fireEvent.keyDown(input, {
         key: "v",
@@ -109,7 +116,7 @@ describe("SettingsPane", () => {
 
     it("ignores modifier-only presses", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       fireEvent.keyDown(input, {
         key: "Meta",
@@ -127,7 +134,7 @@ describe("SettingsPane", () => {
 
     it("captures modifier+key combination and persists", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       fireEvent.keyDown(input, {
         key: "b",
@@ -158,7 +165,7 @@ describe("SettingsPane", () => {
       });
 
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Global launch shortcut");
       fireEvent.keyDown(input, {
         key: "x",
@@ -174,7 +181,7 @@ describe("SettingsPane", () => {
   describe("Send shortcut field", () => {
     it("shows 'Off' in the send shortcut input when getSendShortcut resolves to null", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
-      fireEvent.click(screen.getByText("shortcuts"));
+      fireEvent.click(screen.getByText("Keyboard"));
       const input = await screen.findByLabelText("Send clipboard shortcut");
       await waitFor(() => {
         expect(input).toHaveValue("Off");
@@ -186,6 +193,7 @@ describe("SettingsPane", () => {
     it("does not expose editable filter rules", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
 
+      fireEvent.click(screen.getByText("Privacy"));
       await screen.findByText("Local retention");
 
       expect(screen.queryByText("Clip filters")).not.toBeInTheDocument();
@@ -198,11 +206,9 @@ describe("SettingsPane", () => {
       localStorage.removeItem("cinch.notify_on_remote_login");
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
 
-      await screen.findByText("Local retention");
-
-      const checkbox = screen.getByLabelText(
+      const checkbox = (await screen.findByLabelText(
         /remote login is pending approval/i
-      ) as HTMLInputElement;
+      )) as HTMLInputElement;
       expect(checkbox).toBeInTheDocument();
       expect(checkbox.checked).toBe(true);
     });
@@ -211,11 +217,9 @@ describe("SettingsPane", () => {
       localStorage.setItem("cinch.notify_on_remote_login", "1");
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
 
-      await screen.findByText("Local retention");
-
-      const checkbox = screen.getByLabelText(
+      const checkbox = (await screen.findByLabelText(
         /remote login is pending approval/i
-      ) as HTMLInputElement;
+      )) as HTMLInputElement;
       expect(checkbox.checked).toBe(true);
 
       fireEvent.click(checkbox);
@@ -228,11 +232,9 @@ describe("SettingsPane", () => {
       localStorage.setItem("cinch.notify_on_remote_login", "0");
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
 
-      await screen.findByText("Local retention");
-
-      const checkbox = screen.getByLabelText(
+      const checkbox = (await screen.findByLabelText(
         /remote login is pending approval/i
-      ) as HTMLInputElement;
+      )) as HTMLInputElement;
       expect(checkbox.checked).toBe(false);
     });
   });

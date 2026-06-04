@@ -1,6 +1,6 @@
 // SettingsPane — minimalist sidebar+content layout.
 //
-// Left column: vertical category nav (General / Shortcuts / Servers / Sessions).
+// Left column: vertical category nav (General / Privacy / Devices / Agents & CLI / Keyboard).
 // Right column: scrollable content with generous macro-whitespace and 1px
 // dividers between sections — no nested card containers around form fields.
 //
@@ -25,7 +25,9 @@ import { useAuthState, signOut } from "./lib/state/auth";
 import { useNotifyOnRemoteLogin } from "./lib/settings";
 import { PendingLoginCard } from "./components/PendingLoginCard";
 import { ManualApproveForm } from "./components/ManualApproveForm";
-import { AccountSection } from "./components/AccountSection";
+import { AccountIdentity } from "./components/AccountIdentity";
+import { AgentsSection } from "./components/AgentsSection";
+import { useTheme, type ThemeMode } from "./lib/state/theme";
 
 const WINDOW_PRESETS = {
   compact:  { label: "Compact",  width: 760,  height: 480 },
@@ -42,6 +44,7 @@ function resolveWindowPreset(): WindowPreset {
 interface SettingsPaneProps {
   onClose: () => void;
   clipCount: number;
+  initialTab?: SettingsTab;
 }
 
 type LoadState =
@@ -49,39 +52,16 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "ready"; config: RetentionConfig };
 
-type Tab = "general" | "account" | "shortcuts" | "servers" | "sessions";
+export type SettingsTab = "general" | "privacy" | "devices" | "agents" | "shortcuts";
 
-const CATEGORY_META: Record<Tab, { label: string; eyebrow: string; title: string; subtitle: string }> = {
-  general: {
-    label: "general",
-    eyebrow: "General",
-    title: "Storage & app",
-    subtitle: "How long clips live on this Mac and on the relay, plus window and notification preferences.",
-  },
-  account: {
-    label: "account",
-    eyebrow: "Account",
-    title: "Profile",
-    subtitle: "Your display name shown across devices. Email and user ID are read-only.",
-  },
-  shortcuts: {
-    label: "shortcuts",
-    eyebrow: "Shortcuts",
-    title: "Keyboard",
-    subtitle: "Customize the global launch shortcut. The list below shows the built-in shortcuts.",
-  },
-  servers: {
-    label: "servers",
-    eyebrow: "Servers",
-    title: "Relay & devices",
-    subtitle: "Manage your relay connection and the remote devices linked to this account.",
-  },
-  sessions: {
-    label: "sessions",
-    eyebrow: "Sessions",
-    title: "Pending sign-ins",
-    subtitle: "Approve or deny sign-in requests from other devices.",
-  },
+export const SETTINGS_TABS: SettingsTab[] = ["general", "privacy", "devices", "agents", "shortcuts"];
+
+export const CATEGORY_META: Record<SettingsTab, { label: string; title: string; subtitle: string }> = {
+  general: { label: "General", title: "General", subtitle: "Your account, appearance, window size, and notifications." },
+  privacy: { label: "Privacy", title: "Storage & privacy", subtitle: "What the relay can see, how long clips live on this Mac and on the relay, and how to wipe this Mac." },
+  devices: { label: "Devices", title: "Relay & devices", subtitle: "Manage your relay connection, the machines linked to this account, and pending sign-ins." },
+  agents: { label: "Agents & CLI", title: "Agents & CLI", subtitle: "Connect your coding agent over MCP and use the cinch command line." },
+  shortcuts: { label: "Keyboard", title: "Keyboard", subtitle: "Customize the global launch shortcut. The list below shows the built-in shortcuts." },
 };
 
 /** Format the internal shortcut string for display using macOS symbols. */
@@ -106,10 +86,11 @@ async function registerWindowShortcut(shortcut: string): Promise<void> {
   });
 }
 
-export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) {
+export default function SettingsPane({ onClose, clipCount, initialTab }: SettingsPaneProps) {
   const titleId = useId();
   const auth = useAuthState();
-  const [activeTab, setActiveTab] = useState<Tab>("general");
+  const { mode, setMode } = useTheme();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "general");
   const [pending, setPending] = useState<PendingDeviceCode[]>([]);
   const [addRelayOpen, setAddRelayOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
@@ -395,7 +376,7 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
           <h1 id={titleId} style={S.navTitle}>Settings</h1>
         </div>
         <div style={S.navList}>
-          {(Object.keys(CATEGORY_META) as Tab[]).map((tab) => {
+          {SETTINGS_TABS.map((tab) => {
             const active = activeTab === tab;
             return (
               <button
@@ -422,42 +403,14 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
         <div style={S.ambient} aria-hidden="true" />
         <div style={S.contentInner}>
           <header style={S.contentHeader}>
-            <div style={S.eyebrow}>{meta.eyebrow}</div>
             <h2 style={S.contentTitle}>{meta.title}</h2>
             <p style={S.contentSubtitle}>{meta.subtitle}</p>
           </header>
 
           <hr style={S.headerDivider} />
 
-          {/* Sessions */}
-          {activeTab === "sessions" && (
-            <section>
-              {pending.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
-                  {pending.map((p) => (
-                    <PendingLoginCard
-                      key={p.user_code}
-                      userCode={p.user_code}
-                      hostname={p.hostname}
-                      sourceRegion={p.source_region}
-                      requestedAt={p.requested_at}
-                      onResolved={() =>
-                        setPending((prev) =>
-                          prev.filter((x) => x.user_code !== p.user_code),
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div style={S.emptyState}>No pending login requests.</div>
-              )}
-              <ManualApproveForm onApproved={() => { /* list is already current */ }} />
-            </section>
-          )}
-
-          {/* Servers */}
-          {activeTab === "servers" && (
+          {/* Devices */}
+          {activeTab === "devices" && (
             <>
               <div style={S.fieldGroup}>
                 <div style={S.fieldHeading}>Relay server</div>
@@ -511,6 +464,33 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
                   currentMachineId={auth.variant === "Authenticated" ? auth.payload.machine_id : ""}
                   onShowToast={() => {}}
                 />
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Pending sign-ins</div>
+                {pending.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+                    {pending.map((p) => (
+                      <PendingLoginCard
+                        key={p.user_code}
+                        userCode={p.user_code}
+                        hostname={p.hostname}
+                        sourceRegion={p.source_region}
+                        requestedAt={p.requested_at}
+                        onResolved={() =>
+                          setPending((prev) =>
+                            prev.filter((x) => x.user_code !== p.user_code),
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div style={S.emptyState}>No pending login requests.</div>
+                )}
+                <ManualApproveForm onApproved={() => { /* list is already current */ }} />
               </div>
 
               {addRelayOpen && <AddRelayDialog onClose={() => setAddRelayOpen(false)} />}
@@ -652,22 +632,54 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
             </>
           )}
 
-          {/* Account */}
-          {activeTab === "account" && <AccountSection />}
+          {/* Agents & CLI */}
+          {activeTab === "agents" && <AgentsSection />}
 
-          {/* General */}
-          {activeTab === "general" && state.kind === "loading" && (
+          {/* Privacy */}
+          {activeTab === "privacy" && state.kind === "loading" && (
             <div style={S.loading}>Loading retention settings…</div>
           )}
 
-          {activeTab === "general" && state.kind === "error" && (
+          {activeTab === "privacy" && state.kind === "error" && (
             <div style={S.errorRegion}>
               Couldn't load settings: {state.message}
             </div>
           )}
 
-          {activeTab === "general" && state.kind === "ready" && (
+          {activeTab === "privacy" && state.kind === "ready" && (
             <>
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>What the relay can see</div>
+                <div style={S.fieldDescription}>
+                  Cinch is honest about this — encryption hides your clips, not the
+                  fact that they sync.
+                </div>
+                <dl style={S.trustList}>
+                  <div style={{ ...S.trustRow, borderTop: "none", paddingTop: 0 }}>
+                    <dt style={S.trustKey}>Clip contents — never</dt>
+                    <dd style={S.trustVal}>
+                      Text, code, and images are encrypted on this Mac before they
+                      leave. The relay only ever stores ciphertext.
+                    </dd>
+                  </div>
+                  <div style={S.trustRow}>
+                    <dt style={S.trustKey}>Names, timing &amp; size — yes</dt>
+                    <dd style={S.trustVal}>
+                      Device names, timestamps, and byte sizes stay visible to the
+                      relay — it needs them to route clips to the right machines.
+                    </dd>
+                  </div>
+                  <div style={S.trustRow}>
+                    <dt style={S.trustKey}>Want zero metadata?</dt>
+                    <dd style={S.trustVal}>
+                      Self-host the relay — same app, your server.
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <hr style={S.divider} />
+
               <div style={S.fieldGroup}>
                 <RetentionSlider
                   id="local-retention"
@@ -688,49 +700,6 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
                   value={state.config.remote_days}
                   onCommit={commitRemoteRetention}
                 />
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Window size</div>
-                <div style={S.fieldDescription}>Choose a preset size.</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                  {(Object.keys(WINDOW_PRESETS) as WindowPreset[]).map((key) => {
-                    const active = windowPreset === key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => void applyWindowPreset(key)}
-                        style={{
-                          ...S.segmentBtn,
-                          background: active ? C.t1 : "transparent",
-                          color: active ? C.bg : C.t2,
-                          borderColor: active ? C.t1 : C.border,
-                        }}
-                      >
-                        {WINDOW_PRESETS[key].label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Notifications</div>
-                <div style={S.fieldDescription}>Control which system notifications cinch shows.</div>
-                <label style={S.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={notifyOnRemoteLogin}
-                    onChange={(e) => setNotifyOnRemoteLogin(e.target.checked)}
-                    aria-label="Show macOS notification when a remote login is pending approval"
-                  />
-                  <span>Show macOS notification when a remote login is pending approval</span>
-                </label>
               </div>
 
               <hr style={S.divider} />
@@ -766,6 +735,67 @@ export default function SettingsPane({ onClose, clipCount }: SettingsPaneProps) 
               </div>
 
               {saveError && <div style={S.errorRegion}>{saveError}</div>}
+            </>
+          )}
+
+          {/* General */}
+          {activeTab === "general" && (
+            <>
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Account</div>
+                <div style={S.fieldDescription}>The identity this Mac is signed in as. Read-only.</div>
+                <AccountIdentity />
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Theme</div>
+                <div style={S.fieldDescription}>Match the system, or pick light or dark.</div>
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  {(["system", "light", "dark"] as ThemeMode[]).map((m) => {
+                    const active = mode === m;
+                    return (
+                      <button key={m} type="button" onClick={() => setMode(m)}
+                        style={{ ...S.segmentBtn, background: active ? C.t1 : "transparent", color: active ? C.bg : C.t2, borderColor: active ? C.t1 : C.border }}>
+                        {m === "system" ? "System" : m === "light" ? "Light" : "Dark"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Window size</div>
+                <div style={S.fieldDescription}>Choose a preset size.</div>
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  {(Object.keys(WINDOW_PRESETS) as WindowPreset[]).map((key) => {
+                    const active = windowPreset === key;
+                    return (
+                      <button key={key} type="button" onClick={() => void applyWindowPreset(key)}
+                        style={{ ...S.segmentBtn, background: active ? C.t1 : "transparent", color: active ? C.bg : C.t2, borderColor: active ? C.t1 : C.border }}>
+                        {WINDOW_PRESETS[key].label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Notifications</div>
+                <div style={S.fieldDescription}>Control which system notifications cinch shows.</div>
+                <label style={S.checkboxRow}>
+                  <input type="checkbox" checked={notifyOnRemoteLogin}
+                    onChange={(e) => setNotifyOnRemoteLogin(e.target.checked)}
+                    aria-label="Show macOS notification when a remote login is pending approval"
+                    style={{ accentColor: C.accent }} />
+                  <span>Show macOS notification when a remote login is pending approval</span>
+                </label>
+              </div>
             </>
           )}
 
@@ -897,7 +927,6 @@ const S: Record<string, CSSProperties> = {
     borderRadius: 6,
     textAlign: "left",
     cursor: "pointer",
-    textTransform: "capitalize",
     transition: "color 120ms ease, background 120ms ease",
   },
   navItemBar: {
@@ -907,7 +936,7 @@ const S: Record<string, CSSProperties> = {
     transform: "translateY(-50%)",
     width: 2,
     height: 14,
-    background: "var(--selection-bar)",
+    background: "var(--accent)",
     borderRadius: 2,
   },
 
@@ -933,13 +962,32 @@ const S: Record<string, CSSProperties> = {
   contentHeader: {
     marginBottom: 0,
   },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
+  // ─── Trust block (what the relay can see) ───────────────
+  trustList: {
+    margin: 0,
+    display: "flex",
+    flexDirection: "column",
+  },
+  trustRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    padding: "11px 0",
+    borderTop: `1px solid ${C.border}`,
+  },
+  trustKey: {
+    fontSize: 13,
+    fontWeight: 500,
+    letterSpacing: "-0.005em",
+    color: C.t1,
+  },
+  trustVal: {
+    margin: 0,
+    fontSize: 12.5,
+    fontWeight: 400,
+    lineHeight: 1.55,
     color: C.t3,
-    marginBottom: 12,
+    maxWidth: 460,
   },
   contentTitle: {
     fontSize: 26,
@@ -1039,8 +1087,8 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: "0.1px",
   },
   primaryBtn: {
-    background: C.t1,
-    color: C.bg,
+    background: C.accent,
+    color: C.accentOn,
     border: "none",
     borderRadius: 5,
     fontSize: 12,
@@ -1090,11 +1138,10 @@ const S: Record<string, CSSProperties> = {
     marginBottom: 20,
   },
   kbdGroupTitle: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: 600,
-    letterSpacing: "0.08em",
+    letterSpacing: "0.01em",
     color: C.t3,
-    textTransform: "uppercase",
     marginBottom: 4,
   },
   kbdRow: {
