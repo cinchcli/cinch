@@ -189,6 +189,22 @@ describe("SettingsPane", () => {
     });
   });
 
+  describe("Privacy trust block", () => {
+    it("renders the self-host guide link in the Privacy tab, opening in a new tab", async () => {
+      render(<SettingsPane onClose={() => {}} clipCount={0} />);
+
+      fireEvent.click(screen.getByText("Privacy"));
+      const link = (await screen.findByRole("link", {
+        name: /Read the self-host guide/i,
+      })) as HTMLAnchorElement;
+
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute("href", "https://cinchcli.com/docs/self-hosting");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    });
+  });
+
   describe("Clip filters", () => {
     it("does not expose editable filter rules", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);

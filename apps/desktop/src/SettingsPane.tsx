@@ -16,7 +16,7 @@ import { physicalKey } from "./lib/keyboard";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { C } from "./design";
-import { IconX, IconCinch } from "./icons";
+import { IconX, IconCinch, IconLock, IconEye, IconArrowRight, IconCheck } from "./icons";
 import ConfirmDialog from "./ConfirmDialog";
 import RetentionSlider from "./RetentionSlider";
 import { AddRelayDialog } from "./components/AddRelayDialog";
@@ -656,24 +656,47 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
                 </div>
                 <dl style={S.trustList}>
                   <div style={{ ...S.trustRow, borderTop: "none", paddingTop: 0 }}>
-                    <dt style={S.trustKey}>Clip contents — never</dt>
-                    <dd style={S.trustVal}>
-                      Text, code, and images are encrypted on this Mac before they
-                      leave. The relay only ever stores ciphertext.
-                    </dd>
+                    <span style={S.trustIcon} aria-hidden="true">
+                      <IconLock size={16} />
+                    </span>
+                    <div style={S.trustText}>
+                      <dt style={S.trustKey}>Clip contents — never</dt>
+                      <dd style={S.trustVal}>
+                        Text, code, and images are encrypted on this Mac before they
+                        leave. The relay only ever stores ciphertext.
+                      </dd>
+                    </div>
                   </div>
                   <div style={S.trustRow}>
-                    <dt style={S.trustKey}>Names, timing &amp; size — yes</dt>
-                    <dd style={S.trustVal}>
-                      Device names, timestamps, and byte sizes stay visible to the
-                      relay — it needs them to route clips to the right machines.
-                    </dd>
+                    <span style={S.trustIcon} aria-hidden="true">
+                      <IconEye size={16} />
+                    </span>
+                    <div style={S.trustText}>
+                      <dt style={S.trustKey}>Names, timing &amp; size — yes</dt>
+                      <dd style={S.trustVal}>
+                        Device names, timestamps, and byte sizes stay visible to the
+                        relay — it needs them to route clips to the right machines.
+                      </dd>
+                    </div>
                   </div>
                   <div style={S.trustRow}>
-                    <dt style={S.trustKey}>Want zero metadata?</dt>
-                    <dd style={S.trustVal}>
-                      Self-host the relay — same app, your server.
-                    </dd>
+                    <span style={S.trustIcon} aria-hidden="true">
+                      <IconArrowRight size={16} />
+                    </span>
+                    <div style={S.trustText}>
+                      <dt style={S.trustKey}>Want zero metadata?</dt>
+                      <dd style={S.trustVal}>
+                        Self-host the relay — same app, your server.{" "}
+                        <a
+                          href="https://cinchcli.com/docs/self-hosting"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={S.trustLink}
+                        >
+                          Read the self-host guide
+                        </a>
+                      </dd>
+                    </div>
                   </div>
                 </dl>
               </div>
@@ -789,10 +812,22 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
                 <div style={S.fieldHeading}>Notifications</div>
                 <div style={S.fieldDescription}>Control which system notifications cinch shows.</div>
                 <label style={S.checkboxRow}>
-                  <input type="checkbox" checked={notifyOnRemoteLogin}
+                  <input
+                    type="checkbox"
+                    checked={notifyOnRemoteLogin}
                     onChange={(e) => setNotifyOnRemoteLogin(e.target.checked)}
                     aria-label="Show macOS notification when a remote login is pending approval"
-                    style={{ accentColor: C.accent }} />
+                    style={S.srOnlyInput}
+                  />
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      ...S.checkBox,
+                      ...(notifyOnRemoteLogin ? S.checkBoxOn : null),
+                    }}
+                  >
+                    {notifyOnRemoteLogin && <IconCheck size={11} />}
+                  </span>
                   <span>Show macOS notification when a remote login is pending approval</span>
                 </label>
               </div>
@@ -936,7 +971,10 @@ const S: Record<string, CSSProperties> = {
     transform: "translateY(-50%)",
     width: 2,
     height: 14,
-    background: "var(--accent)",
+    // Monochrome text-color bar (matches the mockup's --bar and the codebase
+    // --selection-bar token). Teal --accent is reserved for focus rings +
+    // the offline pulse — see App.css and the redesign brief §7.
+    background: "var(--selection-bar)",
     borderRadius: 2,
   },
 
@@ -970,10 +1008,28 @@ const S: Record<string, CSSProperties> = {
   },
   trustRow: {
     display: "flex",
+    flexDirection: "row",
+    gap: 14,
+    padding: "13px 0",
+    borderTop: `1px solid ${C.border}`,
+  },
+  trustIcon: {
+    flexShrink: 0,
+    display: "flex",
+    paddingTop: 1,
+    color: C.t2,
+  },
+  trustText: {
+    display: "flex",
     flexDirection: "column",
     gap: 3,
-    padding: "11px 0",
-    borderTop: `1px solid ${C.border}`,
+    minWidth: 0,
+  },
+  trustLink: {
+    color: C.t2,
+    textDecoration: "none",
+    borderBottom: `1px solid ${C.borderHover}`,
+    cursor: "pointer",
   },
   trustKey: {
     fontSize: 13,
@@ -1051,12 +1107,45 @@ const S: Record<string, CSSProperties> = {
   checkboxRow: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 11,
     cursor: "pointer",
     fontSize: 13,
     fontWeight: 400,
     color: C.t2,
     lineHeight: 1.45,
+  },
+  // Real checkbox kept in the a11y tree (label-associated, focusable, togglable)
+  // but visually replaced by the monochrome box below — no teal accentColor.
+  srOnlyInput: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)",
+    whiteSpace: "nowrap",
+    border: 0,
+  },
+  checkBox: {
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    // Longhand border props (not the `border` shorthand) so toggling
+    // checkBoxOn's borderColor doesn't mix shorthand + longhand on rerender.
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: C.borderHover,
+    borderRadius: 4,
+    color: C.bg,
+    transition: "background 120ms ease, border-color 120ms ease",
+  },
+  checkBoxOn: {
+    background: C.t1,
+    borderColor: C.t1,
   },
   shortcutInput: {
     background: C.card,
