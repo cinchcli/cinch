@@ -40,10 +40,15 @@ tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 futures-util = { workspace = true }
 uuid = { version = "1", features = ["v7"] }
-skim = "0.16"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
+
+# skim's terminal UI (tuikit) depends on the Unix-only `nix` crate and does not
+# compile on Windows. The interactive session/answer picker is therefore gated
+# to non-Windows targets; on Windows, use --last/--all or a session id instead.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+skim = "0.16"
 
 [dev-dependencies]
 wiremock = "0.6"

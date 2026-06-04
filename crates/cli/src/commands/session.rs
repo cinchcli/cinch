@@ -8,7 +8,10 @@
 //! then both saves the result as a syncing clip and copies it to the clipboard.
 
 use std::io::IsTerminal;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+// PathBuf is only named by the skim-backed picker items, which are gated below.
+#[cfg(not(target_os = "windows"))]
+use std::path::PathBuf;
 
 use client_core::machine::hostname_or_unknown;
 use client_core::rest::ContentType;
@@ -18,6 +21,9 @@ use client_core::session::{
 };
 use client_core::store::models::{StoredClip, SyncState};
 use client_core::store::{self, queries, Store};
+// skim (and its Unix-only tuikit backend) powers the interactive picker; it is
+// not compiled on Windows. See the gated picker block lower in this file.
+#[cfg(not(target_os = "windows"))]
 use skim::prelude::*;
 
 use crate::exit::{ExitError, GENERIC_ERROR};
@@ -265,11 +271,13 @@ fn derive_label(session: &Session) -> String {
 
 /// One session row in the `--pick` list. The preview pane shows a parsed
 /// overview (title + per-answer prompt table) so a session is recognizable.
+#[cfg(not(target_os = "windows"))]
 struct SessionItem {
     path: PathBuf,
     label: String,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl SkimItem for SessionItem {
     fn text(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.label)
@@ -281,12 +289,14 @@ impl SkimItem for SessionItem {
 
 /// One answer row in the picker. The preview pane shows the exact Markdown that
 /// would be copied for this answer (current render flags applied).
+#[cfg(not(target_os = "windows"))]
 struct AnswerItem {
     index: usize,
     label: String,
     preview_md: String,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl SkimItem for AnswerItem {
     fn text(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.label)
@@ -298,6 +308,7 @@ impl SkimItem for AnswerItem {
 
 /// Render a one-screen overview of a session for the `--pick` preview pane:
 /// the title, id, answer count, and a numbered table of each answer's prompt.
+#[cfg(not(target_os = "windows"))]
 fn session_overview(path: &Path) -> String {
     let source = ClaudeSource::new();
     // `SessionSelector::Path` ignores the cwd, so any path works here.
@@ -316,6 +327,7 @@ fn session_overview(path: &Path) -> String {
 
 /// Run skim over `items` with a right-side preview pane and return the selected
 /// ones. `multi` enables TAB multi-select. Errors on abort / empty selection.
+#[cfg(not(target_os = "windows"))]
 fn run_skim(
     items: Vec<Arc<dyn SkimItem>>,
     multi: bool,
@@ -362,12 +374,14 @@ fn run_skim(
 /// `downcast_ref::<T>()` yields `None`. Dereferencing to the `dyn SkimItem`
 /// trait object first makes `as_any()` dispatch through the vtable to the real
 /// item (this mirrors skim's own `examples/downcast.rs`).
+#[cfg(not(target_os = "windows"))]
 fn downcast_item<T: SkimItem>(item: &Arc<dyn SkimItem>) -> Option<&T> {
     (**item).as_any().downcast_ref::<T>()
 }
 
 /// Interactive session picker (skim, TTY-only). Returns a resolved
 /// [`SessionSelector::Path`].
+#[cfg(not(target_os = "windows"))]
 fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, ExitError> {
     if !std::io::stdin().is_terminal() {
         return Err(ExitError::new(
@@ -407,6 +421,7 @@ fn pick_session(source: &ClaudeSource, cwd: &Path) -> Result<SessionSelector, Ex
 /// Interactive answer picker (skim, multi-select, TTY-only). Returns deduped,
 /// ascending 0-based indices. `opts` drives the live preview rendering so the
 /// preview pane matches what would be copied.
+#[cfg(not(target_os = "windows"))]
 fn pick_answers(answers: &[Answer], opts: RenderOpts) -> Result<Vec<usize>, ExitError> {
     let items: Vec<Arc<dyn SkimItem>> = answers
         .iter()
@@ -438,6 +453,30 @@ fn pick_answers(answers: &[Answer], opts: RenderOpts) -> Result<Vec<usize>, Exit
         ));
     }
     Ok(indices)
+}
+
+/// Windows stub: the skim-based interactive session picker is Unix-only (its
+/// `tuikit` backend depends on `nix`). `--pick` therefore errors on Windows;
+/// pass a session id prefix instead.
+#[cfg(target_os = "windows")]
+fn pick_session(_source: &ClaudeSource, _cwd: &Path) -> Result<SessionSelector, ExitError> {
+    Err(ExitError::new(
+        GENERIC_ERROR,
+        "Interactive session selection (--pick) is not available on Windows.",
+        "Pass a SESSION id prefix instead of --pick.",
+    ))
+}
+
+/// Windows stub: the skim-based interactive answer picker is Unix-only. The
+/// non-interactive paths (`--last [N]`, `--all`) cover answer selection on
+/// Windows.
+#[cfg(target_os = "windows")]
+fn pick_answers(_answers: &[Answer], _opts: RenderOpts) -> Result<Vec<usize>, ExitError> {
+    Err(ExitError::new(
+        GENERIC_ERROR,
+        "Interactive answer selection is not available on Windows.",
+        "Pass --last [N] or --all to select answers non-interactively.",
+    ))
 }
 
 /// Map a [`client_core::session::SessionError`] onto a CLI [`ExitError`] with a
@@ -597,6 +636,7 @@ mod tests {
         assert!(a.preview().contains("do the thing"));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn downcast_item_recovers_concrete_from_arc() {
         // skim returns selections as `Arc<dyn SkimItem>`. The picker must
@@ -630,6 +670,7 @@ mod tests {
         assert!(downcast_item::<AnswerItem>(&session).is_none());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn answer_item_exposes_text_and_preview() {
         use skim::prelude::{ItemPreview, PreviewContext, SkimItem};
