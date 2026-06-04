@@ -6,6 +6,7 @@ mod clipboard;
 mod commands;
 pub mod crypto;
 mod deep_link;
+mod dock_icon;
 pub mod events;
 pub mod media;
 mod paths;
@@ -102,8 +103,8 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::updater::get_latest_versions,
             commands::updater::get_device_version_status,
             commands::updater::run_self_update,
-            commands::window::snap_drag_start,
-            commands::window::show_copy_toast,
+            commands::window::drag::snap_drag_start,
+            commands::window::copy_toast::show_copy_toast,
         ])
         .events(collect_events![
             events::AuthStateChanged,
@@ -161,29 +162,7 @@ pub fn run() {
     // The single store shared between the desktop and the CLI writer. The
     // desktop now runs entirely on this store; the legacy per-app SQLite DB
     // and its store::db module have been removed.
-    let shared_store: SharedStore = match client_core::store::default_db_path() {
-        Ok(path) => match client_core::store::Store::open(&path) {
-            Ok(s) => {
-                info!("client-core store opened at {}", path.display());
-                Arc::new(s)
-            }
-            Err(e) => {
-                log::warn!("client-core store open failed (non-fatal): {}", e);
-                // Construct an in-memory fallback so the app still starts.
-                Arc::new(
-                    client_core::store::Store::open(std::path::Path::new(":memory:"))
-                        .expect("in-memory store"),
-                )
-            }
-        },
-        Err(e) => {
-            log::warn!("cannot resolve store path (non-fatal): {}", e);
-            Arc::new(
-                client_core::store::Store::open(std::path::Path::new(":memory:"))
-                    .expect("in-memory store"),
-            )
-        }
-    };
+    let shared_store: SharedStore = startup::open_shared_store();
 
     // Build the NewClip notifier channel before Writer::start so the initial
     // writer — spawned synchronously below, before Tauri's AppHandle exists —
@@ -301,6 +280,9 @@ pub fn run() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
+                if window.label() == "main" {
+                    crate::window_manage::set_dock_visible(window.app_handle(), false);
+                }
             }
             tauri::WindowEvent::Moved(_) if window.label() == "main" => {
                 commands::window::on_window_moved(window.app_handle());
@@ -404,6 +386,10 @@ pub fn run() {
             // Run as a background menu-bar agent: no Dock icon, hidden from the
             // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
             window_manage::configure_activation_policy(handle);
+
+            // Stage the themed Dock icon (shown only while a window is open)
+            // and install the ThemeChanged listener for live light/dark swaps.
+            dock_icon::setup(handle);
 
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {

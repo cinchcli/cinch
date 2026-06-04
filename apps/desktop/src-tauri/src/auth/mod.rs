@@ -1,6 +1,8 @@
 #![allow(dead_code, unused_imports)]
 
+pub mod backoff;
 pub mod credential;
+pub mod pending_codes;
 pub mod propagate;
 pub mod state; // Plan 02 Task 3 seeded the skeleton; Plan 03 Task 1 extends with events + classify_next_state + Backoff + tests
 

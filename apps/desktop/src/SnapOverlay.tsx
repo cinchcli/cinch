@@ -54,9 +54,13 @@ export default function SnapOverlay() {
 
   if (!g || !g.visible) return null;
 
-  const activeColor = "rgba(88,166,255,0.95)";
+  // Monochrome redesign: the snapped state reads through brightness + glow, not
+  // hue. Raw values (not theme tokens) because this overlay paints over the
+  // desktop in a separate transparent window; near-white stays visible on most
+  // wallpapers, the faint grey marks the un-snapped guide.
+  const activeColor = "rgba(245,245,243,0.95)";
   const inactiveColor = "rgba(110,118,129,1)"; // Opacity handled via 'opacity' style
-  const activeGlow = "0 0 12px rgba(88,166,255,0.5)";
+  const activeGlow = "0 0 12px rgba(245,245,243,0.5)";
 
   const vLineBase: CSSProperties = {
     position: "fixed",

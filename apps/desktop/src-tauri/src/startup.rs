@@ -138,3 +138,33 @@ pub(crate) fn build_initial_writer_and_pusher(
 
     (writer, Arc::new(Mutex::new(Some(pusher))))
 }
+
+/// Open the shared client-core store at `~/.cinch/store.db`.
+///
+/// This is the single store shared between the desktop and the CLI writer. If
+/// the path can't be resolved or the file can't be opened, falls back to an
+/// in-memory store so the app still launches (non-fatal).
+pub(crate) fn open_shared_store() -> SharedStore {
+    let in_memory = || {
+        Arc::new(
+            client_core::store::Store::open(std::path::Path::new(":memory:"))
+                .expect("in-memory store"),
+        )
+    };
+    match client_core::store::default_db_path() {
+        Ok(path) => match client_core::store::Store::open(&path) {
+            Ok(s) => {
+                info!("client-core store opened at {}", path.display());
+                Arc::new(s)
+            }
+            Err(e) => {
+                log::warn!("client-core store open failed (non-fatal): {}", e);
+                in_memory()
+            }
+        },
+        Err(e) => {
+            log::warn!("cannot resolve store path (non-fatal): {}", e);
+            in_memory()
+        }
+    }
+}

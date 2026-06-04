@@ -478,19 +478,11 @@ pub(crate) fn format_unix_ms_as_rfc3339(ms: i64) -> String {
     )
 }
 
-/// Resolves a device nickname/hostname to its `source_key`.
-/// Takes a pre-fetched devices slice (caller already called `list_devices()`).
-/// Falls back to `remote:<name>` when no device matches.
+/// Resolves a device nickname/hostname to its `source_key` from a pre-fetched
+/// devices slice. Thin wrapper over the shared matcher; see
+/// [`crate::commands::shared::match_device_source`].
 fn resolve_source(devices: &[client_core::protocol::DeviceInfo], from: &str) -> String {
-    let lower = from.to_lowercase();
-    for d in devices {
-        let nick_match = !d.nickname.is_empty() && d.nickname.to_lowercase() == lower;
-        let host_match = d.hostname.to_lowercase() == lower;
-        if nick_match || host_match {
-            return d.source_key.clone();
-        }
-    }
-    format!("remote:{}", from)
+    crate::commands::shared::match_device_source(devices, from)
 }
 
 /// Assembles a `ListClipsFilter` from parsed CLI args plus pre-resolved values.

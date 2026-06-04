@@ -63,16 +63,19 @@ export default function RetentionSlider({
       flexDirection: "column",
       gap: 12,
     },
+    // Match the sibling Settings field tokens (S.fieldHeading 14/600,
+    // S.fieldDescription 13/400) so the slider sits on the same type scale as
+    // every other field group instead of being a 16px outlier.
     label: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: 600,
-      letterSpacing: "0.2px",
+      letterSpacing: "-0.005em",
       color: C.t1,
     },
     description: {
-      fontSize: 16,
-      fontWeight: 500,
-      lineHeight: 1.6,
+      fontSize: 13,
+      fontWeight: 400,
+      lineHeight: 1.55,
       color: C.t2,
     },
     row: {
@@ -81,11 +84,12 @@ export default function RetentionSlider({
       gap: 16,
     },
     readout: {
-      fontSize: 14,
+      fontSize: 12,
       fontWeight: 500,
       color: C.t1,
+      fontFamily: "var(--font-mono)",
       fontVariantNumeric: "tabular-nums" as const,
-      minWidth: 64,
+      minWidth: 70,
       textAlign: "right" as const,
     },
     ticks: {
@@ -94,7 +98,7 @@ export default function RetentionSlider({
       marginTop: 2,
     },
     tick: {
-      fontSize: 14,
+      fontSize: 12,
       fontWeight: 500,
       color: C.t3,
       fontVariantNumeric: "tabular-nums" as const,

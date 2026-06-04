@@ -128,8 +128,7 @@ export function AddRelayDialog({ onClose, initialRelayUrl, fromCli, hideClose }:
       fontSize: 11,
       fontWeight: 600,
       color: C.t3,
-      letterSpacing: "0.5px",
-      textTransform: "uppercase" as const,
+      letterSpacing: "0.01em",
       marginBottom: 4,
     },
     input: (error?: boolean) => ({
@@ -146,8 +145,8 @@ export function AddRelayDialog({ onClose, initialRelayUrl, fromCli, hideClose }:
       marginBottom: 12,
     }),
     connectBtn: (loading?: boolean) => ({
-      background: C.t1,
-      color: C.bg,
+      background: C.accent,
+      color: C.accentOn,
       border: "none",
       borderRadius: 6,
       padding: "8px 18px",
@@ -210,7 +209,8 @@ export function AddRelayDialog({ onClose, initialRelayUrl, fromCli, hideClose }:
     },
     defaultServerBtn: {
       fontSize: 11,
-      color: C.accent,
+      color: C.t1,
+      textDecoration: "underline",
       background: "none",
       border: "none",
       padding: 0,

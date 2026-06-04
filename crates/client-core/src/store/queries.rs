@@ -1,604 +1,73 @@
-use super::models::{RetentionPref, SourceRow, StoredClip, StoredDevice};
-use super::{Store, StoreError};
-use rusqlite::params;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
+//! Facade over the focused store-query modules.
+//!
+//! Historically every clip/device/retention/sync query lived in this one
+//! file. The implementations now live in sibling modules — [`clips`],
+//! [`search`], [`devices`], [`retention`], and [`sync_state`] — and this
+//! module re-exports them so existing `store::queries::*` call sites keep
+//! working unchanged. New code may depend on the focused modules directly.
+//!
+//! [`clips`]: super::clips
+//! [`search`]: super::search
+//! [`devices`]: super::devices
+//! [`retention`]: super::retention
+//! [`sync_state`]: super::sync_state
 
-/// The `clips` columns in the exact positional order `stored_clip_from_row`
-/// reads them (index 0..=14). Every `SELECT` that feeds `stored_clip_from_row`
-/// must use this list, so the column order and the row decoder can never drift
-/// apart (a silent off-by-one is exactly the kind of bug this prevents).
-const CLIP_COLUMNS: &str = "id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state";
+pub use super::clips::{
+    clear_all_clips, clip_count, count_clips_before, delete_clip, get_clip, insert_clip,
+    list_clips, purge_clips_before, recent_clip_id_by_content, set_pinned,
+};
+pub use super::devices::{list_devices, list_sources};
+pub use super::retention::{list_retention, set_retention};
+pub use super::search::{
+    parse_query_string, query_clips, sanitize_fts_query, search_clips, ParsedQuery,
+};
+pub use super::sync_state::{
+    enforce_offline_cap, list_pending_clips, mark_local, mark_pending, replace_id_and_mark_synced,
+    set_watermark, watermark,
+};
 
-fn stored_clip_from_row(r: &Row<'_>) -> rusqlite::Result<StoredClip> {
-    Ok(StoredClip {
-        id: r.get(0)?,
-        source: r.get(1)?,
-        source_key: r.get(2)?,
-        source_app_id: r.get(3)?,
-        source_app: r.get(4)?,
-        source_url: r.get(5)?,
-        label: r.get(6)?,
-        content_type: r.get(7)?,
-        content: r.get(8)?,
-        media_path: r.get(9)?,
-        byte_size: r.get(10)?,
-        created_at: r.get(11)?,
-        pinned: r.get::<_, i64>(12)? != 0,
-        pinned_at: r.get(13)?,
-        sync_state: super::models::SyncState::from_str_lossy(&r.get::<_, String>(14)?),
-    })
-}
+// `Store` is re-exported privately so the integration-style tests below can
+// reach it through `use super::*`.
+#[cfg(test)]
+use super::Store;
 
-pub fn insert_clip(store: &Store, c: &StoredClip) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            r#"INSERT OR REPLACE INTO clips
-               (id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
-            params![
-                c.id,
-                c.source,
-                c.source_key,
-                c.source_app_id,
-                c.source_app,
-                c.source_url,
-                c.label,
-                c.content_type,
-                c.content,
-                c.media_path,
-                c.byte_size,
-                c.created_at,
-                if c.pinned { 1i64 } else { 0 },
-                c.pinned_at,
-                c.sync_state.as_str(),
-            ],
-        )?;
-        Ok(())
-    })
-}
-
-/// Returns the id of an existing clip whose `content` is byte-identical to
-/// `content` and that was created at or after `since_ms`, if any.
-///
-/// This backs the clipboard monitor's cross-process echo guard: when cinch
-/// itself saves a clip and also writes it to the system clipboard (e.g.
-/// `cinch session copy` saves a clip, then copies the same markdown), the
-/// monitor would otherwise observe that clipboard write and re-capture it as a
-/// duplicate. The CLI and desktop share one store, so the just-saved clip is
-/// already visible here. The short recency window keeps the guard from
-/// collapsing genuinely-repeated copies made far apart in time.
-pub fn recent_clip_id_by_content(
-    store: &Store,
-    content: &[u8],
-    since_ms: i64,
-) -> Result<Option<String>, StoreError> {
-    store.with_conn(|conn| {
-        let id = conn
-            .query_row(
-                "SELECT id FROM clips WHERE content = ?1 AND created_at >= ?2 \
-                 ORDER BY created_at DESC LIMIT 1",
-                params![content, since_ms],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?;
-        Ok(id)
-    })
-}
-
-pub fn list_clips(
-    store: &Store,
-    from: Option<&str>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-    since_ms: Option<i64>,
-    pinned_only: bool,
-    default_limit: i64,
-) -> Result<Vec<StoredClip>, StoreError> {
-    let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
-    let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    if let Some(s) = from {
-        sql.push_str(" AND source = ?");
-        binds.push(Box::new(s.to_string()));
-    }
-    if let Some(t) = since_ms {
-        sql.push_str(" AND created_at >= ?");
-        binds.push(Box::new(t));
-    }
-    if pinned_only {
-        sql.push_str(" AND pinned = 1");
-    }
-    sql.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
-    binds.push(Box::new(limit.unwrap_or(default_limit)));
-    binds.push(Box::new(offset.unwrap_or(0)));
-
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare(&sql)?;
-        let rows: Vec<StoredClip> = stmt
-            .query_map(
-                rusqlite::params_from_iter(binds.iter().map(|b| &**b as &dyn rusqlite::ToSql)),
-                stored_clip_from_row,
-            )?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
-pub fn get_clip(store: &Store, id: &str) -> Result<Option<StoredClip>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare(&format!("SELECT {CLIP_COLUMNS} FROM clips WHERE id = ?1"))?;
-        let mut rows = stmt.query_map(params![id], stored_clip_from_row)?;
-        if let Some(row) = rows.next() {
-            Ok(Some(row?))
-        } else {
-            Ok(None)
-        }
-    })
-}
-
-pub fn delete_clip(store: &Store, id: &str) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute("DELETE FROM clips WHERE id = ?1", params![id])?;
-        Ok(())
-    })
-}
-
-pub fn set_pinned(store: &Store, id: &str, pinned: bool, when_ms: i64) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "UPDATE clips SET pinned = ?1, pinned_at = CASE WHEN ?1 = 1 THEN ?2 ELSE NULL END WHERE id = ?3",
-            params![if pinned { 1i64 } else { 0 }, when_ms, id],
-        )?;
-        Ok(())
-    })
-}
-
-pub fn list_sources(store: &Store) -> Result<Vec<SourceRow>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT source, COUNT(*) AS c, MAX(created_at) AS last_seen
-             FROM clips GROUP BY source ORDER BY last_seen DESC NULLS LAST",
-        )?;
-        let rows: Vec<SourceRow> = stmt
-            .query_map([], |r| {
-                Ok(SourceRow {
-                    source: r.get(0)?,
-                    clip_count: r.get(1)?,
-                    last_seen: r.get(2)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
-pub fn list_devices(store: &Store) -> Result<Vec<StoredDevice>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT id, hostname, nickname, source_key, machine_id, public_key,
-                    paired_at, last_push_at, online, refreshed_at
-             FROM devices ORDER BY last_push_at DESC NULLS LAST",
-        )?;
-        let rows: Vec<StoredDevice> = stmt
-            .query_map([], |r| {
-                Ok(StoredDevice {
-                    id: r.get(0)?,
-                    hostname: r.get(1)?,
-                    nickname: r.get(2)?,
-                    source_key: r.get(3)?,
-                    machine_id: r.get(4)?,
-                    public_key: r.get(5)?,
-                    paired_at: r.get(6)?,
-                    last_push_at: r.get(7)?,
-                    online: r.get::<_, i64>(8)? != 0,
-                    refreshed_at: r.get(9)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
-pub fn set_retention(store: &Store, device_id: &str, days: i64) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "INSERT INTO retention_prefs(device_id, days) VALUES(?1, ?2)
-             ON CONFLICT(device_id) DO UPDATE SET days = excluded.days",
-            params![device_id, days],
-        )?;
-        Ok(())
-    })
-}
-
-pub fn list_retention(store: &Store) -> Result<Vec<RetentionPref>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare("SELECT device_id, days FROM retention_prefs")?;
-        let rows: Vec<RetentionPref> = stmt
-            .query_map([], |r| {
-                Ok(RetentionPref {
-                    device_id: r.get(0)?,
-                    days: r.get(1)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
-pub fn watermark(store: &Store) -> Result<Option<String>, StoreError> {
-    store.with_conn(|conn| {
-        conn.query_row(
-            "SELECT value FROM meta WHERE key='last_sync_watermark'",
-            [],
-            |r| r.get::<_, String>(0),
-        )
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })
-    })
-}
-
-pub fn set_watermark(store: &Store, ulid: &str) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "INSERT INTO meta(key, value) VALUES('last_sync_watermark', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![ulid],
-        )?;
-        Ok(())
-    })
-}
-
-/// Return the total number of clips in the store.
-pub fn clip_count(store: &Store) -> Result<i64, StoreError> {
-    store.with_conn(|conn| conn.query_row("SELECT COUNT(*) FROM clips", [], |r| r.get::<_, i64>(0)))
-}
-
-/// Delete all clips from the store. Returns the number of rows deleted.
-pub fn clear_all_clips(store: &Store) -> Result<i64, StoreError> {
-    store.with_conn(|conn| {
-        let n = conn.execute("DELETE FROM clips", [])?;
-        Ok(n as i64)
-    })
-}
-
-/// Delete all non-pinned clips with `created_at < cutoff_secs` (Unix seconds).
-/// Returns the number of rows deleted. Pinned clips are always exempt.
-pub fn purge_clips_before(store: &Store, cutoff_secs: i64) -> Result<usize, StoreError> {
-    store.with_conn(|conn| {
-        let n = conn.execute(
-            "DELETE FROM clips WHERE created_at < ?1 AND pinned = 0",
-            rusqlite::params![cutoff_secs * 1000],
-        )?;
-        Ok(n)
-    })
-}
-
-/// Count non-pinned clips with `created_at < cutoff_secs` (Unix seconds).
-/// Pinned clips are excluded — they are retention-exempt, so this count
-/// reflects exactly what `purge_clips_before` would delete. (The legacy
-/// desktop counter included pinned clips; this count is intentionally the
-/// purge-accurate number shown in the retroactive-purge confirmation dialog.)
-/// Used to populate the retroactive-purge confirmation dialog.
-pub fn count_clips_before(store: &Store, cutoff_secs: i64) -> Result<i64, StoreError> {
-    store.with_conn(|conn| {
-        conn.query_row(
-            "SELECT COUNT(*) FROM clips WHERE created_at < ?1 AND pinned = 0",
-            rusqlite::params![cutoff_secs * 1000],
-            |r| r.get::<_, i64>(0),
-        )
-    })
-}
-
-#[derive(Debug, Default)]
-pub struct ParsedQuery {
-    pub from: Option<String>,
-    pub content_type: Option<String>,
-    pub pinned: Option<bool>,
-    pub search_term: String,
-}
-
-pub fn parse_query_string(raw: &str) -> ParsedQuery {
-    let mut pq = ParsedQuery::default();
-    let mut terms = Vec::new();
-
-    for part in raw.split_whitespace() {
-        if let Some(val) = part.strip_prefix("from:") {
-            pq.from = Some(val.to_string());
-        } else if let Some(val) = part.strip_prefix("type:") {
-            pq.content_type = Some(val.to_string());
-        } else if part == "is:pinned" {
-            pq.pinned = Some(true);
-        } else {
-            terms.push(part);
-        }
-    }
-    pq.search_term = terms.join(" ");
-    pq
-}
-
-pub fn query_clips(
-    store: &Store,
-    raw_query: &str,
-    limit: i64,
-) -> Result<Vec<StoredClip>, StoreError> {
-    let pq = parse_query_string(raw_query);
-    let fts_query = sanitize_fts_query(&pq.search_term);
-    let like_query = format!("%{}%", pq.search_term);
-
-    store.with_conn(|conn| {
-        let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
-        let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-        if !pq.search_term.is_empty() {
-            sql.push_str(" AND (rowid IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?");
-            binds.push(Box::new(fts_query));
-            sql.push_str(") OR source_app LIKE ? OR source_url LIKE ? OR label LIKE ?)");
-            binds.push(Box::new(like_query.clone()));
-            binds.push(Box::new(like_query.clone()));
-            binds.push(Box::new(like_query.clone()));
-        }
-
-        if let Some(from_val) = pq.from {
-            // Resolve the 'from' value to a source key via nicknames/hostnames.
-            // Use the connection we already hold — a nested `store.with_conn()`
-            // here deadlocks, since the underlying `Mutex<Connection>` is not
-            // re-entrant. Resolution stays best-effort: any error falls through
-            // to an exact match on the raw `from_val` below.
-            let resolved_source: Option<String> = conn
-                .prepare(
-                    "SELECT source_key FROM devices
-                     WHERE source_key = ?1 OR hostname = ?1 OR nickname = ?1
-                     LIMIT 1",
-                )
-                .and_then(|mut stmt| {
-                    stmt.query_row(params![from_val], |r| r.get::<_, String>(0))
-                        .optional()
-                })
-                .unwrap_or(None);
-
-            if let Some(s) = resolved_source {
-                sql.push_str(" AND source = ?");
-                binds.push(Box::new(s));
-            } else {
-                // Fallback to exact match on source column if not found in devices table
-                sql.push_str(" AND source = ?");
-                binds.push(Box::new(from_val));
-            }
-        }
-
-        if let Some(ct) = pq.content_type {
-            if ct == "image" {
-                sql.push_str(" AND content_type LIKE 'image%'");
-            } else {
-                sql.push_str(" AND content_type = ?");
-                binds.push(Box::new(ct));
-            }
-        } else if pq.search_term.is_empty() {
-            // Default list: no hidden image filter
-        } else {
-            // Searching: hide images unless explicit
-            sql.push_str(" AND content_type NOT LIKE 'image%'");
-        }
-
-        if let Some(true) = pq.pinned {
-            sql.push_str(" AND pinned = 1");
-        }
-
-        if pq.search_term.is_empty() {
-            sql.push_str(" ORDER BY created_at DESC");
-        } else {
-            sql.push_str(
-                " ORDER BY (
-                    CASE
-                        WHEN label LIKE ? THEN 0
-                        WHEN source_app LIKE ? OR source_url LIKE ? THEN 1
-                        ELSE 2
-                    END
-                ) ASC, created_at DESC",
-            );
-            binds.push(Box::new(like_query.clone()));
-            binds.push(Box::new(like_query.clone()));
-            binds.push(Box::new(like_query.clone()));
-        }
-
-        sql.push_str(" LIMIT ?");
-        binds.push(Box::new(limit));
-
-        let mut stmt = conn.prepare(&sql)?;
-        let rows: Vec<StoredClip> = stmt
-            .query_map(
-                rusqlite::params_from_iter(binds.iter().map(|b| &**b as &dyn rusqlite::ToSql)),
-                stored_clip_from_row,
-            )?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-    })
-}
-
-pub fn search_clips(
-    store: &Store,
-    query: &str,
-    limit: i64,
-    filter_type: Option<&str>,
-) -> Result<Vec<StoredClip>, StoreError> {
-    let mut full_query = query.to_string();
-    if let Some(t) = filter_type {
-        full_query.push_str(&format!(" type:{}", t));
-    }
-    query_clips(store, &full_query, limit)
-}
-
-/// Make an arbitrary natural-language query safe for SQLite FTS5 `MATCH`.
-/// FTS5 treats `-`, `:`, `"`, `*`, `(`, `)`, `^`, and bare-word operators
-/// (`AND`/`OR`/`NEAR`) specially; raw AI/user input often produces syntax
-/// errors. We split on whitespace and wrap each token as a quoted FTS5 string
-/// (internal `"` doubled), joined with spaces (implicit AND). Whitespace-only
-/// input yields `""`, which callers treat as "no FTS filter".
-pub fn sanitize_fts_query(raw: &str) -> String {
-    raw.split_whitespace()
-        .map(|tok| format!("\"{}\"", tok.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Return all clips that are queued for an explicit send (`sync_state = 'pending'`),
-/// ordered oldest first.
-pub fn list_pending_clips(store: &Store) -> Result<Vec<StoredClip>, StoreError> {
-    store.with_conn(|conn| {
-        let mut stmt = conn.prepare(
-            "SELECT id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size,
-                    created_at, pinned, pinned_at, sync_state
-             FROM clips
-             WHERE sync_state = 'pending'
-             ORDER BY created_at ASC",
-        )?;
-        let rows: Vec<StoredClip> = stmt
-            .query_map([], stored_clip_from_row)?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
-    })
-}
-
-/// Transition a clip to `Pending` (queued for an explicit send).
-pub fn mark_pending(store: &Store, id: &str) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "UPDATE clips SET sync_state = 'pending' WHERE id = ?1",
-            params![id],
-        )?;
-        Ok(())
-    })
-}
-
-/// Transition a clip back to `Local` (e.g. an explicit send hit a permanent
-/// error and must not be retried).
-pub fn mark_local(store: &Store, id: &str) -> Result<(), StoreError> {
-    store.with_conn(|conn| {
-        conn.execute(
-            "UPDATE clips SET sync_state = 'local' WHERE id = ?1",
-            params![id],
-        )?;
-        Ok(())
-    })
-}
-
-/// Drop the oldest unsynced clips that exceed `max`, keeping the newest `max`.
-/// Returns the number of rows deleted.
-pub fn enforce_offline_cap(store: &Store, max: usize) -> Result<usize, StoreError> {
-    store.with_conn(|conn| {
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM clips WHERE sync_state = 'pending'",
-            [],
-            |r| r.get(0),
-        )?;
-        if (count as usize) <= max {
-            return Ok(0);
-        }
-        let excess = count as usize - max;
-        let dropped = conn.execute(
-            "DELETE FROM clips
-             WHERE id IN (
-                 SELECT id FROM clips WHERE sync_state = 'pending' ORDER BY created_at ASC LIMIT ?1
-             )",
-            params![excess as i64],
-        )?;
-        log::warn!(
-            "offline queue cap: dropped {} oldest unsynced clips (cap={})",
-            dropped,
-            max
-        );
-        Ok(dropped)
-    })
-}
-/// Rename a clip's id (e.g. temp local id → relay-assigned ULID) and mark it synced.
-/// Returns the number of rows updated (0 if the old id was not found).
-///
-/// Note: the relay-assigned id may already exist locally (e.g. inserted by the
-/// writer from a WS event while a pending/local row is being flushed). In that
-/// case we merge pin metadata into the target row and delete the old row.
-pub fn replace_id_and_mark_synced(
-    store: &Store,
-    old_id: &str,
-    new_id: &str,
-) -> Result<usize, StoreError> {
-    store.with_conn(|conn| {
-        conn.execute_batch("BEGIN IMMEDIATE")?;
-
-        let res: Result<usize, rusqlite::Error> = (|| {
-            let old: Option<(i64, Option<i64>)> = conn
-                .query_row(
-                    "SELECT pinned, pinned_at FROM clips WHERE id = ?1",
-                    params![old_id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()?;
-
-            let Some((old_pinned, old_pinned_at)) = old else {
-                return Ok(0);
-            };
-
-            if old_id == new_id {
-                return conn.execute(
-                    "UPDATE clips SET sync_state = 'synced' WHERE id = ?1",
-                    params![old_id],
-                );
-            }
-
-            let target: Option<(i64, Option<i64>)> = conn
-                .query_row(
-                    "SELECT pinned, pinned_at FROM clips WHERE id = ?1",
-                    params![new_id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()?;
-
-            if let Some((target_pinned, target_pinned_at)) = target {
-                let merged_pinned = (old_pinned != 0) || (target_pinned != 0);
-                let merged_pinned_at = match (old_pinned_at, target_pinned_at) {
-                    (Some(a), Some(b)) => Some(a.max(b)),
-                    (Some(a), None) => Some(a),
-                    (None, Some(b)) => Some(b),
-                    (None, None) => None,
-                };
-
-                conn.execute(
-                    "UPDATE clips SET pinned = ?1, pinned_at = ?2, sync_state = 'synced' WHERE id = ?3",
-                    params![if merged_pinned { 1i64 } else { 0 }, merged_pinned_at, new_id],
-                )?;
-                conn.execute("DELETE FROM clips WHERE id = ?1", params![old_id])?;
-                Ok(1)
-            } else {
-                conn.execute(
-                    "UPDATE clips SET id = ?1, sync_state = 'synced' WHERE id = ?2",
-                    params![new_id, old_id],
-                )
-            }
-        })();
-
-        match res {
-            Ok(n) => {
-                conn.execute_batch("COMMIT")?;
-                Ok(n)
-            }
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(e)
-            }
-        }
-    })
-}
 #[cfg(test)]
 mod tests {
     use super::super::models::{StoredClip, SyncState};
     use super::*;
+
+    #[test]
+    fn recent_clip_id_by_content_matches_within_window_only() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mk = |id: &str, content: &[u8], created_at: i64| StoredClip {
+            id: id.into(),
+            source: "atlas0".into(),
+            content_type: "text".into(),
+            content: Some(content.to_vec()),
+            byte_size: content.len() as i64,
+            created_at,
+            sync_state: SyncState::Pending,
+            ..Default::default()
+        };
+        // A clip saved "now" plus an identical-content clip saved long ago.
+        insert_clip(&store, &mk("recent", b"## Assistant\n\nhi", 10_000)).unwrap();
+        insert_clip(&store, &mk("old", b"old content", 1_000)).unwrap();
+
+        // Byte-identical content created at/after since_ms → found (the echo guard).
+        let hit = recent_clip_id_by_content(&store, b"## Assistant\n\nhi", 5_000).unwrap();
+        assert_eq!(hit.as_deref(), Some("recent"));
+
+        // Same content, but the only match predates since_ms → ignored.
+        let miss_old = recent_clip_id_by_content(&store, b"old content", 5_000).unwrap();
+        assert_eq!(
+            miss_old, None,
+            "matches older than since_ms must be ignored"
+        );
+
+        // Content that was never stored → no match.
+        let miss_diff = recent_clip_id_by_content(&store, b"never stored", 0).unwrap();
+        assert_eq!(miss_diff, None);
+    }
 
     #[test]
     fn query_clips_with_from_filter_does_not_deadlock() {
@@ -659,39 +128,6 @@ mod tests {
             SyncState::Pending,
             "sync_state=Pending must survive an insert/read round-trip"
         );
-    }
-
-    #[test]
-    fn recent_clip_id_by_content_matches_within_window_only() {
-        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
-        let mk = |id: &str, content: &[u8], created_at: i64| StoredClip {
-            id: id.into(),
-            source: "atlas0".into(),
-            content_type: "text".into(),
-            content: Some(content.to_vec()),
-            byte_size: content.len() as i64,
-            created_at,
-            sync_state: SyncState::Pending,
-            ..Default::default()
-        };
-        // A clip saved "now" plus an identical-content clip saved long ago.
-        insert_clip(&store, &mk("recent", b"## Assistant\n\nhi", 10_000)).unwrap();
-        insert_clip(&store, &mk("old", b"old content", 1_000)).unwrap();
-
-        // Byte-identical content created at/after since_ms → found (the echo guard).
-        let hit = recent_clip_id_by_content(&store, b"## Assistant\n\nhi", 5_000).unwrap();
-        assert_eq!(hit.as_deref(), Some("recent"));
-
-        // Same content, but the only match predates since_ms → ignored.
-        let miss_old = recent_clip_id_by_content(&store, b"old content", 5_000).unwrap();
-        assert_eq!(
-            miss_old, None,
-            "matches older than since_ms must be ignored"
-        );
-
-        // Content that was never stored → no match.
-        let miss_diff = recent_clip_id_by_content(&store, b"never stored", 0).unwrap();
-        assert_eq!(miss_diff, None);
     }
 
     // ── Task 5: list_pending_clips ───────────────────────────────────────────

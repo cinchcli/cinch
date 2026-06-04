@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState, useCallback, type CSSPropertie
 import { C } from '../design';
 import { IconSearch, IconX, IconSun, IconMoon, IconMonitor } from '../icons';
 import { CLIP_FILTERS, type ClipFilter } from '../lib/clipFilters';
-import { sourcePillVars, type SourceColorSlot } from '../lib/sourceColor';
+import type { SourceColorSlot } from '../lib/sourceColor';
 
 const FILTER_HINTS: Record<ClipFilter, string> = {
   all:   'show everything',
@@ -289,15 +289,13 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       <div style={S.bar} onMouseDown={onMouseDown} data-testid="search-bar">
         <span style={S.glass}><IconSearch size={14} /></span>
 
-        {selectedDevice && (() => {
-          const { bg, fg } = sourcePillVars(selectedDevice.source, selectedDevice.colorSlot);
-          return (
+        {selectedDevice && (
             <span
-              style={{ ...S.chip, background: bg, color: fg, border: 'none' }}
+              style={{ ...S.chip, background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' }}
               data-testid="device-chip"
               onClick={() => openDeviceDropdown(selectedDevice.source)}
             >
-              <span style={{ ...S.chipDot, background: fg }} />
+              <span style={{ ...S.chipDot, background: 'var(--accent)' }} />
               {selectedDevice.label}
               <span
                 style={S.chipX}
@@ -307,8 +305,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                 ✕
               </span>
             </span>
-          );
-        })()}
+        )}
 
         {activeFilter !== 'all' && (
           <span
@@ -346,7 +343,6 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             <IconX size={12} />
           </button>
         )}
-        <kbd style={S.kbd}>⌘F /</kbd>
         <div ref={themeMenuRef} style={S.themeAnchor}>
           <button
             type="button"
@@ -420,7 +416,6 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                 dropdown when no chip is set is just noise. */}
             {deviceOptions.map((d) => {
               const matches = deviceDropdownQuery === '' || d.label.toLowerCase().startsWith(deviceDropdownQuery);
-              const { bg, fg } = sourcePillVars(d.source, d.colorSlot);
               return (
                 <div
                   key={d.source}
@@ -433,7 +428,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                   data-testid={`device-option-${d.source}`}
                   onMouseDown={(e) => { e.preventDefault(); selectDevice(d.source); }}
                 >
-                  <span style={{ ...S.dropDot, background: bg, boxShadow: `inset 0 0 0 1px ${fg}` }} />
+                  <span style={{ ...S.dropDot, background: C.t3 }} />
                   {d.label}
                   <span style={S.dropHint}>{d.count} clip{d.count === 1 ? '' : 's'}</span>
                 </div>
@@ -488,16 +483,6 @@ const S: Record<string, CSSProperties> = {
     cursor: 'pointer',
     borderRadius: 4,
   },
-  kbd: {
-    fontFamily: 'var(--font-mono)',
-    fontSize: 10,
-    padding: '2px 6px',
-    background: 'var(--kbd-bg)',
-    border: '1px solid var(--kbd-border)',
-    color: 'var(--kbd-color)',
-    borderRadius: 3,
-    letterSpacing: '0.04em',
-  },
   chip: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -511,10 +496,10 @@ const S: Record<string, CSSProperties> = {
     cursor: 'pointer',
     userSelect: 'none',
   },
-  chip_text:  { background: 'rgba(74,158,255,0.12)', color: 'var(--info)',    border: '1px solid rgba(74,158,255,0.25)' },
-  chip_image: { background: 'rgba(74,223,128,0.12)', color: 'var(--success)', border: '1px solid rgba(74,223,128,0.25)' },
-  chip_code:  { background: 'rgba(255,170,51,0.12)', color: 'var(--warning)', border: '1px solid rgba(255,170,51,0.25)' },
-  chip_url:   { background: 'rgba(170,102,255,0.12)', color: 'var(--accent)', border: '1px solid rgba(170,102,255,0.25)' },
+  chip_text:  { background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' },
+  chip_image: { background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' },
+  chip_code:  { background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' },
+  chip_url:   { background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' },
   chipDot: {
     width: 5,
     height: 5,
@@ -573,10 +558,10 @@ const S: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   dot_all:   { background: C.t3 },
-  dot_text:  { background: 'var(--info)' },
-  dot_image: { background: 'var(--success)' },
-  dot_code:  { background: 'var(--warning)' },
-  dot_url:   { background: 'var(--accent)' },
+  dot_text:  { background: C.accent },
+  dot_image: { background: C.accent },
+  dot_code:  { background: C.accent },
+  dot_url:   { background: C.accent },
   themeAnchor: {
     position: 'relative',
     display: 'flex',

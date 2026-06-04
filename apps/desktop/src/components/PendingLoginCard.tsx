@@ -39,8 +39,8 @@ export function PendingLoginCard({
     };
 
     const approveStyle: CSSProperties = {
-        background: approveHovered ? C.t1 : "transparent",
-        color: approveHovered ? C.bg : C.t1,
+        background: approveHovered ? C.accent : "transparent",
+        color: approveHovered ? C.accentOn : C.t1,
         border: `1px solid ${C.border}`,
         borderRadius: 5,
         fontSize: 11,

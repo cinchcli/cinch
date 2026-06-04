@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { C } from '../design';
-import { IconInbox, IconPin, IconMonitor, IconGear } from '../icons';
+import { IconInbox, IconPin, IconMonitor, IconGear, IconCinch } from '../icons';
 
 export type RailPanel = 'inbox' | 'pinned' | 'devices';
 
@@ -40,6 +40,9 @@ function RailItem({ label, active, onClick, children }: RailItemProps) {
 export function Rail({ active, onSelect, onOpenSettings }: RailProps) {
   return (
     <nav aria-label="Sections" style={S.rail}>
+      <span style={S.mark} aria-hidden="true">
+        <IconCinch size={20} />
+      </span>
       <RailItem label="Inbox" active={active === 'inbox'} onClick={() => onSelect('inbox')}>
         <IconInbox size={20} />
       </RailItem>
@@ -69,6 +72,14 @@ const S: Record<string, CSSProperties> = {
     gap: 4,
     flexShrink: 0,
   },
+  mark: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: C.t1,
+    marginBottom: 18,
+    flexShrink: 0,
+  },
   ic: {
     width: 36,
     height: 36,
@@ -85,7 +96,7 @@ const S: Record<string, CSSProperties> = {
   },
   icActive: {
     background: C.card2,
-    color: C.t1,
+    color: C.accent,
   },
   activeBar: {
     position: 'absolute',
@@ -94,7 +105,7 @@ const S: Record<string, CSSProperties> = {
     transform: 'translateY(-50%)',
     width: 2,
     height: 18,
-    background: 'var(--selection-bar)',
+    background: 'var(--accent)',
     borderRadius: 2,
   },
 };

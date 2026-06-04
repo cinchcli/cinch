@@ -8,20 +8,13 @@ import { unwrap } from './lib/tauri';
 import { groupByTimeBucket } from './lib/timeBuckets';
 import { type ClipFilter } from './lib/clipFilters';
 import { physicalKey } from './lib/keyboard';
-import {
-  loadMachineTagColors,
-  MACHINE_TAG_COLORS_EVENT,
-  type MachineTagColorMap,
-} from './lib/machineTagColors';
-import {
-  loadMachineDisplayNames,
-  MACHINE_DISPLAY_NAMES_EVENT,
-  type MachineDisplayNameMap,
-} from './lib/machineDisplayNames';
+import { loadMachineDisplayNames } from './lib/machineDisplayNames';
+import { useMachineLabels } from './lib/state/machineLabels';
+import { useTheme } from './lib/state/theme';
 import { C } from './design';
 import { useAuthState, retryAuth, signOut, type AuthProgress, type AuthErrorReason } from './lib/state/auth';
 import { useNotifyOnRemoteLogin } from './lib/settings';
-import SettingsPane from './SettingsPane';
+import SettingsPane, { type SettingsTab } from './SettingsPane';
 import { AdoptedAuthToast } from './components/AdoptedAuthToast';
 import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast';
 import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
@@ -31,65 +24,18 @@ import { Rail, type RailPanel } from './components/Rail';
 import { SearchBar, type DeviceOption } from './components/SearchBar';
 import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
+import { ClipListSkeleton } from './components/ClipListSkeleton';
 import { ClipDetail } from './components/ClipDetail';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
+import { OnboardingScreen } from './components/OnboardingScreen';
 import { dialogStyles } from './components/dialogPrimitives';
 import { IconCopy, IconTrash, IconX } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
 import packageJson from '../package.json';
 import './App.css';
-
-// ─── Theme ─────────────────────────────────────────────────
-// Three modes: 'light', 'dark', 'system'. 'system' tracks the OS via
-// prefers-color-scheme — on macOS Auto, that already flips at the real
-// sunrise/sunset boundary tied to Location Services.
-
-type Theme = 'dark' | 'light';
-type ThemeMode = Theme | 'system';
-
-const THEME_STORAGE_KEY = 'cinch-theme';
-
-function systemPreference(): Theme {
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-}
-
-function resolveMode(): ThemeMode {
-  const saved = localStorage.getItem(THEME_STORAGE_KEY);
-  if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
-  return 'system';
-}
-
-function useTheme(): { mode: ThemeMode; theme: Theme; setMode: (m: ThemeMode) => void } {
-  const [mode, setModeState] = useState<ThemeMode>(resolveMode);
-  const [systemTheme, setSystemTheme] = useState<Theme>(systemPreference);
-
-  // Track OS preference so 'system' mode reflows the moment macOS flips.
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e: MediaQueryListEvent) => {
-      setSystemTheme(e.matches ? 'light' : 'dark');
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  const theme: Theme = mode === 'system' ? systemTheme : mode;
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('light', theme === 'light');
-  }, [theme]);
-
-  const setMode = (next: ThemeMode) => {
-    localStorage.setItem(THEME_STORAGE_KEY, next);
-    setModeState(next);
-  };
-
-  return { mode, theme, setMode };
-}
-
 
 function handleWindowDrag(e: React.MouseEvent) {
   const target = e.target as HTMLElement;
@@ -159,17 +105,24 @@ function App() {
 
   const [_status, setStatus] = useState('connecting');
   const [clips, setClips] = useState<LocalClip[]>([]);
+  // False until the first clip fetch settles, so the inbox shows a loading
+  // skeleton instead of flashing the empty state before clips arrive.
+  const [clipsLoaded, setClipsLoaded] = useState(false);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [devices, setDevices] = useState<Device[]>([]);
-  const [tagColors, setTagColors] = useState<MachineTagColorMap>(() => loadMachineTagColors());
-  const [displayNames, setDisplayNames] = useState<MachineDisplayNameMap>(() => loadMachineDisplayNames());
+  const { tagColors, displayNames } = useMachineLabels();
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const openSettings = (tab: SettingsTab = 'general') => {
+    setSettingsTab(tab);
+    setShowSettings(true);
+  };
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [activePanel, setActivePanel] = useState<RailPanel>('inbox');
   const [activeFilter, setActiveFilter] = useState<ClipFilter>('all');
@@ -198,25 +151,6 @@ function App() {
     return updated;
   }, [clipRecency]);
 
-  useEffect(() => {
-    const refreshTagColors = () => setTagColors(loadMachineTagColors());
-    window.addEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
-    window.addEventListener('storage', refreshTagColors);
-    return () => {
-      window.removeEventListener(MACHINE_TAG_COLORS_EVENT, refreshTagColors);
-      window.removeEventListener('storage', refreshTagColors);
-    };
-  }, []);
-
-  useEffect(() => {
-    const refreshDisplayNames = () => setDisplayNames(loadMachineDisplayNames());
-    window.addEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
-    window.addEventListener('storage', refreshDisplayNames);
-    return () => {
-      window.removeEventListener(MACHINE_DISPLAY_NAMES_EVENT, refreshDisplayNames);
-      window.removeEventListener('storage', refreshDisplayNames);
-    };
-  }, []);
   const [toast, setToast] = useState<{ message: string; icon: 'copy' | 'trash' | 'error' } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -249,6 +183,8 @@ function App() {
       setClips(applyInboxRecency(results));
     } catch (e) {
       console.error('failed to load clips:', e);
+    } finally {
+      setClipsLoaded(true);
     }
   }, [activePanel, selectedSource, debouncedQuery, activeFilter, applyInboxRecency]);
 
@@ -304,7 +240,7 @@ function App() {
       events.newSourceDetected.listen((e) => {
         setNewSourcePrompt(e.payload);
       }),
-      events.trayOpenSettings.listen(() => setShowSettings(true)),
+      events.trayOpenSettings.listen(() => openSettings()),
     ];
     return () => { unsubs.forEach((p) => p.then((f) => f())); };
   }, [refreshClips, refreshSources, refreshDevices]);
@@ -503,7 +439,7 @@ function App() {
       }
       if ((e.metaKey || e.ctrlKey) && key === ',') {
         e.preventDefault();
-        setShowSettings(v => !v);
+        setSettingsTab('general'); setShowSettings(v => !v);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && (key === '1' || key === '2' || key === '3')) {
@@ -607,6 +543,7 @@ function App() {
         <SettingsPane
           onClose={() => { setShowSettings(false); if (auth.variant === 'Authenticated') refreshDevices(); }}
           clipCount={totalClips}
+          initialTab={settingsTab}
         />
         {handoffDialog}
       </>
@@ -615,21 +552,23 @@ function App() {
 
   if (auth.variant === 'LocalOnly') {
     return (
-      <main data-testid="dashboard-root" style={S.main}>
-        {handoffRelay !== null ? (
+      <>
+        <OnboardingScreen
+          onShowSettings={() => openSettings('privacy')}
+          onMouseDown={handleWindowDrag}
+        />
+        {handoffRelay !== null && (
           <AddRelayDialog
             onClose={() => setHandoffRelay(null)}
             initialRelayUrl={handoffRelay}
             fromCli
           />
-        ) : (
-          <AddRelayDialog onClose={() => {}} hideClose />
         )}
         <AdoptedAuthToast />
         <OfflineQueueDroppedToast />
         <ClipDecryptFailedToast />
         <SendToast />
-      </main>
+      </>
     );
   }
   if (auth.variant === 'Authenticating') {
@@ -647,34 +586,35 @@ function App() {
 
   return (
     <main data-testid="dashboard-root" style={S.main}>
-      <UpdateBanner currentVersion={currentDesktopVersion} latest={latestVersions} />
-      <SearchBar
-        ref={searchRef}
-        value={searchQuery}
-        onChange={setSearchQuery}
-        onClear={() => setSearchQuery('')}
-        themeMode={themeMode}
-        onSetThemeMode={setThemeMode}
-        onMouseDown={handleWindowDrag}
-        activeFilter={activeFilter}
-        onFilterChange={setActiveFilter}
-        deviceOptions={deviceOptions}
-        selectedSource={selectedSource}
-        onSourceChange={setSelectedSource}
+      <Rail
+        active={activePanel}
+        onSelect={(panel) => {
+          setActivePanel(panel);
+          setSelectedClip(null);
+          setSelectedSource(null);
+          setActiveFilter('all');
+        }}
+        onOpenSettings={() => openSettings()}
       />
 
-      <div style={S.body}>
-        <Rail
-          active={activePanel}
-          onSelect={(panel) => {
-            setActivePanel(panel);
-            setSelectedClip(null);
-            setSelectedSource(null);
-            setActiveFilter('all');
-          }}
-          onOpenSettings={() => setShowSettings(true)}
+      <div style={S.mainCol}>
+        <UpdateBanner currentVersion={currentDesktopVersion} latest={latestVersions} />
+        <SearchBar
+          ref={searchRef}
+          value={searchQuery}
+          onChange={setSearchQuery}
+          onClear={() => setSearchQuery('')}
+          themeMode={themeMode}
+          onSetThemeMode={setThemeMode}
+          onMouseDown={handleWindowDrag}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          deviceOptions={deviceOptions}
+          selectedSource={selectedSource}
+          onSourceChange={setSelectedSource}
         />
 
+        <div style={S.body}>
         {activePanel === 'devices' ? (
           <DevicesPanel
             currentDeviceID={currentDeviceID}
@@ -697,6 +637,8 @@ function App() {
             tagColors={tagColors}
             listRef={clipListRef}
           />
+        ) : !clipsLoaded ? (
+          <ClipListSkeleton />
         ) : clips.length === 0 && devices.length <= 1 ? (
           <GettingStartedCard
             onCopySnippet={(text) => {
@@ -729,6 +671,7 @@ function App() {
             />
           </>
         )}
+        </div>
       </div>
 
       {selectedClip && (
@@ -1139,7 +1082,7 @@ function NewSourceDialog({
       <div style={dialogStyles.dialog} onClick={(e) => e.stopPropagation()}>
         <div style={dialogStyles.title}>New source detected</div>
         <div style={dialogStyles.body}>
-          <code style={{ color: C.accent, fontFamily: 'var(--font-mono)' }}>
+          <code style={{ color: C.t1, fontFamily: 'var(--font-mono)' }}>
             {source.replace('remote:', '')}
           </code>{' '}
           is sending clips. Auto-copy is on by default.
@@ -1163,11 +1106,20 @@ const S: Record<string, React.CSSProperties> = {
     color: C.t1,
     height: '100vh',
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     position: 'relative',
     borderRadius: 'var(--radius-xl)',
     overflow: 'hidden',
     border: `1px solid ${C.border}`,
+  },
+  // Right column: search toolbar + panes, sitting to the right of the
+  // full-height rail (the rail is now the leftmost full-height element).
+  mainCol: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
   },
   body: {
     display: 'flex',

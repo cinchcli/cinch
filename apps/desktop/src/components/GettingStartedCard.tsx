@@ -70,7 +70,7 @@ export function GettingStartedCard({ onCopySnippet }: GettingStartedCardProps) {
             marginBottom: 12,
           }}
         >
-          ✨ You're signed in. Now send your first clip.
+          You're signed in. Now send your first clip.
         </div>
 
         <div style={{ marginBottom: 14 }}>

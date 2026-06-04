@@ -70,6 +70,34 @@ export const IconImage = ({ size = 14, style }: IconProps) => (
   </svg>
 );
 
+// ─── Trust / disclosure icons ─────────────────────────────
+
+export const IconLock = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <rect x="3" y="11" width="18" height="11" rx="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+);
+
+export const IconEye = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+export const IconArrowRight = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+export const IconCheck = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} strokeWidth={2.4} style={style}>
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
 // ─── Theme toggle icons ───────────────────────────────────
 
 export const IconSun = ({ size = 13, style }: IconProps) => (

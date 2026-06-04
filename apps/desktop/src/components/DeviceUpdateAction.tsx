@@ -21,7 +21,7 @@ const BTN_STYLE: React.CSSProperties = {
 };
 
 const LINK_STYLE: React.CSSProperties = {
-    color: C.warning,
+    color: C.t1,
     fontSize: 12,
     textDecoration: 'underline',
     fontFamily: 'var(--font-body)',

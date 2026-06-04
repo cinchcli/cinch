@@ -55,15 +55,30 @@ describe('App', () => {
         });
     });
 
-    it('renders AddRelayDialog on LocalOnly variant', async () => {
+    it('renders the onboarding screen on LocalOnly variant', async () => {
         const state: AuthState = { variant: 'LocalOnly' };
         vi.mocked(useAuthState).mockReturnValue(state);
         render(<App />);
-        
+
+        await waitFor(() => {
+            expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
+        });
+        // The sign-in dialog is not forced open — it appears only on "Sign in".
+        expect(screen.queryByText(/Connect to relay/i)).not.toBeInTheDocument();
+    });
+
+    it('opens the sign-in dialog when "Sign in" is clicked on onboarding', async () => {
+        const state: AuthState = { variant: 'LocalOnly' };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
+        });
+        fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
         await waitFor(() => {
             expect(screen.getByText(/Connect to relay/i)).toBeInTheDocument();
         });
-        expect(screen.queryByTestId('setup-screen')).not.toBeInTheDocument();
     });
 
     it('does NOT render AddRelayDialog on Authenticated variant', async () => {
