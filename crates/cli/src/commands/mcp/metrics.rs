@@ -8,16 +8,31 @@
 //! always SIGKILL/SIGTERM'd, so a flush-only-on-EOF scheme would lose the gate
 //! metric). The next ordinary `cinch` invocation — which has telemetry and a
 //! runtime — drains those files via [`drain_and_emit`], emits one
-//! `mcp.session.completed` per session, and deletes them.
+//! `mcp.session.completed` per session, and deletes them. To keep that
+//! one-per-session invariant, drain skips files a live session may still be
+//! rewriting (a grace window) and claims each file with an atomic rename
+//! before emitting, so concurrent `cinch` invocations can't double-count.
 //!
 //! Every filesystem operation here is **best-effort**: on a read-only agent box
 //! the writes fail silently, losing only the gate metric, never affecting the
 //! read. This module is the only thing that can fail, and it is built so it
 //! cannot fail the serve loop.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use serde_json::{json, Value};
+
+/// How long a counter file must sit untouched before [`drain_and_emit`] will
+/// claim it. A live MCP session rewrites its file on every fleet call, so
+/// skipping recently-modified files keeps an ordinary `cinch` invocation from
+/// draining (and double-counting) a session that is still running. The gate
+/// metric is an aggregate validation signal, not real-time, so a minute of
+/// emission lag is harmless. Residual: a live session idle *longer* than this
+/// window that then resumes can still be drained mid-flight — far narrower than
+/// the unconditional drain it replaces, and it only ever skews this internal
+/// metric, never a read.
+const DRAIN_GRACE: Duration = Duration::from_secs(60);
 
 /// `~/.cinch/mcp-metrics/` (the directory the counter files live in).
 fn metrics_dir() -> Option<PathBuf> {
@@ -139,7 +154,20 @@ pub fn drain_and_emit() {
     let Some(dir) = metrics_dir() else {
         return;
     };
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    drain_dir(&dir, SystemTime::now(), emit_session_event);
+}
+
+/// Core drain loop, parameterized for testing (`now` is injected so the grace
+/// window can be exercised deterministically; `emit` captures the events).
+///
+/// Two guards make this exactly-once for the common lifecycle:
+/// 1. **Grace window** — skip files modified within [`DRAIN_GRACE`], so a live
+///    session still rewriting its file isn't drained out from under it.
+/// 2. **Atomic claim** — rename each eligible file to a sibling the `*.json`
+///    scan won't match before reading it, so two concurrent `cinch`
+///    invocations can't both emit the same session (only one rename wins).
+fn drain_dir(dir: &Path, now: SystemTime, mut emit: impl FnMut(&Value)) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return; // dir absent (no MCP session ever ran) — nothing to drain.
     };
     for entry in entries.flatten() {
@@ -147,15 +175,30 @@ pub fn drain_and_emit() {
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            for line in content.lines().filter(|l| !l.trim().is_empty()) {
-                if let Ok(v) = serde_json::from_str::<Value>(line) {
-                    emit_session_event(&v);
+        // Only positively skip when we can prove the file is recent; on any
+        // metadata error fall through and drain so the metric isn't lost.
+        if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
+            if let Ok(age) = now.duration_since(modified) {
+                if age < DRAIN_GRACE {
+                    continue; // a live session may still own it.
                 }
             }
         }
-        // Truncate by removing the drained file (last-write-wins per session).
-        let _ = std::fs::remove_file(&path);
+        // Claim the file atomically: the loser of a rename race (or a vanished
+        // file) just skips. The `.draining` sibling is invisible to the
+        // `*.json` scan above, so no other drainer re-picks it.
+        let claimed = path.with_extension("draining");
+        if std::fs::rename(&path, &claimed).is_err() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&claimed) {
+            for line in content.lines().filter(|l| !l.trim().is_empty()) {
+                if let Ok(v) = serde_json::from_str::<Value>(line) {
+                    emit(&v);
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&claimed);
     }
 }
 
@@ -260,5 +303,64 @@ mod tests {
         // Array of three → 3.
         let arr = json!({"result":{"content":[{"type":"text","text":"[1,2,3]"}]}});
         assert_eq!(rows_in_response(&Some(arr)), 3);
+    }
+
+    /// Write a realistic per-session counter file via the same flush path the
+    /// serve loop uses.
+    fn write_counter_file(dir: &Path, started_ms: i64, fleet_calls: u64, fleet_rows: u64) {
+        let mut m = FleetMetrics::new(started_ms);
+        m.file = Some(dir.join(format!("mcp-test-{started_ms}.json")));
+        m.all_calls = fleet_calls;
+        m.fleet_calls = fleet_calls;
+        m.fleet_rows = fleet_rows;
+        m.finalize(); // all_calls > 0 → writes the counter file
+    }
+
+    #[test]
+    fn drain_skips_recently_written_files() {
+        // A file written "just now" is within the grace window: a live session
+        // may still own it, so drain must leave it untouched.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_counter_file(dir.path(), 1000, 2, 5);
+        let mut emitted = Vec::new();
+        drain_dir(dir.path(), SystemTime::now(), |v| emitted.push(v.clone()));
+        assert!(emitted.is_empty(), "recent file must not be drained");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "skipped file is left in place for a later drain"
+        );
+    }
+
+    #[test]
+    fn drain_emits_and_removes_stale_files() {
+        // A file past the grace window (simulated via a future `now`) is drained
+        // exactly once and removed.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_counter_file(dir.path(), 1000, 2, 5);
+        let future = SystemTime::now() + DRAIN_GRACE * 4;
+        let mut emitted = Vec::new();
+        drain_dir(dir.path(), future, |v| emitted.push(v.clone()));
+        assert_eq!(emitted.len(), 1, "one event per stale session file");
+        assert_eq!(emitted[0]["fleet_calls"].as_u64(), Some(2));
+        assert_eq!(emitted[0]["fleet_rows"].as_u64(), Some(5));
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "drained file (and its .draining claim) are removed"
+        );
+    }
+
+    #[test]
+    fn drain_claims_each_file_once() {
+        // The atomic claim makes a second drain pass a no-op: the session is
+        // emitted exactly once even if two `cinch` invocations race over it.
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_counter_file(dir.path(), 1000, 1, 3);
+        let future = SystemTime::now() + DRAIN_GRACE * 4;
+        let mut emitted = Vec::new();
+        drain_dir(dir.path(), future, |v| emitted.push(v.clone()));
+        drain_dir(dir.path(), future, |v| emitted.push(v.clone()));
+        assert_eq!(emitted.len(), 1, "session emitted once across two drains");
     }
 }
