@@ -154,6 +154,7 @@ export function AddSshMachineDialog({
                 type="checkbox"
                 checked={skipInstall}
                 onChange={(e) => setSkipInstall(e.target.checked)}
+                style={{ accentColor: C.accent }}
               />
               <span style={S.checkLabel}>
                 Skip cinch installation (already installed on remote)
@@ -339,8 +340,7 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: C.t2,
     fontFamily: 'var(--font-body)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
+    letterSpacing: '0.01em',
   },
 
   input: {
@@ -420,7 +420,7 @@ const S: Record<string, React.CSSProperties> = {
 
   primaryBtn: {
     background: C.accent,
-    color: '#fff',
+    color: C.accentOn,
     border: 'none',
     borderRadius: 6,
     padding: '8px 16px',
@@ -443,7 +443,7 @@ const S: Record<string, React.CSSProperties> = {
     width: 28,
     height: 28,
     border: `3px solid ${C.border}`,
-    borderTop: `3px solid ${C.accent}`,
+    borderTop: `3px solid ${C.t1}`,
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
   },
@@ -464,7 +464,7 @@ const S: Record<string, React.CSSProperties> = {
 
   urlLink: {
     fontSize: 12,
-    color: C.accent,
+    color: C.t1,
     fontFamily: 'var(--font-body)',
     cursor: 'pointer',
     textDecoration: 'underline',
@@ -472,7 +472,7 @@ const S: Record<string, React.CSSProperties> = {
 
   successIcon: {
     fontSize: 28,
-    color: C.accent,
+    color: C.t1,
     fontWeight: 700,
   },
 

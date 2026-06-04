@@ -28,7 +28,12 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
               {query ? `No results for "${query}"` : 'No clips yet'}
             </div>
             {!query && (
-              <code style={S.emptyHint}>echo "hello" | cinch push</code>
+              <>
+                <div style={S.emptySub}>
+                  Copy something on any of your machines — it shows up here.
+                </div>
+                <code style={S.emptyHint}>echo "hello" | cinch push</code>
+              </>
             )}
           </div>
         </div>
@@ -41,7 +46,10 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
       <div ref={ref} style={S.col} role="list">
         {groups.map(({ bucket, items }) => (
           <section key={bucket}>
-            <div style={S.sectionLabel}>{bucket}</div>
+            <div style={S.sectionLabel}>
+              <span>{bucket}</span>
+              <span style={S.sectionCount}>{items.length}</span>
+            </div>
             {items.map((clip) => (
               <ClipRow
                 key={clip.id}
@@ -82,9 +90,14 @@ function syncStateLabel(s: string): string {
 function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, colorSlot }: ClipRowProps) {
   const isImage = clip.content_type === 'image';
   const recency = clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
+  const textPreview = clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
+  // A clip whose content is only whitespace (e.g. a stray newline) would render
+  // as an invisible blank row — indistinguishable from data loss. Show a labeled
+  // placeholder instead so it is always recognizable as a real, if empty, clip.
+  const isBlank = !isImage && textPreview.length === 0;
   const preview = isImage
     ? `Image (${formatBytes(clip.byte_size)})`
-    : clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
+    : textPreview || `Blank · ${formatBytes(clip.byte_size)}`;
 
   return (
     <div
@@ -119,7 +132,7 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, col
           </span>
         )}
       </span>
-      <span data-testid="clip-preview" style={S.preview}>{preview || ' '}</span>
+      <span data-testid="clip-preview" style={{ ...S.preview, ...(isBlank ? S.previewBlank : {}) }}>{preview}</span>
       <span style={S.sendGroup}>
         <button
           aria-label="Send clip"
@@ -146,12 +159,23 @@ const S: Record<string, CSSProperties> = {
     overflowY: 'auto',
   },
   sectionLabel: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 10,
     padding: 'var(--sp-md) var(--sp-lg) var(--sp-sm)',
     fontFamily: 'var(--font-body)',
     fontSize: 11,
     fontWeight: 500,
     letterSpacing: '0.01em',
     color: C.t3,
+  },
+  sectionCount: {
+    marginLeft: 'auto',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    fontWeight: 400,
+    letterSpacing: 0,
+    color: C.t4,
   },
   row: {
     position: 'relative',
@@ -164,7 +188,8 @@ const S: Record<string, CSSProperties> = {
     outline: 'none',
   },
   rowActive: {
-    background: C.selected,
+    background: C.accentDim,
+    boxShadow: `inset 2px 0 0 ${C.accent}`,
   },
   preview: {
     fontSize: 13.5,
@@ -178,6 +203,10 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: '-0.005em',
     lineHeight: 1.45,
     wordBreak: 'break-word',
+  },
+  previewBlank: {
+    color: C.t3,
+    fontStyle: 'italic',
   },
   meta: {
     display: 'flex',
@@ -196,7 +225,7 @@ const S: Record<string, CSSProperties> = {
     marginLeft: 'auto',
     display: 'inline-flex',
     alignItems: 'center',
-    color: 'var(--accent)',
+    color: C.t2,
   },
   sendGroup: {
     position: 'absolute',
@@ -220,5 +249,12 @@ const S: Record<string, CSSProperties> = {
     textAlign: 'center',
   },
   emptyTitle: { color: C.t2, fontSize: 13, marginBottom: 6 },
+  emptySub: {
+    color: C.t3,
+    fontSize: 12,
+    lineHeight: 1.5,
+    maxWidth: 260,
+    margin: '0 auto 12px',
+  },
   emptyHint: { fontSize: 11, color: C.t3, fontFamily: 'var(--font-mono)' },
 };

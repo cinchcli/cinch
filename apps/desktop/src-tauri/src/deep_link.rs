@@ -8,7 +8,6 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use tauri::Manager;
 use tauri_specta::Event;
 
 use crate::auth::{self, AuthStateHandle};
@@ -51,10 +50,7 @@ pub(crate) fn install_deep_link_handler(
                 || url.path() == "/login"
                 || (url.scheme() == "cinch" && url.path() == "/login");
             if is_login {
-                if let Some(window) = dl_app_handle.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                crate::show_on_active_monitor(&dl_app_handle);
                 let relay = url
                     .query_pairs()
                     .find(|(k, _)| k == "relay")

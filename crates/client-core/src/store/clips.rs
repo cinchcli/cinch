@@ -3,6 +3,7 @@
 use super::models::StoredClip;
 use super::{Store, StoreError};
 use rusqlite::params;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 
 /// The `clips` columns in the exact positional order `stored_clip_from_row`
@@ -56,6 +57,34 @@ pub fn insert_clip(store: &Store, c: &StoredClip) -> Result<(), StoreError> {
             ],
         )?;
         Ok(())
+    })
+}
+
+/// Returns the id of an existing clip whose `content` is byte-identical to
+/// `content` and that was created at or after `since_ms`, if any.
+///
+/// This backs the clipboard monitor's cross-process echo guard: when cinch
+/// itself saves a clip and also writes it to the system clipboard (e.g.
+/// `cinch session copy` saves a clip, then copies the same markdown), the
+/// monitor would otherwise observe that clipboard write and re-capture it as a
+/// duplicate. The CLI and desktop share one store, so the just-saved clip is
+/// already visible here. The short recency window keeps the guard from
+/// collapsing genuinely-repeated copies made far apart in time.
+pub fn recent_clip_id_by_content(
+    store: &Store,
+    content: &[u8],
+    since_ms: i64,
+) -> Result<Option<String>, StoreError> {
+    store.with_conn(|conn| {
+        let id = conn
+            .query_row(
+                "SELECT id FROM clips WHERE content = ?1 AND created_at >= ?2 \
+                 ORDER BY created_at DESC LIMIT 1",
+                params![content, since_ms],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(id)
     })
 }
 

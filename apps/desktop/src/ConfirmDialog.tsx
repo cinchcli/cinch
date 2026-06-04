@@ -26,7 +26,9 @@ const DARK_SHADOW =
 // Destructive glow is themed via --destructive-glow so light theme can use a
 // softer halo around its vivid red button.
 const DESTRUCTIVE_GLOW = "var(--destructive-glow)";
-const PRIMARY_GLOW = "rgba(79,179,169,0.18) 0 0 20px 5px";
+// Monochrome redesign: the non-destructive primary CTA is flat (no accent halo).
+// The destructive tone keeps its red glow as a safety signal.
+const PRIMARY_GLOW = "none";
 
 export default function ConfirmDialog({
   open,
@@ -127,8 +129,8 @@ export default function ConfirmDialog({
       cursor: "pointer",
     },
     primaryBtn: {
-      background: isDestructive ? "var(--destructive-bg)" : C.t1,
-      color: isDestructive ? "var(--destructive-fg)" : C.bg,
+      background: isDestructive ? "var(--destructive-bg)" : C.accent,
+      color: isDestructive ? "var(--destructive-fg)" : C.accentOn,
       border: "none",
       fontSize: 12,
       fontWeight: 600,

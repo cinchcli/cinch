@@ -49,6 +49,8 @@ enum Cmd {
     Ai(commands::ai::Args),
     /// Browse, search, and manage your LOCAL clip history (list/search/show/rm/transform).
     History(commands::history::Args),
+    /// Copy answer(s) from an agent coding session to a clip + the clipboard.
+    Session(commands::session::Args),
     /// Pin a clip (fleet + local). --local to pin locally only.
     Pin(commands::pin::Args),
     /// Unpin a clip (fleet + local). --local to unpin locally only.
@@ -210,6 +212,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Ai(_) => "ai",
         Cmd::History(_) => "history",
         Cmd::Clip(_) => "clip",
+        Cmd::Session(_) => "session",
         Cmd::Pin(_) => "pin",
         Cmd::Unpin(_) => "unpin",
         Cmd::Fleet(_) => "fleet",
@@ -336,6 +339,7 @@ pub fn run() -> i32 {
             Cmd::Ai(args) => commands::ai::run(args).await,
             Cmd::History(args) => commands::history::run(args).await,
             Cmd::Clip(args) => commands::clip::run(args).await,
+            Cmd::Session(args) => commands::session::run(args).await,
             Cmd::Pin(args) => commands::pin::run(args).await,
             Cmd::Unpin(args) => commands::unpin::run(args).await,
             Cmd::Fleet(args) => commands::fleet::run(args).await,

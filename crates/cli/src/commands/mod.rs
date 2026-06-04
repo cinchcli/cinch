@@ -23,6 +23,7 @@ pub mod revoke;
 pub mod rm;
 pub mod search;
 pub mod send;
+pub mod session;
 pub mod shared;
 pub mod sources;
 pub mod telemetry;

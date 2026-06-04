@@ -150,7 +150,8 @@ const S: Record<string, CSSProperties> = {
     outline: 'none',
   },
   rowActive: {
-    background: C.selected,
+    background: C.accentDim,
+    boxShadow: `inset 2px 0 0 ${C.accent}`,
   },
   preview: {
     fontSize: 13.5,

@@ -56,6 +56,10 @@ pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
     }
 
     let _ = window.show();
+    // Promote to a Regular app so the Dock icon appears, then set it to the
+    // current appearance (corrects a theme change that happened while hidden).
+    set_dock_visible(app, true);
+    crate::dock_icon::apply_dock_icon(app, crate::dock_icon::current_theme(app));
     // Promote the whole app above other apps before focusing the window —
     // `set_focus` alone only reorders within the active app on macOS.
     #[cfg(target_os = "macos")]
@@ -175,6 +179,28 @@ pub(crate) fn configure_activation_policy(app: &tauri::AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn configure_activation_policy(_app: &tauri::AppHandle) {}
+
+/// Show or hide the macOS Dock icon by toggling the activation policy.
+/// `Regular` puts the app in the Dock + Cmd+Tab (and draws the top-left app
+/// menu); `Accessory` returns it to a pure menu-bar agent. No-op off macOS.
+#[cfg(target_os = "macos")]
+pub(crate) fn set_dock_visible(app: &tauri::AppHandle, visible: bool) {
+    let policy = if visible {
+        tauri::ActivationPolicy::Regular
+    } else {
+        tauri::ActivationPolicy::Accessory
+    };
+    if let Err(e) = app.set_activation_policy(policy) {
+        log::warn!(
+            "failed to set activation policy (visible={}): {}",
+            visible,
+            e
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn set_dock_visible(_app: &tauri::AppHandle, _visible: bool) {}
 
 /// Register the opt-in "send current clipboard" shortcut. No-op when the user
 /// has not configured one (the send hotkey is opt-in).

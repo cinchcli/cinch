@@ -35,8 +35,11 @@ export function DeviceVersionBadge({ version, clientType, latest }: Props) {
         return <span style={{ color: C.t3 }}>—</span>;
     }
 
+    // Monochrome redesign: status reads through fill intensity, not hue. Outdated
+    // (needs attention) is the most prominent; up-to-date is quiet; unknown faintest.
+    // The aria-label and the "How to update" link in DevicesPanel carry the meaning.
     const dotColor =
-        status === 'UpToDate' ? C.success : status === 'Outdated' ? C.warning : C.t3;
+        status === 'Outdated' ? C.t1 : status === 'UpToDate' ? C.t3 : C.t4;
 
     return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

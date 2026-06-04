@@ -1,9 +1,17 @@
 //! Newline-delimited JSON-RPC 2.0 router for the MCP stdio transport.
 
 use crate::exit::ExitError;
-use client_core::store::Store;
+use client_core::machine::hostname_or_unknown;
+use client_core::rest::ContentType;
+use client_core::session::source::SessionSelector;
+use client_core::session::{
+    answer_is_empty, markdown, Answer, ClaudeSource, RenderOpts, SessionSource,
+};
+use client_core::store::models::{StoredClip, SyncState};
+use client_core::store::{queries, Store};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -257,6 +265,46 @@ fn tools_list() -> Value {
                 "properties": { "id": { "type": "string" } },
                 "required": ["id"]
             }
+        },
+        {
+            "name": "list_agent_sessions",
+            "description": "List the user's agent coding sessions (Claude Code) for a project, newest first. Use project_dir to target a specific project; defaults to the server's working directory. Returns {id, title, last_activity_ms}. Use get_session_answers for a session's answer structure.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_dir": { "type": "string", "description": "Absolute project directory; defaults to the server cwd." },
+                    "source": { "type": "string", "description": "Session source. Only \"claude\" is supported (default)." }
+                }
+            }
+        },
+        {
+            "name": "get_session_answers",
+            "description": "List the answers in one agent session so you can pick which to copy. An answer is one assistant response to a user prompt. Returns {session_id, title, answers:[{index, prompt_preview, part_count}]}.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": { "type": "string", "description": "Session id prefix, or \"latest\" (default)." },
+                    "project_dir": { "type": "string", "description": "Absolute project directory; defaults to the server cwd." },
+                    "source": { "type": "string", "description": "Session source. Only \"claude\" is supported (default)." }
+                }
+            }
+        },
+        {
+            "name": "copy_session_answer",
+            "description": "Render selected answer(s) from an agent session to clean Markdown. `answers` may be \"last\" (default), \"all\", an integer index, or an array of indices (rendered in session order). Set save_clip=true to also persist a syncing cinch clip. Returns {markdown, answer_count, session_id, saved, clip_id?}.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": { "type": "string", "description": "Session id prefix, or \"latest\" (default)." },
+                    "answers": { "description": "\"last\" | \"all\" | integer index | array of integer indices. Default \"last\"." },
+                    "project_dir": { "type": "string", "description": "Absolute project directory; defaults to the server cwd." },
+                    "source": { "type": "string", "description": "Session source. Only \"claude\" is supported (default)." },
+                    "with_prompt": { "type": "boolean", "description": "Include the eliciting user prompt above each answer (default false)." },
+                    "include_thinking": { "type": "boolean", "description": "Include assistant thinking blocks (default false)." },
+                    "no_tools": { "type": "boolean", "description": "Exclude tool calls/results (default false; results are truncated)." },
+                    "save_clip": { "type": "boolean", "description": "Also save the Markdown as a syncing cinch clip (default false)." }
+                }
+            }
         }
     ]})
 }
@@ -373,6 +421,73 @@ fn handle_tool_call(
                 _ => Value::Null,
             }
         }
+        "list_agent_sessions" => {
+            require_claude(&args)?;
+            let cwd = resolve_project_dir(&args)?;
+            let refs = ClaudeSource::new()
+                .list_sessions(&cwd)
+                .map_err(|e| (-32000, format!("session error: {e}")))?;
+            let list: Vec<Value> = refs
+                .iter()
+                .map(|r| json!({ "id": r.id, "title": r.title, "last_activity_ms": r.mtime_ms }))
+                .collect();
+            json!(list)
+        }
+        "get_session_answers" => {
+            require_claude(&args)?;
+            let cwd = resolve_project_dir(&args)?;
+            let session = ClaudeSource::new()
+                .load(&cwd, &resolve_selector(&args))
+                .map_err(|e| (-32000, format!("session error: {e}")))?;
+            let answers: Vec<Value> = session
+                .answers
+                .iter()
+                .map(|a| {
+                    json!({ "index": a.index, "prompt_preview": a.preview(), "part_count": a.parts.len() })
+                })
+                .collect();
+            json!({ "session_id": session.id, "title": session.title, "answers": answers })
+        }
+        "copy_session_answer" => {
+            require_claude(&args)?;
+            let cwd = resolve_project_dir(&args)?;
+            let session = ClaudeSource::new()
+                .load(&cwd, &resolve_selector(&args))
+                .map_err(|e| (-32000, format!("session error: {e}")))?;
+            if session.answers.is_empty() {
+                return Err((-32000, "session has no answers".to_string()));
+            }
+            let opts = RenderOpts {
+                with_prompt: arg_bool(&args, "with_prompt"),
+                include_thinking: arg_bool(&args, "include_thinking"),
+                include_tools: !arg_bool(&args, "no_tools"),
+                tool_result_max: SESSION_TOOL_RESULT_MAX,
+            };
+            let chosen: Vec<Answer> = select_answers(&session.answers, args.get("answers"))?
+                .into_iter()
+                .filter(|a| !answer_is_empty(a, opts))
+                .collect();
+            if chosen.is_empty() {
+                return Err((
+                    -32000,
+                    "selected answer(s) have no copyable content (in-progress or empty turn)"
+                        .to_string(),
+                ));
+            }
+            let md = markdown(&chosen, opts);
+            let mut payload = json!({
+                "markdown": md,
+                "answer_count": chosen.len(),
+                "session_id": session.id,
+                "saved": false,
+            });
+            if arg_bool(&args, "save_clip") {
+                let clip_id = save_session_clip(store, &md, session.title.clone())?;
+                payload["saved"] = json!(true);
+                payload["clip_id"] = json!(clip_id);
+            }
+            payload
+        }
         other => return Err((-32601, format!("unknown tool: {other}"))),
     };
 
@@ -380,6 +495,119 @@ fn handle_tool_call(
     Ok(json!({
         "content": [ { "type": "text", "text": serde_json::to_string(&payload).unwrap_or_default() } ]
     }))
+}
+
+// --- agent-session tool helpers ------------------------------------------
+
+/// Tool-result render budget (chars) before truncation, mirroring the CLI.
+const SESSION_TOOL_RESULT_MAX: usize = 800;
+
+/// Reject any session source other than `claude` (the only one supported now).
+fn require_claude(args: &Value) -> Result<(), (i64, String)> {
+    match args.get("source").and_then(Value::as_str) {
+        None | Some("claude") => Ok(()),
+        Some(other) => Err((
+            -32602,
+            format!("unsupported source: {other} (only \"claude\")"),
+        )),
+    }
+}
+
+/// Resolve the project directory a session lookup is relative to: the
+/// `project_dir` arg, else the server's current working directory.
+fn resolve_project_dir(args: &Value) -> Result<PathBuf, (i64, String)> {
+    match args.get("project_dir").and_then(Value::as_str) {
+        Some(p) if !p.is_empty() => Ok(PathBuf::from(p)),
+        _ => std::env::current_dir().map_err(|e| (-32000, format!("cannot read cwd: {e}"))),
+    }
+}
+
+/// Resolve which session to load from the `session` arg (id prefix or latest).
+fn resolve_selector(args: &Value) -> SessionSelector {
+    match args.get("session").and_then(Value::as_str) {
+        Some(s) if !s.is_empty() && s != "latest" => SessionSelector::IdPrefix(s.to_string()),
+        _ => SessionSelector::Latest,
+    }
+}
+
+/// Read an optional boolean arg, defaulting to false.
+fn arg_bool(args: &Value, key: &str) -> bool {
+    args.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Select answers per the `answers` arg: "last" (default), "all", an integer
+/// index, or an array of indices (deduped, ascending session order).
+fn select_answers(answers: &[Answer], spec: Option<&Value>) -> Result<Vec<Answer>, (i64, String)> {
+    let n = answers.len();
+    let last = || vec![answers[n - 1].clone()];
+    match spec {
+        None | Some(Value::Null) => Ok(last()),
+        Some(Value::String(s)) if s == "last" => Ok(last()),
+        Some(Value::String(s)) if s == "all" => Ok(answers.to_vec()),
+        Some(Value::String(other)) => Err((
+            -32602,
+            format!("invalid answers: {other:?} (use \"last\", \"all\", an index, or an array)"),
+        )),
+        Some(Value::Number(num)) => {
+            let i = num.as_u64().ok_or((
+                -32602,
+                "answers index must be a non-negative integer".to_string(),
+            ))? as usize;
+            answers
+                .get(i)
+                .cloned()
+                .map(|a| vec![a])
+                .ok_or((-32602, format!("answer index {i} out of range (0..{n})")))
+        }
+        Some(Value::Array(arr)) => {
+            let mut idx: Vec<usize> = Vec::new();
+            for v in arr {
+                let i = v
+                    .as_u64()
+                    .ok_or((-32602, "answers array must contain integers".to_string()))?
+                    as usize;
+                if i >= n {
+                    return Err((-32602, format!("answer index {i} out of range (0..{n})")));
+                }
+                idx.push(i);
+            }
+            if idx.is_empty() {
+                return Err((-32602, "answers array is empty".to_string()));
+            }
+            idx.sort_unstable();
+            idx.dedup();
+            Ok(idx.into_iter().map(|i| answers[i].clone()).collect())
+        }
+        Some(_) => Err((-32602, "invalid answers selector".to_string())),
+    }
+}
+
+/// Persist rendered Markdown as a syncing text clip (`Pending`), reusing the
+/// store handle the MCP server already holds.
+fn save_session_clip(
+    store: &Store,
+    md: &str,
+    title: Option<String>,
+) -> Result<String, (i64, String)> {
+    let data = md.as_bytes().to_vec();
+    let byte_size = data.len() as i64;
+    let clip_id = ulid::Ulid::new().to_string();
+    let label = title.unwrap_or_else(|| "session answer".to_string());
+    let label: String = label.chars().take(80).collect();
+    let stored = StoredClip {
+        id: clip_id.clone(),
+        source: format!("remote:{}", hostname_or_unknown()),
+        label: Some(label),
+        content_type: ContentType::Text.as_wire().to_string(),
+        content: Some(data),
+        byte_size,
+        created_at: chrono::Utc::now().timestamp_millis(),
+        sync_state: SyncState::Pending,
+        ..Default::default()
+    };
+    queries::insert_clip(store, &stored)
+        .map_err(|e| (-32000, format!("store write failed: {e}")))?;
+    Ok(clip_id)
 }
 
 #[cfg(test)]
@@ -412,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_three_read_tools() {
+    fn tools_list_has_clip_and_session_tools() {
         let store = mem_store();
         let req = json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}});
         let resp = dispatch(&store, None, &req).expect("response");
@@ -427,7 +655,10 @@ mod tests {
             [
                 "search_clipboard",
                 "list_recent_clipboard",
-                "get_clipboard_item"
+                "get_clipboard_item",
+                "list_agent_sessions",
+                "get_session_answers",
+                "copy_session_answer",
             ]
         );
     }
@@ -980,5 +1211,81 @@ mod tests {
         let mut ids = ids_of(&arr);
         ids.sort();
         assert_eq!(ids, ["otherA", "otherB"]);
+    }
+
+    // --- agent-session tools -----------------------------------------------
+
+    fn tool_err_code(store: &Store, name: &str, args: Value) -> i64 {
+        let resp = handle_request(
+            store,
+            None,
+            TEST_SELF,
+            &json!({"jsonrpc":"2.0","id":9,"method":"tools/call",
+                    "params":{"name":name,"arguments":args}}),
+        )
+        .expect("response");
+        resp["error"]["code"].as_i64().expect("error code")
+    }
+
+    #[test]
+    fn session_tools_reject_unknown_source() {
+        let store = mem_store();
+        assert_eq!(
+            tool_err_code(&store, "list_agent_sessions", json!({"source":"codex"})),
+            -32602
+        );
+        assert_eq!(
+            tool_err_code(&store, "get_session_answers", json!({"source":"gemini"})),
+            -32602
+        );
+        assert_eq!(
+            tool_err_code(
+                &store,
+                "copy_session_answer",
+                json!({"source":"codex","answers":"last"})
+            ),
+            -32602
+        );
+    }
+
+    fn ans(index: usize) -> Answer {
+        Answer {
+            index,
+            prompt: None,
+            parts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn select_answers_defaults_to_last() {
+        let answers = vec![ans(0), ans(1), ans(2)];
+        let got = select_answers(&answers, None).unwrap();
+        assert_eq!(got.iter().map(|a| a.index).collect::<Vec<_>>(), vec![2]);
+        let got = select_answers(&answers, Some(&json!("last"))).unwrap();
+        assert_eq!(got.iter().map(|a| a.index).collect::<Vec<_>>(), vec![2]);
+    }
+
+    #[test]
+    fn select_answers_all_and_indices() {
+        let answers = vec![ans(0), ans(1), ans(2)];
+        assert_eq!(
+            select_answers(&answers, Some(&json!("all"))).unwrap().len(),
+            3
+        );
+        // Out-of-order, duplicated indices → sorted + deduped, session order.
+        let got = select_answers(&answers, Some(&json!([2, 0, 0]))).unwrap();
+        assert_eq!(got.iter().map(|a| a.index).collect::<Vec<_>>(), vec![0, 2]);
+        // Single integer index.
+        let got = select_answers(&answers, Some(&json!(1))).unwrap();
+        assert_eq!(got.iter().map(|a| a.index).collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn select_answers_rejects_bad_input() {
+        let answers = vec![ans(0), ans(1)];
+        assert!(select_answers(&answers, Some(&json!(9))).is_err());
+        assert!(select_answers(&answers, Some(&json!([5]))).is_err());
+        assert!(select_answers(&answers, Some(&json!([]))).is_err());
+        assert!(select_answers(&answers, Some(&json!("first"))).is_err());
     }
 }

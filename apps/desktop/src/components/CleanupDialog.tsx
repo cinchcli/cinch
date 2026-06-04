@@ -109,7 +109,7 @@ export function CleanupDialog({ open, hostname, onClose }: CleanupDialogProps) {
     copyBtn: {
       background: 'transparent',
       border: `1px solid ${C.border}`,
-      color: copied ? C.accent : C.t3,
+      color: copied ? C.t1 : C.t3,
       fontSize: 11,
       fontWeight: 600,
       letterSpacing: '0.3px',
@@ -128,8 +128,8 @@ export function CleanupDialog({ open, hostname, onClose }: CleanupDialogProps) {
       marginTop: 8,
     },
     doneBtn: {
-      background: C.t1,
-      color: C.bg,
+      background: C.accent,
+      color: C.accentOn,
       border: 'none',
       fontSize: 12,
       fontWeight: 600,

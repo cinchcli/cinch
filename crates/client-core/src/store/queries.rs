@@ -14,7 +14,7 @@
 
 pub use super::clips::{
     clear_all_clips, clip_count, count_clips_before, delete_clip, get_clip, insert_clip,
-    list_clips, purge_clips_before, set_pinned,
+    list_clips, purge_clips_before, recent_clip_id_by_content, set_pinned,
 };
 pub use super::devices::{list_devices, list_sources};
 pub use super::retention::{list_retention, set_retention};
@@ -35,6 +35,39 @@ use super::Store;
 mod tests {
     use super::super::models::{StoredClip, SyncState};
     use super::*;
+
+    #[test]
+    fn recent_clip_id_by_content_matches_within_window_only() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mk = |id: &str, content: &[u8], created_at: i64| StoredClip {
+            id: id.into(),
+            source: "atlas0".into(),
+            content_type: "text".into(),
+            content: Some(content.to_vec()),
+            byte_size: content.len() as i64,
+            created_at,
+            sync_state: SyncState::Pending,
+            ..Default::default()
+        };
+        // A clip saved "now" plus an identical-content clip saved long ago.
+        insert_clip(&store, &mk("recent", b"## Assistant\n\nhi", 10_000)).unwrap();
+        insert_clip(&store, &mk("old", b"old content", 1_000)).unwrap();
+
+        // Byte-identical content created at/after since_ms → found (the echo guard).
+        let hit = recent_clip_id_by_content(&store, b"## Assistant\n\nhi", 5_000).unwrap();
+        assert_eq!(hit.as_deref(), Some("recent"));
+
+        // Same content, but the only match predates since_ms → ignored.
+        let miss_old = recent_clip_id_by_content(&store, b"old content", 5_000).unwrap();
+        assert_eq!(
+            miss_old, None,
+            "matches older than since_ms must be ignored"
+        );
+
+        // Content that was never stored → no match.
+        let miss_diff = recent_clip_id_by_content(&store, b"never stored", 0).unwrap();
+        assert_eq!(miss_diff, None);
+    }
 
     #[test]
     fn query_clips_with_from_filter_does_not_deadlock() {
