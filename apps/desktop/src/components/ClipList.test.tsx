@@ -153,6 +153,18 @@ describe('ClipList', () => {
     expect(screen.getByText(/Image \(240\.0 KB\)/)).toBeInTheDocument();
   });
 
+  it('renders a labeled placeholder for a whitespace-only clip instead of a blank row', () => {
+    const c = clip({ id: 'blank', content: '\n', byte_size: 1 });
+    render(
+      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
+                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+    );
+    const preview = screen.getByTestId('clip-preview');
+    // A lone newline would otherwise trim to '' and render an invisible row.
+    expect(preview.textContent).toContain('Blank');
+    expect(preview.getAttribute('style') || '').toMatch(/font-style:\s*italic/);
+  });
+
   it('preview uses 2-line clamp, not nowrap', () => {
     const c = clip({ id: 'a', content: 'line content' });
     render(

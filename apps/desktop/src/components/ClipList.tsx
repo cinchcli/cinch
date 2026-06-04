@@ -90,9 +90,14 @@ function syncStateLabel(s: string): string {
 function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, colorSlot }: ClipRowProps) {
   const isImage = clip.content_type === 'image';
   const recency = clip.received_at && clip.received_at > 0 ? clip.received_at : clip.created_at;
+  const textPreview = clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
+  // A clip whose content is only whitespace (e.g. a stray newline) would render
+  // as an invisible blank row — indistinguishable from data loss. Show a labeled
+  // placeholder instead so it is always recognizable as a real, if empty, clip.
+  const isBlank = !isImage && textPreview.length === 0;
   const preview = isImage
     ? `Image (${formatBytes(clip.byte_size)})`
-    : clip.content.replace(/\s+/g, ' ').trim().substring(0, 140);
+    : textPreview || `Blank · ${formatBytes(clip.byte_size)}`;
 
   return (
     <div
@@ -127,7 +132,7 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, col
           </span>
         )}
       </span>
-      <span data-testid="clip-preview" style={S.preview}>{preview || ' '}</span>
+      <span data-testid="clip-preview" style={{ ...S.preview, ...(isBlank ? S.previewBlank : {}) }}>{preview}</span>
       <span style={S.sendGroup}>
         <button
           aria-label="Send clip"
@@ -198,6 +203,10 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: '-0.005em',
     lineHeight: 1.45,
     wordBreak: 'break-word',
+  },
+  previewBlank: {
+    color: C.t3,
+    fontStyle: 'italic',
   },
   meta: {
     display: 'flex',
