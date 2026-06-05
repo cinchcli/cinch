@@ -56,9 +56,18 @@ pub fn query_clips(
         if !pq.search_term.is_empty() {
             sql.push_str(" AND (rowid IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?");
             binds.push(Box::new(fts_query));
-            sql.push_str(") OR source_app LIKE ? OR source_url LIKE ? OR label LIKE ?)");
+            sql.push_str(") OR source_app LIKE ? OR source_url LIKE ? OR label LIKE ?");
             binds.push(Box::new(like_query.clone()));
             binds.push(Box::new(like_query.clone()));
+            binds.push(Box::new(like_query.clone()));
+            // Substring fallback on the clip body. FTS5 only matches whole
+            // tokens — even with the trailing `*` we add in `sanitize_fts_query`
+            // it can only match token *prefixes*, never a substring sitting in
+            // the middle of a token. A plain `LIKE '%term%'` closes that gap so
+            // "Muse" finds "AIMuse" and "진무" finds "고진무". It is guarded by
+            // the image exclusion so image bytes stay searchable only by
+            // metadata/label (the schema-v7 invariant), even under `type:image`.
+            sql.push_str(" OR (CAST(content AS TEXT) LIKE ? AND content_type NOT LIKE 'image%'))");
             binds.push(Box::new(like_query.clone()));
         }
 
@@ -169,11 +178,96 @@ pub fn search_clips(
 /// FTS5 treats `-`, `:`, `"`, `*`, `(`, `)`, `^`, and bare-word operators
 /// (`AND`/`OR`/`NEAR`) specially; raw AI/user input often produces syntax
 /// errors. We split on whitespace and wrap each token as a quoted FTS5 string
-/// (internal `"` doubled), joined with spaces (implicit AND). Whitespace-only
-/// input yields `""`, which callers treat as "no FTS filter".
+/// (internal `"` doubled), then append `*` so each term is a **prefix** query —
+/// a partial word like "2018" matches the longer indexed token "201813124"
+/// instead of requiring an exact whole-token hit. Tokens are joined with
+/// spaces (implicit AND). Whitespace-only input yields `""`, which callers
+/// treat as "no FTS filter". (Mid-token substrings, e.g. "Muse" inside
+/// "AIMuse", are out of reach for FTS prefixing — `query_clips` adds a
+/// `content LIKE` fallback for those.)
 pub fn sanitize_fts_query(raw: &str) -> String {
     raw.split_whitespace()
-        .map(|tok| format!("\"{}\"", tok.replace('"', "\"\"")))
+        .map(|tok| format!("\"{}\"*", tok.replace('"', "\"\"")))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::clips::insert_clip;
+    use super::super::models::{StoredClip, SyncState};
+    use super::*;
+
+    fn text_clip(id: &str, content: &str) -> StoredClip {
+        StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            content_type: "text".into(),
+            content: Some(content.as_bytes().to_vec()),
+            byte_size: content.len() as i64,
+            created_at: 1,
+            sync_state: SyncState::Synced,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sanitize_fts_query_uses_prefix_tokens() {
+        // Each whitespace-separated term becomes a quoted FTS5 *prefix* token so
+        // a partial word matches a longer indexed token ("2018" → "201813124").
+        assert_eq!(sanitize_fts_query("2018"), "\"2018\"*");
+        assert_eq!(sanitize_fts_query("hello world"), "\"hello\"* \"world\"*");
+        assert_eq!(sanitize_fts_query("   "), "");
+    }
+
+    #[test]
+    fn search_matches_prefix_of_a_longer_token() {
+        // The reported bug: "2018" must find "201813124_고진무_AIMuse_앱기획".
+        // The underscore splits the content into tokens [201813124, 고진무,
+        // aimuse, 앱기획]; "2018" is a *prefix* of the first token, not a whole
+        // token, so the old exact-match query returned nothing.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(&store, &text_clip("c1", "201813124_고진무_AIMuse_앱기획")).unwrap();
+
+        let hits = query_clips(&store, "2018", 10, None).unwrap();
+        assert_eq!(hits.len(), 1, "prefix '2018' must match '201813124_…'");
+        assert_eq!(hits[0].id, "c1");
+    }
+
+    #[test]
+    fn search_matches_substring_in_middle_of_a_token() {
+        // Substrings that are not token prefixes — FTS5 (even with a trailing
+        // `*`) can't reach these; the content LIKE fallback does.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(&store, &text_clip("c1", "201813124_고진무_AIMuse_앱기획")).unwrap();
+
+        // "Muse" sits inside the token "AIMuse" (case-insensitive).
+        assert_eq!(query_clips(&store, "Muse", 10, None).unwrap().len(), 1);
+        // "진무" (2 chars) sits inside the Korean token "고진무".
+        assert_eq!(query_clips(&store, "진무", 10, None).unwrap().len(), 1);
+        // "13124" sits inside the numeric token "201813124".
+        assert_eq!(query_clips(&store, "13124", 10, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn substring_fallback_still_excludes_image_content() {
+        // Schema-v7 invariant: image bytes are searchable only by metadata/label,
+        // never by content — the substring fallback must honor that even under an
+        // explicit `type:image` filter.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mut img = text_clip("img", "201813124 needle base64");
+        img.content_type = "image/png".into();
+        insert_clip(&store, &img).unwrap();
+
+        assert!(
+            query_clips(&store, "2018", 10, None).unwrap().is_empty(),
+            "image content must not be reachable via the substring fallback"
+        );
+        assert!(
+            search_clips(&store, "needle", 10, Some("image"), None)
+                .unwrap()
+                .is_empty(),
+            "type:image search must not match image *content*, only metadata"
+        );
+    }
 }
