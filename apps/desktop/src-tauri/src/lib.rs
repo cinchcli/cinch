@@ -527,16 +527,22 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app, event| {
+        .run(|_app, event| match event {
             // Keep the app alive when macOS fires an implicit ExitRequested
-            // (e.g., the last window closed). Explicit quit paths (tray "Quit
-            // Cinch" / Cmd+Q) terminate the process and do not go through this
-            // guard.
-            if let tauri::RunEvent::ExitRequested {
+            // (e.g., the last window closed) — the "close to tray" path.
+            tauri::RunEvent::ExitRequested {
                 code: None, api, ..
-            } = event
-            {
+            } => {
                 api.prevent_exit();
             }
+            // Explicit quit (tray "Quit Cinch" / Cmd+Q, code = Some): best-effort
+            // flush of any buffered telemetry before the process exits. Bounded so
+            // quit is never delayed more than briefly; all errors are swallowed.
+            tauri::RunEvent::ExitRequested { code: Some(_), .. } => {
+                tauri::async_runtime::block_on(telemetry::shutdown_flush(
+                    std::time::Duration::from_millis(800),
+                ));
+            }
+            _ => {}
         });
 }
