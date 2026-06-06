@@ -31,6 +31,10 @@ use backend_otlp::OtlpBackend as Backend;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 const FLUSH_THRESHOLD: usize = 20;
+/// Delay before the first flush, long enough for the startup `desktop.app.opened`
+/// capture to land in the buffer but short enough that a brief session still
+/// delivers it (a full FLUSH_INTERVAL wait would lose the only event).
+const BOOTSTRAP_FLUSH_DELAY: Duration = Duration::from_secs(2);
 
 static CLIENT: OnceLock<Option<Arc<Backend>>> = OnceLock::new();
 
@@ -117,9 +121,15 @@ pub async fn shutdown_flush(timeout: Duration) {
 
 fn spawn_flush_task(backend: Arc<Backend>) {
     tauri::async_runtime::spawn(async move {
+        // Deliver the startup event(s) — e.g. desktop.app.opened, captured right
+        // after init() — promptly rather than after a full interval, so a session
+        // shorter than FLUSH_INTERVAL still sends its only event. The short delay
+        // gives that initial capture time to land in the buffer first.
+        tokio::time::sleep(BOOTSTRAP_FLUSH_DELAY).await;
+        backend.flush().await;
         let mut tick = tokio::time::interval(FLUSH_INTERVAL);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        // Burn the immediate first tick — nothing to flush at startup.
+        // Burn the immediate tick — we just flushed.
         tick.tick().await;
         loop {
             tick.tick().await;
