@@ -32,10 +32,13 @@ struct OtlpEvent {
     attrs: Vec<OtlpAttr>,
 }
 
-/// The POST body. `anon_id` is the raw client-generated UUID; the relay HMACs it
-/// before forwarding, so sending it raw here is intentional and not identity.
+/// The POST body. `app` names the producing surface ("cli") so the relay records
+/// these under their own service.name. `anon_id` is the raw client-generated UUID;
+/// the relay HMACs it before forwarding, so sending it raw here is intentional and
+/// not identity.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 struct OtlpBatch {
+    app: String,
     anon_id: String,
     events: Vec<OtlpEvent>,
 }
@@ -120,12 +123,10 @@ fn build_batch(anon_id: &str, events: Vec<Event>) -> OtlpBatch {
                 .iter()
                 .filter_map(|(k, v)| coerce_value(v).map(|v| OtlpAttr { k: k.clone(), v }))
                 .collect();
-            // Injected dimensions are attrs, not properties. No `$ip` — the relay
-            // is the only place a network identifier could be observed.
-            attrs.push(OtlpAttr {
-                k: "app".to_string(),
-                v: APP_SURFACE.to_string(),
-            });
+            // Injected dimensions are attrs, not properties. The surface ("app")
+            // is carried once at the batch level (it selects service.name), so it
+            // is not repeated per event. No `$ip` — the relay is the only place a
+            // network identifier could be observed.
             attrs.push(OtlpAttr {
                 k: "app_version".to_string(),
                 v: APP_VERSION.to_string(),
@@ -145,6 +146,7 @@ fn build_batch(anon_id: &str, events: Vec<Event>) -> OtlpBatch {
         })
         .collect();
     OtlpBatch {
+        app: APP_SURFACE.to_string(),
         anon_id: anon_id.to_string(),
         events: otlp_events,
     }
@@ -209,8 +211,10 @@ mod tests {
     #[test]
     fn injects_app_dimensions_and_omits_ip() {
         let batch = build_batch(SAMPLE_ID, vec![Event::new("e")]);
+        // The surface is carried once at the batch level, not per event.
+        assert_eq!(batch.app, "cli");
         let attrs = &batch.events[0].attrs;
-        assert_eq!(attr(attrs, "app"), Some("cli"));
+        assert_eq!(attr(attrs, "app"), None);
         assert_eq!(attr(attrs, "app_version"), Some(APP_VERSION));
         assert_eq!(attr(attrs, "os"), Some(std::env::consts::OS));
         assert_eq!(attr(attrs, "arch"), Some(std::env::consts::ARCH));
@@ -248,8 +252,10 @@ mod tests {
         let batch = build_batch(SAMPLE_ID, vec![event]);
         let json = serde_json::to_value(&batch).expect("serialize batch");
         // Top-level keys exactly as the contract specifies.
+        assert!(json.get("app").is_some());
         assert!(json.get("anon_id").is_some());
         assert!(json.get("events").is_some());
+        assert_eq!(json["app"], "cli");
         assert_eq!(json["anon_id"], SAMPLE_ID);
         let first = &json["events"][0];
         assert_eq!(first["name"], "cli.command.completed");
