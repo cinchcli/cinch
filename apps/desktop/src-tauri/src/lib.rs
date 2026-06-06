@@ -6,7 +6,6 @@ mod clipboard;
 mod commands;
 pub mod crypto;
 mod deep_link;
-mod dock_icon;
 pub mod events;
 pub mod media;
 mod paths;
@@ -385,11 +384,13 @@ pub fn run() {
 
             // Run as a background menu-bar agent: no Dock icon, hidden from the
             // Cmd+Tab switcher, no top-left app menu. The tray status icon stays.
+            // When a window opens the app flips to Regular and the Dock shows the
+            // bundle icon (icons/icon.icns) — the same icon macOS renders in
+            // notifications, so the two stay in sync. We deliberately do NOT
+            // override applicationIconImage with a theme-specific variant: that
+            // affects only the Dock/Cmd+Tab tile, not Notification Center, so it
+            // would make the Dock and notification icons diverge in Light mode.
             window_manage::configure_activation_policy(handle);
-
-            // Stage the themed Dock icon (shown only while a window is open)
-            // and install the ThemeChanged listener for live light/dark swaps.
-            dock_icon::setup(handle);
 
             // Seed AuthState from persisted config. Plan 03 Task 2.
             {

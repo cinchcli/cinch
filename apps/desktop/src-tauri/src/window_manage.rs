@@ -56,10 +56,10 @@ pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
     }
 
     let _ = window.show();
-    // Promote to a Regular app so the Dock icon appears, then set it to the
-    // current appearance (corrects a theme change that happened while hidden).
+    // Promote to a Regular app so the Dock icon appears. macOS renders the
+    // bundle icon (icons/icon.icns) there — the same icon it shows in
+    // notifications — so the Dock and notification icons stay identical.
     set_dock_visible(app, true);
-    crate::dock_icon::apply_dock_icon(app, crate::dock_icon::current_theme(app));
     // Promote the whole app above other apps before focusing the window —
     // `set_focus` alone only reorders within the active app on macOS.
     #[cfg(target_os = "macos")]
