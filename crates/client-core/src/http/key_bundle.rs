@@ -88,7 +88,12 @@ impl RestClient {
     /// `key_exchange_requested` for the calling device. Used when the
     /// initial key handoff missed (no key-bearer was online at login
     /// time). Bearer-authenticated.
-    pub async fn retry_key_bundle(&self) -> Result<(), HttpError> {
+    ///
+    /// Returns whether at least one *other* online device received the
+    /// re-broadcast (`notified`). A `false` means no key-bearer could possibly
+    /// respond, so the caller can skip the wait. Older relays omit the field;
+    /// this defaults to `true` to preserve the previous always-poll behavior.
+    pub async fn retry_key_bundle(&self) -> Result<bool, HttpError> {
         let url = format!("{}/auth/key-bundle/retry", self.base_url);
         let resp = self
             .client
@@ -108,7 +113,21 @@ impl RestClient {
                 fix: String::new(),
             });
         }
-        Ok(())
+        // Parse the optional `notified` flag. Hand-written rather than the proto
+        // `KeyBundleRetryResponse` (which predates the field). A parse failure or
+        // an older relay that omits it defaults to `true` (keep polling).
+        #[derive(serde::Deserialize)]
+        struct RetryBody {
+            #[serde(default)]
+            notified: Option<bool>,
+        }
+        let notified = resp
+            .json::<RetryBody>()
+            .await
+            .ok()
+            .and_then(|b| b.notified)
+            .unwrap_or(true);
+        Ok(notified)
     }
 
     /// `GET /auth/key-bundle` — fetch the encrypted user-key bundle the

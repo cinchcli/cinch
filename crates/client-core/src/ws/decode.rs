@@ -18,6 +18,21 @@ use crate::transport::ClipTransport;
 pub(super) enum DecodeOutcome {
     Event(WsEvent),
     NeedsMediaFetch(Box<Clip>),
+    /// The relay's app-level heartbeat ping. The caller must reply with an
+    /// app-level pong so the relay's read deadline is refreshed and this
+    /// connection is not reaped from the hub.
+    Pong,
+}
+
+/// What the WS read loop should do with a decoded frame. Distinguishes the
+/// usual "forward this event" from "reply with a pong" so the connection layer
+/// (which owns the write half) can answer the relay's heartbeat. Frames that
+/// should be silently dropped are represented by `None` from
+/// [`decode_and_finalize`].
+#[derive(Debug)]
+pub(crate) enum Frame {
+    Event(WsEvent),
+    Pong,
 }
 
 /// True when the wire frame carries an empty `content` + a non-empty
@@ -95,23 +110,31 @@ fn decode_message(text: &str, key: Option<[u8; 32]>) -> Option<DecodeOutcome> {
                 device_id: msg.device_id,
             }))
         }
-        ACTION_PING => None, // server pings handled by tungstenite Pong frames
+        // The relay's keepalive is an app-level {"action":"ping"} text frame
+        // (NOT a protocol Ping), so it does not auto-trigger a tungstenite Pong.
+        // Surface it so the read loop replies with an app-level pong, which is
+        // an inbound frame that refreshes the relay's read deadline and keeps
+        // this connection in the hub. Protocol-level Pings are still handled
+        // separately by tungstenite in the read loop.
+        ACTION_PING => Some(DecodeOutcome::Pong),
         _ => None,
     }
 }
 
-/// Async wrapper: parses the WS frame, fetches media if needed, and returns
-/// a final `WsEvent`. Returns `None` for frames that should be silently
-/// dropped (ping, malformed, unknown actions). Failures during media fetch
-/// surface as `ClipDecryptFailed` so the caller can surface a UI signal.
+/// Async wrapper: parses the WS frame, fetches media if needed, and returns the
+/// [`Frame`] the read loop should act on (`Event` to forward, `Pong` to reply).
+/// Returns `None` for frames that should be silently dropped (malformed,
+/// unknown actions). Failures during media fetch surface as a
+/// `Frame::Event(ClipDecryptFailed)` so the caller can surface a UI signal.
 pub(super) async fn decode_and_finalize(
     text: &str,
     key: Option<[u8; 32]>,
     media_fetcher: Option<&dyn ClipTransport>,
-) -> Option<WsEvent> {
+) -> Option<Frame> {
     let outcome = decode_message(text, key)?;
     match outcome {
-        DecodeOutcome::Event(e) => Some(e),
+        DecodeOutcome::Event(e) => Some(Frame::Event(e)),
+        DecodeOutcome::Pong => Some(Frame::Pong),
         DecodeOutcome::NeedsMediaFetch(clip) => {
             let clip_id = clip.clip_id.clone();
             let Some(fetcher) = media_fetcher else {
@@ -119,12 +142,12 @@ pub(super) async fn decode_and_finalize(
                     "ws: dropping media-routed clip {} — no http client configured",
                     clip_id
                 );
-                return Some(WsEvent::ClipDecryptFailed {
+                return Some(Frame::Event(WsEvent::ClipDecryptFailed {
                     clip_id,
                     reason: DecryptFailReason::TagFailed(
                         "media fetch unavailable (no http client)".into(),
                     ),
-                });
+                }));
             };
             match fetcher.get_clip_media(&clip_id).await {
                 Ok(bytes) => {
@@ -137,22 +160,22 @@ pub(super) async fn decode_and_finalize(
                         Ok(s) => s,
                         Err(e) => {
                             warn!("ws: media bytes for {} not valid utf-8: {}", clip_id, e);
-                            return Some(WsEvent::ClipDecryptFailed {
+                            return Some(Frame::Event(WsEvent::ClipDecryptFailed {
                                 clip_id,
                                 reason: DecryptFailReason::TagFailed(format!(
                                     "media bytes not utf-8: {e}"
                                 )),
-                            });
+                            }));
                         }
                     };
-                    Some(finalize_new_clip(c, key))
+                    Some(Frame::Event(finalize_new_clip(c, key)))
                 }
                 Err(e) => {
                     warn!("ws: media fetch failed for {}: {}", clip_id, e);
-                    Some(WsEvent::ClipDecryptFailed {
+                    Some(Frame::Event(WsEvent::ClipDecryptFailed {
                         clip_id,
                         reason: DecryptFailReason::TagFailed(format!("media fetch: {e}")),
-                    })
+                    }))
                 }
             }
         }
@@ -233,6 +256,27 @@ mod tests {
                 assert_eq!(clip_id, "delme")
             }
             other => panic!("unexpected event: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn app_ping_decodes_as_pong_outcome() {
+        // The relay's app-level heartbeat must surface as Pong so the read loop
+        // replies and keeps the connection alive. Regression guard for the bug
+        // where the ping was dropped (`=> None`) and the relay reaped the conn.
+        let json = make_msg(ACTION_PING, serde_json::json!({}));
+        match decode_message(&json, None) {
+            Some(DecodeOutcome::Pong) => {}
+            other => panic!("expected Pong, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn app_ping_finalizes_to_pong_frame() {
+        let json = make_msg(ACTION_PING, serde_json::json!({}));
+        match decode_and_finalize(&json, None, None).await {
+            Some(Frame::Pong) => {}
+            other => panic!("expected Frame::Pong, got {:?}", other),
         }
     }
 
@@ -409,7 +453,7 @@ mod tests {
             }),
         );
         match decode_and_finalize(&json, Some([0u8; 32]), None).await {
-            Some(WsEvent::ClipDecryptFailed { clip_id, reason }) => {
+            Some(Frame::Event(WsEvent::ClipDecryptFailed { clip_id, reason })) => {
                 assert_eq!(clip_id, "no-fetcher");
                 assert!(matches!(reason, DecryptFailReason::TagFailed(_)));
             }
@@ -467,10 +511,10 @@ mod tests {
         );
 
         match decode_and_finalize(&json, Some(key), Some(&rest)).await {
-            Some(WsEvent::NewClip {
+            Some(Frame::Event(WsEvent::NewClip {
                 clip,
                 plaintext: pt,
-            }) => {
+            })) => {
                 assert_eq!(clip.clip_id, "img-fetch");
                 assert!(!clip.encrypted);
                 // For image clips, decrypt_clip_content stores plaintext as

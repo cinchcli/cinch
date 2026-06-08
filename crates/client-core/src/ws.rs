@@ -26,7 +26,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, tungstenite};
 use tracing::{debug, info, warn};
 
-use crate::protocol::Clip;
+use crate::protocol::{Clip, WSMessage};
 use crate::transport::ClipTransport;
 use crate::version::ClientInfo;
 
@@ -223,16 +223,33 @@ async fn connect_and_listen(cfg: &WsConfig, tx: &mpsc::Sender<WsEvent>) -> Resul
         let msg = frame?;
         match msg {
             Message::Text(text) => {
-                if let Some(event) = decode::decode_and_finalize(
+                match decode::decode_and_finalize(
                     text.as_str(),
                     cfg.encryption_key,
                     cfg.media_fetcher.as_deref(),
                 )
                 .await
                 {
-                    if tx.send(event).await.is_err() {
-                        return Ok(());
+                    // A closed channel means the receiver was dropped, so stop
+                    // the read loop cleanly.
+                    Some(decode::Frame::Event(event)) => match tx.send(event).await {
+                        Ok(()) => {}
+                        Err(_) => return Ok(()),
+                    },
+                    Some(decode::Frame::Pong) => {
+                        // Reply to the relay's app-level heartbeat ping. The
+                        // relay's keepalive is an app-level {"action":"ping"}
+                        // frame, not a protocol Ping, so it needs an explicit
+                        // app-level pong. This inbound frame refreshes the
+                        // relay's read deadline and keeps this connection in the
+                        // hub — without it an idle bearer is reaped and a
+                        // `cinch auth retry-key` broadcast reaches nobody.
+                        match serde_json::to_string(&WSMessage::pong()) {
+                            Ok(t) => write.send(Message::Text(t.into())).await?,
+                            Err(e) => warn!("ws: failed to serialize pong: {}", e),
+                        }
                     }
+                    None => {}
                 }
             }
             Message::Ping(data) => {

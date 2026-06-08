@@ -26,7 +26,7 @@ pub(super) async fn run_retry_key() -> Result<(), ExitError> {
         crate::client_info::for_cli(),
     )
     .map_err(|e| ExitError::new(GENERIC_ERROR, format!("Could not init client: {}", e), ""))?;
-    client.retry_key_bundle().await.map_err(|e| match e {
+    let notified = client.retry_key_bundle().await.map_err(|e| match e {
         HttpError::Unauthorized => ExitError::new(
             AUTH_FAILURE,
             "Authentication failed — your device may have been revoked or your token has expired.",
@@ -44,6 +44,18 @@ pub(super) async fn run_retry_key() -> Result<(), ExitError> {
         ),
         other => ExitError::new(GENERIC_ERROR, format!("Retry failed: {}", other), ""),
     })?;
+
+    // The relay tells us whether any other device of ours was online to receive
+    // the broadcast. If none was, no key-bearer can possibly respond, so skip
+    // the 30s wait and give immediate, actionable feedback instead of hanging.
+    if !notified {
+        eprintln!("\u{26A0} No other device is online to share the encryption key.");
+        eprintln!(
+            "  Open the Cinch desktop app, or run `cinch pull --watch` on a device that already"
+        );
+        eprintln!("  has the key, then run `cinch auth retry-key` again.");
+        return Ok(());
+    }
     eprintln!("Re-broadcast key-exchange request. Waiting for another device to respond (30s)...");
 
     let priv_b64 = client_core::credstore::read_device_privkey(&cfg.user_id, &cfg.active_device_id)
