@@ -32,6 +32,8 @@ brew install cinchcli/tap/cinch
 curl -fsSL https://cinchcli.com/install.sh | sh
 ```
 
+> **Short alias:** `ci` is installed as a shorthand for `cinch` — every command works under both names (`ci pull`, `ci send`, …).
+
 ### AI workflow v1
 
 `cinch ai fix` turns terminal, log, or error output into an AI-ready debugging prompt. It only calls a provider when you explicitly configure or select one; `--no-send` never calls an AI provider.
