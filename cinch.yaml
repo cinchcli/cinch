@@ -1,0 +1,16 @@
+# cinch.yaml — this repo's shared clipboard. `cinch use <name>` copies one.
+version: 1
+clips:
+  test-one:
+    description: "Run a single client-core test (edit the path)"
+    content: "cargo test -p cinchcli-core --lib {{path}}"
+    vars:
+      path:
+        default: "clipfile::tests"
+  new-worktree:
+    description: "Create an agent worktree for a task"
+    content: "./scripts/new-agent-worktree.sh {{agent}} {{task}}"
+    vars:
+      agent:
+        default: claude
+      task: {}

@@ -73,6 +73,16 @@ Hosted relay retention (7 days by default) does not limit local history.
 To narrow what MCP returns, set `CINCH_MCP_MAX_AGE_DAYS` (e.g. `90`); unset
 (default) exposes full local history.
 
+### Project clipboard (`cinch use`)
+
+Commit a `cinch.yaml` to your repo declaring named, optionally-templated clips.
+Anyone in the project runs `cinch use <name>` to drop the resolved snippet on
+their clipboard. Variables (`{{token}}`) are filled at use-time from `--var`,
+the declared env var, or a default — so the command *shape* is shared in git
+while secrets stay out of the repo. Run `cinch use --list` to see what's
+available, or bare `cinch use` to pick interactively. It never executes
+anything; it only copies.
+
 ## Development
 
 Requirements: Rust stable, Node 22+, pnpm, buf, Go (for proto bindings used by the relay).
