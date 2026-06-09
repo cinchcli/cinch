@@ -11,6 +11,7 @@
 pub mod auth;
 pub mod auth_session;
 pub mod classify;
+pub mod clipfile;
 pub mod config;
 pub mod config_migrate;
 pub mod credstore;

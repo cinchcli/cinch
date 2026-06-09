@@ -56,6 +56,7 @@ fs2 = "0.4"
 bip39 = { workspace = true }
 semver = "1"
 async-trait = "0.1"
+serde_yaml_ng = "0.10.0"
 
 [build-dependencies]
 prost-build = "0.13"
