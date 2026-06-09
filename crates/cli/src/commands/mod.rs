@@ -29,6 +29,7 @@ pub mod sources;
 pub mod telemetry;
 pub mod transform;
 pub mod unpin;
+pub mod use_;
 
 /// Print the single-line deprecation note for an old command spelling kept as
 /// a hidden alias through the 0.5–0.7 runway (redesign §4b/§4d).

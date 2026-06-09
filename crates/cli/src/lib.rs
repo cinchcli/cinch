@@ -75,6 +75,9 @@ enum Cmd {
     SelfUpdate(update::SelfUpdateArgs),
     /// Run a read-only MCP server over your local clipboard (stdio).
     Mcp(commands::mcp::Args),
+    /// Resolve a named clip from the project's cinch.yaml onto your clipboard.
+    #[command(name = "use")]
+    Use(commands::use_::Args),
     // --- hidden deprecated aliases (0.5–0.7 runway, removed in 0.8) ---
     /// (deprecated) `clip *` → `history *`. Hidden; prints one note and routes
     /// to the new handler.
@@ -223,6 +226,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Completion { .. } => "completion",
         Cmd::SelfUpdate(_) => "self-update",
         Cmd::Mcp(_) => "mcp",
+        Cmd::Use(_) => "use",
     }
 }
 
@@ -348,6 +352,7 @@ pub fn run() -> i32 {
             Cmd::Account(args) => commands::account::run(args).await,
             Cmd::Admin(args) => commands::admin::run(args).await,
             Cmd::SelfUpdate(args) => update::run_self_update(args).await,
+            Cmd::Use(args) => commands::use_::run(args).await,
             Cmd::Completion { .. } => unreachable!(),
             Cmd::Mcp(_) => unreachable!(),
         };
