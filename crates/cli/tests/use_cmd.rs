@@ -136,3 +136,15 @@ fn undeclared_braces_pass_through() {
     assert_eq!(code, Some(0));
     assert_eq!(stdout.trim_end(), "token ${{ secrets.X }}");
 }
+
+#[test]
+fn var_value_may_contain_equals() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  kv:\n    content: \"{{pair}}\"\n    vars:\n      pair: {}\n",
+    );
+    let (code, stdout, _stderr) = run_use(tmp.path(), &["kv", "--stdout", "--var", "pair=a=b"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(stdout.trim_end(), "a=b");
+}

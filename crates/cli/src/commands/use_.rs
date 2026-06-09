@@ -32,7 +32,7 @@ pub struct Args {
     #[arg(long)]
     pub list: bool,
     /// With --list, emit JSON instead of a table.
-    #[arg(long)]
+    #[arg(long, requires = "list")]
     pub json: bool,
 }
 
@@ -120,7 +120,15 @@ fn parse_var_flags(raw: &[String]) -> Result<BTreeMap<String, String>, ExitError
     for item in raw {
         match item.split_once('=') {
             Some((k, v)) => {
-                map.insert(k.trim().to_string(), v.to_string());
+                let k = k.trim();
+                if k.is_empty() {
+                    return Err(ExitError::new(
+                        GENERIC_ERROR,
+                        format!("--var must be NAME=VALUE, got: {item}"),
+                        "Example: --var token=abc123",
+                    ));
+                }
+                map.insert(k.to_string(), v.to_string());
             }
             None => {
                 return Err(ExitError::new(
@@ -283,12 +291,12 @@ fn pick_clip(cf: &Clipfile) -> Result<String, ExitError> {
     drop(tx);
 
     let out = Skim::run_with(&options, Some(rx))
-        .ok_or_else(|| ExitError::new(GENERIC_ERROR, "picker failed to start.", ""))?;
+        .ok_or_else(|| ExitError::new(GENERIC_ERROR, "Picker failed to start.", ""))?;
     if out.is_abort {
-        return Err(ExitError::new(GENERIC_ERROR, "selection cancelled.", ""));
+        return Err(ExitError::new(GENERIC_ERROR, "Selection cancelled.", ""));
     }
     let selected = out.selected_items.first().ok_or_else(|| {
-        ExitError::new(GENERIC_ERROR, "nothing selected.", "Press Enter to pick.")
+        ExitError::new(GENERIC_ERROR, "Nothing selected.", "Press Enter to pick.")
     })?;
     Ok(selected.text().into_owned())
 }
