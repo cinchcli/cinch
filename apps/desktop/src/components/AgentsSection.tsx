@@ -100,6 +100,8 @@ const S: Record<string, CSSProperties> = {
   },
   inlineMono: {
     fontFamily: 'var(--font-mono)',
+    // Match CopyField: keep literal paths/flags ligature-free (no " --" fusing).
+    fontFeatureSettings: "'liga' 0, 'calt' 0",
     fontSize: 12,
     color: C.t2,
   },
