@@ -150,6 +150,10 @@ pub struct Resolution {
     pub values: BTreeMap<String, String>,
     /// Declared names with no flag, no (non-empty) env, and no default.
     /// The caller decides whether to prompt (TTY) or error (non-TTY).
+    ///
+    /// Names appear in the same order as iteration over `vars`, which is a
+    /// `BTreeMap` — i.e. alphabetical order. The CLI relies on this for its
+    /// deterministic error message.
     pub missing: Vec<String>,
 }
 
@@ -185,6 +189,12 @@ pub fn resolve_vars(
 /// Replace `{{ name }}` runs whose trimmed token is a key in `values`. Any
 /// other `{{...}}` (undeclared name, or an unmatched `{{`) is emitted verbatim,
 /// in a single left-to-right pass so substituted values are never re-scanned.
+///
+/// **Loop invariant:** on every successful match the scanner advances `rest`
+/// past the entire `{{...}}` span, including the closing `}}`. The output
+/// buffer is therefore write-only: substituted values are never re-scanned,
+/// which prevents re-substitution and guarantees termination even if a
+/// substituted value itself contains `{{...}}` text.
 pub fn interpolate(content: &str, values: &BTreeMap<String, String>) -> String {
     let mut out = String::with_capacity(content.len());
     let mut rest = content;
@@ -284,7 +294,10 @@ mod tests {
     fn find_errors_when_absent() {
         let tmp = tempfile::tempdir().unwrap();
         let err = find(tmp.path()).unwrap_err();
-        assert!(matches!(err, ClipfileError::NotFound(_)));
+        let ClipfileError::NotFound(p) = err else {
+            panic!("expected NotFound, got {err:?}")
+        };
+        assert_eq!(p, tmp.path());
     }
 
     #[test]
@@ -386,5 +399,35 @@ mod tests {
         assert_eq!(interpolate("a {{ b", &v), "a {{ b");
         // No vars at all.
         assert_eq!(interpolate("plain text", &BTreeMap::new()), "plain text");
+    }
+
+    #[test]
+    fn resolve_reports_all_missing_in_order() {
+        let entry = entry_with_vars(&[
+            (
+                "b",
+                VarSpec {
+                    env: None,
+                    default: None,
+                },
+            ),
+            (
+                "d",
+                VarSpec {
+                    env: None,
+                    default: None,
+                },
+            ),
+            (
+                "a",
+                VarSpec {
+                    env: None,
+                    default: Some("x".into()),
+                },
+            ),
+        ]);
+        let r = resolve_vars(&entry, &BTreeMap::new(), |_| None);
+        assert_eq!(r.missing, vec!["b".to_string(), "d".to_string()]);
+        assert_eq!(r.values["a"], "x");
     }
 }
