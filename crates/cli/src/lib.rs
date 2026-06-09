@@ -71,8 +71,8 @@ enum Cmd {
         #[arg(value_enum)]
         shell: Shell,
     },
-    /// Download and install the latest release (for manually-placed binaries).
-    SelfUpdate(update::SelfUpdateArgs),
+    /// Check for a newer release and, with confirmation, install it.
+    Update(update::UpdateArgs),
     /// Run a read-only MCP server over your local clipboard (stdio).
     Mcp(commands::mcp::Args),
     // --- hidden deprecated aliases (0.5–0.7 runway, removed in 0.8) ---
@@ -90,6 +90,11 @@ enum Cmd {
     /// "unknown subcommand".
     #[command(hide = true)]
     Push(commands::push::Args),
+    /// REMOVED: renamed to `cinch update`. Hidden; routes to a hard error so
+    /// old `cinch self-update` invocations get a clear redirect, not a clap
+    /// "unknown subcommand".
+    #[command(hide = true)]
+    SelfUpdate(update::RemovedArgs),
 }
 
 fn print_completion_override(shell: Shell) {
@@ -221,6 +226,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Account(_) => "account",
         Cmd::Admin(_) => "admin",
         Cmd::Completion { .. } => "completion",
+        Cmd::Update(_) => "update",
         Cmd::SelfUpdate(_) => "self-update",
         Cmd::Mcp(_) => "mcp",
     }
@@ -347,7 +353,8 @@ pub fn run() -> i32 {
             Cmd::Auth(args) => commands::auth::run(args).await,
             Cmd::Account(args) => commands::account::run(args).await,
             Cmd::Admin(args) => commands::admin::run(args).await,
-            Cmd::SelfUpdate(args) => update::run_self_update(args).await,
+            Cmd::Update(args) => update::run_update(args).await,
+            Cmd::SelfUpdate(_) => update::run_removed_self_update().await,
             Cmd::Completion { .. } => unreachable!(),
             Cmd::Mcp(_) => unreachable!(),
         };
@@ -478,6 +485,33 @@ mod redesign_tests {
             Cmd::Auth(a) => assert!(matches!(a.cmd, commands::auth::Cmd::SetName { .. })),
             _ => panic!("expected Auth/SetName"),
         }
+    }
+
+    #[test]
+    fn update_parses_with_flags() {
+        assert!(matches!(parse(&["cinch", "update"]), Cmd::Update(_)));
+        assert!(matches!(
+            parse(&["cinch", "update", "--check"]),
+            Cmd::Update(_)
+        ));
+        match parse(&["cinch", "update", "-y", "--force"]) {
+            Cmd::Update(a) => {
+                assert!(a.yes && a.force && !a.check);
+            }
+            _ => panic!("expected Update"),
+        }
+    }
+
+    #[test]
+    fn removed_self_update_still_parses_to_hidden_variant() {
+        assert!(matches!(
+            parse(&["cinch", "self-update"]),
+            Cmd::SelfUpdate(_)
+        ));
+        assert!(matches!(
+            parse(&["cinch", "self-update", "--check"]),
+            Cmd::SelfUpdate(_)
+        ));
     }
 
     #[test]

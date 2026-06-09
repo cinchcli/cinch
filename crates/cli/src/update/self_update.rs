@@ -55,141 +55,208 @@ pub fn can_write_to(dir: &Path) -> bool {
 }
 
 #[derive(Debug)]
-pub enum SelfUpdateError {
+pub enum UpdateError {
     UnsupportedTarget,
     NotWritable(PathBuf),
     NotPermitted(String),
-    /// Binary is managed by a package manager; refuse to clobber unless --force.
-    ManagedInstall(InstallSource),
     Fetch(String),
     ShaMismatch,
     Extract(String),
     Swap(io::Error),
+    /// `cinch update` ran without a TTY and without `--yes`.
+    NeedsConfirmation {
+        from: String,
+        to: String,
+    },
+    /// Package-manager upgrade failed to start or exited non-zero.
+    PackageManager {
+        cmd: String,
+        detail: String,
+    },
 }
 
-impl std::fmt::Display for SelfUpdateError {
+impl std::fmt::Display for UpdateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnsupportedTarget => write!(f, "no release asset for this target"),
             Self::NotWritable(p) => write!(f, "no write access to {}", p.display()),
             Self::NotPermitted(s) => write!(f, "{}", s),
-            Self::ManagedInstall(src) => {
-                let kind = match src {
-                    InstallSource::Homebrew { .. } => "Homebrew",
-                    InstallSource::Apt { .. } => "apt",
-                    InstallSource::Rpm { .. } => "rpm",
-                    InstallSource::Unknown => "a package manager",
-                };
-                write!(f, "cinch was installed via {}; {}", kind, hint(src))
-            }
             Self::Fetch(s) => write!(f, "fetch failed: {}", s),
             Self::ShaMismatch => write!(f, "SHA-256 mismatch — download corrupt"),
             Self::Extract(s) => write!(f, "extract failed: {}", s),
             Self::Swap(e) => write!(f, "binary swap failed: {}", e),
+            Self::NeedsConfirmation { from, to } => {
+                write!(
+                    f,
+                    "update available {} → {}, but stdin is not a terminal",
+                    from, to
+                )
+            }
+            Self::PackageManager { cmd, detail } => {
+                write!(f, "package-manager update failed ({}): {}", cmd, detail)
+            }
         }
     }
 }
 
-impl std::error::Error for SelfUpdateError {}
+impl std::error::Error for UpdateError {}
 
-/// Result of the pre-flight check that decides whether self-update may proceed,
-/// given the detected install source and the user's `--force` choice.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SelfUpdateGate {
-    Proceed,
-    ProceedWithWarning(InstallSource),
-    Refuse(InstallSource),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateRoute {
+    /// Direct binary download + atomic swap (Unknown source, or --force).
+    Swap,
+    /// Hand off to the package manager (brew/apt/rpm).
+    PackageManager,
 }
 
-/// Pure decision: unmanaged → proceed; managed without force → refuse;
-/// managed with force → proceed but warn the caller so it can surface
-/// the consequence (clobbering a package-managed symlink) to the user.
-pub fn gate(source: &InstallSource, force: bool) -> SelfUpdateGate {
+/// Pure: unmanaged or `--force` → swap; otherwise hand to the package manager.
+pub fn route(source: &InstallSource, force: bool) -> UpdateRoute {
     match (source, force) {
-        (InstallSource::Unknown, _) => SelfUpdateGate::Proceed,
-        (managed, true) => SelfUpdateGate::ProceedWithWarning(managed.clone()),
-        (managed, false) => SelfUpdateGate::Refuse(managed.clone()),
+        (InstallSource::Unknown, _) => UpdateRoute::Swap,
+        (_, true) => UpdateRoute::Swap,
+        (_, false) => UpdateRoute::PackageManager,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsentMode {
+    /// `--yes`: proceed without prompting.
+    Skip,
+    /// Interactive terminal: ask `Update now?`.
+    Prompt,
+    /// No TTY and no `--yes`: cannot ask — caller errors.
+    NonInteractive,
+}
+
+/// Pure: how to obtain consent given `--yes` and whether stdin is a terminal.
+pub fn consent_mode(yes: bool, stdin_is_tty: bool) -> ConsentMode {
+    if yes {
+        ConsentMode::Skip
+    } else if !stdin_is_tty {
+        ConsentMode::NonInteractive
+    } else {
+        ConsentMode::Prompt
     }
 }
 
 use crate::update::manifest::{fetch_latest, FetchError};
-use crate::update::source::{detect, hint, InstallSource, RealDetector};
+use crate::update::pm::{self, PackageManagerRunner};
+use crate::update::source::{detect, InstallSource, RealDetector};
+use std::io::IsTerminal;
 
 const MANIFEST_BASE: &str = "https://github.com/cinchcli/cinch/releases/latest/download";
 
 pub struct RunOptions {
     pub check_only: bool,
+    pub yes: bool,
     pub force: bool,
 }
 
-pub async fn run(opts: RunOptions) -> Result<(), SelfUpdateError> {
+pub async fn run(opts: RunOptions, runner: &dyn PackageManagerRunner) -> Result<(), UpdateError> {
     let exe = std::env::current_exe()
-        .map_err(|e| SelfUpdateError::NotPermitted(format!("cannot resolve current exe: {}", e)))?;
+        .map_err(|e| UpdateError::NotPermitted(format!("cannot resolve current exe: {}", e)))?;
     let source = detect(&exe, &RealDetector);
-
-    match gate(&source, opts.force) {
-        SelfUpdateGate::Proceed => {}
-        SelfUpdateGate::Refuse(src) => return Err(SelfUpdateError::ManagedInstall(src)),
-        SelfUpdateGate::ProceedWithWarning(src) => {
-            eprintln!(
-                "warning: cinch was installed via {}; --force will replace the package-managed binary.",
-                match src {
-                    InstallSource::Homebrew { .. } => "Homebrew",
-                    InstallSource::Apt { .. } => "apt",
-                    InstallSource::Rpm { .. } => "rpm",
-                    InstallSource::Unknown => "a package manager",
-                },
-            );
-            eprintln!("         The package manager will see an unmanaged file on its next sync.");
-        }
-    }
 
     let manifest = fetch_latest().await.map_err(|e| match e {
         FetchError::Build(e)
         | FetchError::Request(e)
         | FetchError::Status(e)
-        | FetchError::Parse(e) => SelfUpdateError::Fetch(e.to_string()),
+        | FetchError::Parse(e) => UpdateError::Fetch(e.to_string()),
     })?;
 
     let current = env!("CARGO_PKG_VERSION");
     let current_ver = semver::Version::parse(current)
-        .map_err(|e| SelfUpdateError::Fetch(format!("bad current version: {}", e)))?;
+        .map_err(|e| UpdateError::Fetch(format!("bad current version: {}", e)))?;
     let next_ver = semver::Version::parse(&manifest.version)
-        .map_err(|e| SelfUpdateError::Fetch(format!("bad manifest version: {}", e)))?;
+        .map_err(|e| UpdateError::Fetch(format!("bad manifest version: {}", e)))?;
 
     if next_ver <= current_ver {
         eprintln!("cinch is already up to date.");
         return Ok(());
     }
 
-    eprintln!(
-        "Updating cinch: {} → {}{}",
-        current_ver,
-        next_ver,
-        if opts.check_only {
-            " (--check, not applying)"
-        } else {
-            ""
-        },
-    );
-
     if opts.check_only {
+        eprintln!(
+            "A new version of cinch is available: {} → {}",
+            current_ver, next_ver
+        );
         return Ok(());
     }
 
-    let asset = asset_name().ok_or(SelfUpdateError::UnsupportedTarget)?;
-    let exe_dir = exe.parent().ok_or_else(|| {
-        SelfUpdateError::NotPermitted("current_exe has no parent directory".into())
-    })?;
-    if !can_write_to(exe_dir) {
-        return Err(SelfUpdateError::NotWritable(exe_dir.to_path_buf()));
+    // Consent.
+    match consent_mode(opts.yes, std::io::stdin().is_terminal()) {
+        ConsentMode::Skip => {}
+        ConsentMode::NonInteractive => {
+            return Err(UpdateError::NeedsConfirmation {
+                from: current_ver.to_string(),
+                to: next_ver.to_string(),
+            });
+        }
+        ConsentMode::Prompt => {
+            eprintln!(
+                "A new version of cinch is available: {} → {}",
+                current_ver, next_ver
+            );
+            match inquire::Confirm::new("Update now?")
+                .with_default(true)
+                .prompt()
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    eprintln!("Skipped.");
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(UpdateError::NotPermitted(format!(
+                        "could not read confirmation: {}",
+                        e
+                    )));
+                }
+            }
+        }
     }
 
-    // Download archive and .sha256 into a tempdir on the same filesystem.
+    // Dispatch.
+    match route(&source, opts.force) {
+        UpdateRoute::PackageManager => {
+            let status = runner
+                .upgrade(&source)
+                .map_err(|e| UpdateError::PackageManager {
+                    cmd: pm::command_string(&source),
+                    detail: e.to_string(),
+                })?;
+            if !status.success() {
+                return Err(UpdateError::PackageManager {
+                    cmd: pm::command_string(&source),
+                    detail: format!("exited with {}", status),
+                });
+            }
+            // The package manager exited 0, but we can't assert the exact
+            // version it installed (repo lag, version pins) — only that it ran.
+            eprintln!("Package manager finished. Re-run your command to pick up the new version.");
+        }
+        UpdateRoute::Swap => {
+            // The swap path verified and installed exactly `next_ver`.
+            swap_in_place(&exe).await?;
+            eprintln!("Updated to cinch {}. Re-run your command.", next_ver);
+        }
+    }
+
+    Ok(())
+}
+
+async fn swap_in_place(exe: &Path) -> Result<(), UpdateError> {
+    let asset = asset_name().ok_or(UpdateError::UnsupportedTarget)?;
+    let exe_dir = exe
+        .parent()
+        .ok_or_else(|| UpdateError::NotPermitted("current_exe has no parent directory".into()))?;
+    if !can_write_to(exe_dir) {
+        return Err(UpdateError::NotWritable(exe_dir.to_path_buf()));
+    }
     let workdir = tempfile::Builder::new()
         .prefix(".cinch-self-update-")
         .tempdir_in(exe_dir)
-        .map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
+        .map_err(|e| UpdateError::Fetch(e.to_string()))?;
     let archive_path = workdir.path().join(asset);
     let sha_path = workdir.path().join(format!("{}.sha256", asset));
 
@@ -197,15 +264,15 @@ pub async fn run(opts: RunOptions) -> Result<(), SelfUpdateError> {
     download_to(&format!("{}/{}.sha256", MANIFEST_BASE, asset), &sha_path).await?;
 
     let sha_text = fs::read_to_string(&sha_path)
-        .map_err(|e| SelfUpdateError::Fetch(format!("read sha file: {}", e)))?;
+        .map_err(|e| UpdateError::Fetch(format!("read sha file: {}", e)))?;
     let expected_hex = sha_text
         .split_whitespace()
         .next()
-        .ok_or_else(|| SelfUpdateError::Fetch("empty sha file".into()))?;
+        .ok_or_else(|| UpdateError::Fetch("empty sha file".into()))?;
     if !verify_sha256(&archive_path, expected_hex)
-        .map_err(|e| SelfUpdateError::Fetch(format!("sha check io: {}", e)))?
+        .map_err(|e| UpdateError::Fetch(format!("sha check io: {}", e)))?
     {
-        return Err(SelfUpdateError::ShaMismatch);
+        return Err(UpdateError::ShaMismatch);
     }
 
     let new_binary_path = workdir
@@ -217,25 +284,23 @@ pub async fn run(opts: RunOptions) -> Result<(), SelfUpdateError> {
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&new_binary_path, fs::Permissions::from_mode(0o755))
-            .map_err(SelfUpdateError::Swap)?;
+            .map_err(UpdateError::Swap)?;
     }
 
-    atomic_swap(&exe, &new_binary_path).map_err(SelfUpdateError::Swap)?;
-    eprintln!("Updated to cinch {}. Re-run your command.", next_ver);
-    Ok(())
+    atomic_swap(exe, &new_binary_path).map_err(UpdateError::Swap)
 }
 
-async fn download_to(url: &str, dest: &Path) -> Result<(), SelfUpdateError> {
+async fn download_to(url: &str, dest: &Path) -> Result<(), UpdateError> {
     let client = reqwest::Client::builder()
         .build()
-        .map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
+        .map_err(|e| UpdateError::Fetch(e.to_string()))?;
     let resp = client
         .get(url)
         .send()
         .await
-        .map_err(|e| SelfUpdateError::Fetch(e.to_string()))?
+        .map_err(|e| UpdateError::Fetch(e.to_string()))?
         .error_for_status()
-        .map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
+        .map_err(|e| UpdateError::Fetch(e.to_string()))?;
     let total = resp.content_length();
     let bar = total.map(|t| {
         let b = indicatif::ProgressBar::new(t);
@@ -245,13 +310,12 @@ async fn download_to(url: &str, dest: &Path) -> Result<(), SelfUpdateError> {
         );
         b
     });
-    let mut file = fs::File::create(dest).map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
+    let mut file = fs::File::create(dest).map_err(|e| UpdateError::Fetch(e.to_string()))?;
     use futures_util::StreamExt;
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let bytes = chunk.map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
-        io::Write::write_all(&mut file, &bytes)
-            .map_err(|e| SelfUpdateError::Fetch(e.to_string()))?;
+        let bytes = chunk.map_err(|e| UpdateError::Fetch(e.to_string()))?;
+        io::Write::write_all(&mut file, &bytes).map_err(|e| UpdateError::Fetch(e.to_string()))?;
         if let Some(b) = &bar {
             b.inc(bytes.len() as u64);
         }
@@ -262,48 +326,43 @@ async fn download_to(url: &str, dest: &Path) -> Result<(), SelfUpdateError> {
     Ok(())
 }
 
-fn extract_cinch_binary(archive: &Path, dest: &Path) -> Result<(), SelfUpdateError> {
-    let f = fs::File::open(archive).map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+fn extract_cinch_binary(archive: &Path, dest: &Path) -> Result<(), UpdateError> {
+    let f = fs::File::open(archive).map_err(|e| UpdateError::Extract(e.to_string()))?;
     if archive.to_string_lossy().ends_with(".zip") {
-        let mut zip =
-            zip::ZipArchive::new(f).map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+        let mut zip = zip::ZipArchive::new(f).map_err(|e| UpdateError::Extract(e.to_string()))?;
         for i in 0..zip.len() {
             let mut entry = zip
                 .by_index(i)
-                .map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+                .map_err(|e| UpdateError::Extract(e.to_string()))?;
             let name = entry.name().to_string();
             if name.ends_with("cinch.exe") || name.ends_with("cinch") {
                 let mut out =
-                    fs::File::create(dest).map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
-                io::copy(&mut entry, &mut out)
-                    .map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+                    fs::File::create(dest).map_err(|e| UpdateError::Extract(e.to_string()))?;
+                io::copy(&mut entry, &mut out).map_err(|e| UpdateError::Extract(e.to_string()))?;
                 return Ok(());
             }
         }
-        Err(SelfUpdateError::Extract(
-            "cinch binary not found in zip".into(),
-        ))
+        Err(UpdateError::Extract("cinch binary not found in zip".into()))
     } else {
         let gz = flate2::read::GzDecoder::new(f);
         let mut tar = tar::Archive::new(gz);
         for entry in tar
             .entries()
-            .map_err(|e| SelfUpdateError::Extract(e.to_string()))?
+            .map_err(|e| UpdateError::Extract(e.to_string()))?
         {
-            let mut entry = entry.map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+            let mut entry = entry.map_err(|e| UpdateError::Extract(e.to_string()))?;
             let path = entry
                 .path()
-                .map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+                .map_err(|e| UpdateError::Extract(e.to_string()))?;
             let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
             if name == "cinch" {
                 let mut out =
-                    fs::File::create(dest).map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
-                io::copy(&mut entry, &mut out)
-                    .map_err(|e| SelfUpdateError::Extract(e.to_string()))?;
+                    fs::File::create(dest).map_err(|e| UpdateError::Extract(e.to_string()))?;
+                io::copy(&mut entry, &mut out).map_err(|e| UpdateError::Extract(e.to_string()))?;
                 return Ok(());
             }
         }
-        Err(SelfUpdateError::Extract(
+        Err(UpdateError::Extract(
             "cinch binary not found in tar.gz".into(),
         ))
     }
@@ -392,73 +451,48 @@ mod tests {
     }
 
     #[test]
-    fn gate_proceeds_when_source_is_unknown_without_force() {
+    fn route_unknown_is_swap() {
+        assert_eq!(route(&InstallSource::Unknown, false), UpdateRoute::Swap);
+    }
+
+    #[test]
+    fn route_managed_without_force_is_package_manager() {
         assert_eq!(
-            gate(&InstallSource::Unknown, false),
-            SelfUpdateGate::Proceed
+            route(&InstallSource::Homebrew { cask: false }, false),
+            UpdateRoute::PackageManager
+        );
+        assert_eq!(
+            route(
+                &InstallSource::Apt {
+                    pkg: "cinch".into()
+                },
+                false
+            ),
+            UpdateRoute::PackageManager
         );
     }
 
     #[test]
-    fn gate_proceeds_when_source_is_unknown_with_force() {
-        assert_eq!(gate(&InstallSource::Unknown, true), SelfUpdateGate::Proceed);
-    }
-
-    #[test]
-    fn gate_refuses_homebrew_without_force() {
+    fn route_managed_with_force_is_swap() {
         assert_eq!(
-            gate(&InstallSource::Homebrew { cask: false }, false),
-            SelfUpdateGate::Refuse(InstallSource::Homebrew { cask: false }),
+            route(&InstallSource::Homebrew { cask: true }, true),
+            UpdateRoute::Swap
         );
     }
 
     #[test]
-    fn gate_refuses_apt_without_force() {
-        let apt = InstallSource::Apt {
-            pkg: "cinch".into(),
-        };
-        assert_eq!(gate(&apt, false), SelfUpdateGate::Refuse(apt));
+    fn consent_skip_when_yes() {
+        assert_eq!(consent_mode(true, false), ConsentMode::Skip);
+        assert_eq!(consent_mode(true, true), ConsentMode::Skip);
     }
 
     #[test]
-    fn gate_refuses_rpm_without_force() {
-        let rpm = InstallSource::Rpm {
-            pkg: "cinch-0.5.0-1.x86_64".into(),
-        };
-        assert_eq!(gate(&rpm, false), SelfUpdateGate::Refuse(rpm));
+    fn consent_prompt_when_tty_no_yes() {
+        assert_eq!(consent_mode(false, true), ConsentMode::Prompt);
     }
 
     #[test]
-    fn gate_warns_when_homebrew_with_force() {
-        assert_eq!(
-            gate(&InstallSource::Homebrew { cask: false }, true),
-            SelfUpdateGate::ProceedWithWarning(InstallSource::Homebrew { cask: false }),
-        );
-    }
-
-    #[test]
-    fn gate_warns_when_apt_with_force() {
-        let apt = InstallSource::Apt {
-            pkg: "cinch".into(),
-        };
-        assert_eq!(gate(&apt, true), SelfUpdateGate::ProceedWithWarning(apt),);
-    }
-
-    #[test]
-    fn managed_install_error_display_includes_source_and_hint_for_homebrew() {
-        let err = SelfUpdateError::ManagedInstall(InstallSource::Homebrew { cask: false });
-        let s = err.to_string();
-        assert!(s.contains("Homebrew"), "missing source kind: {}", s);
-        assert!(s.contains("brew upgrade cinchcli"), "missing hint: {}", s);
-    }
-
-    #[test]
-    fn managed_install_error_display_for_apt() {
-        let err = SelfUpdateError::ManagedInstall(InstallSource::Apt {
-            pkg: "cinch".into(),
-        });
-        let s = err.to_string();
-        assert!(s.contains("apt"), "missing source kind: {}", s);
-        assert!(s.contains("apt install"), "missing hint: {}", s);
+    fn consent_noninteractive_when_no_tty_no_yes() {
+        assert_eq!(consent_mode(false, false), ConsentMode::NonInteractive);
     }
 }
