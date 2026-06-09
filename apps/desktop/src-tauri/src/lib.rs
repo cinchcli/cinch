@@ -216,17 +216,46 @@ pub fn run() {
         )
         .expect("Failed to export TypeScript bindings");
 
+    // Build a `cinch://` HTTP response, attaching an immutable `Cache-Control`
+    // for cacheable (200) results so a revisit hits the webview cache instead
+    // of re-reading the BLOB. A plain (non-capturing) fn so it can be called
+    // both inline and from the worker thread below.
+    fn build_media_response(r: crate::media::MediaResponse) -> tauri::http::Response<Vec<u8>> {
+        let mut builder = tauri::http::Response::builder()
+            .status(r.status)
+            .header("Content-Type", r.content_type);
+        if let Some(cc) = crate::media::media_cache_control(r.status) {
+            builder = builder.header("Cache-Control", cc);
+        }
+        builder.body(r.body).unwrap()
+    }
+
     tauri::Builder::default()
-        .register_uri_scheme_protocol("cinch", {
-            move |app, request| {
-                let uri = request.uri().to_string();
-                let r = if let Some(clip_id) = uri
-                    .strip_prefix("cinch://media/")
-                    .or_else(|| uri.strip_prefix("cinch://media\\"))
-                {
-                    let store = app.app_handle().state::<crate::SharedStore>();
-                    crate::media::serve_clip_image(store.inner(), clip_id)
-                } else if let Some(bundle_id) = uri
+        .register_asynchronous_uri_scheme_protocol("cinch", move |ctx, request, responder| {
+            let uri = request.uri().to_string();
+            if let Some(clip_id) = uri
+                .strip_prefix("cinch://media/")
+                .or_else(|| uri.strip_prefix("cinch://media\\"))
+            {
+                // Image BLOBs can be several MB. This handler is invoked on the
+                // webview's main thread (macOS WKWebView), so reading the BLOB
+                // inline blocks the UI on every navigation to an image clip.
+                // Clone the shared store handle and serve from a worker thread,
+                // responding once the read completes.
+                let clip_id = clip_id.to_string();
+                let store: crate::SharedStore = ctx
+                    .app_handle()
+                    .state::<crate::SharedStore>()
+                    .inner()
+                    .clone();
+                std::thread::spawn(move || {
+                    let r = crate::media::serve_clip_image(&store, &clip_id);
+                    responder.respond(build_media_response(r));
+                });
+            } else {
+                // app-icon / unknown: the AppKit icon lookup must stay on the
+                // calling (main) thread, so serve it inline and respond now.
+                let r = if let Some(bundle_id) = uri
                     .strip_prefix("cinch://app-icon/")
                     .or_else(|| uri.strip_prefix("cinch://app-icon\\"))
                 {
@@ -238,11 +267,7 @@ pub fn run() {
                         body: Vec::new(),
                     }
                 };
-                tauri::http::Response::builder()
-                    .status(r.status)
-                    .header("Content-Type", r.content_type)
-                    .body(r.body)
-                    .unwrap()
+                responder.respond(build_media_response(r));
             }
         })
         .plugin(tauri_plugin_opener::init())

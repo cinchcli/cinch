@@ -12,6 +12,18 @@ use rusqlite::Row;
 /// apart (a silent off-by-one is exactly the kind of bug this prevents).
 pub(super) const CLIP_COLUMNS: &str = "id, source, source_key, source_app_id, source_app, source_url, label, content_type, content, media_path, byte_size, created_at, pinned, pinned_at, sync_state";
 
+/// Same columns as [`CLIP_COLUMNS`], in the same positional order, except
+/// `content` is forced to `NULL` for image rows (`content_type LIKE 'image%'`).
+///
+/// List/display callers that render image bytes out-of-band — the desktop
+/// fetches them by id via `cinch://media/`, never from a list result — use
+/// this projection so a list refresh never reads multi-MB image BLOBs off disk
+/// only to discard them (image bytes are not valid UTF-8 and never survive the
+/// `StoredClip` → frontend string conversion anyway). Text/code/url content is
+/// returned unchanged. Callers that genuinely need image bytes (e.g. the CLI
+/// `cinch get`) must keep using [`CLIP_COLUMNS`].
+pub(super) const CLIP_COLUMNS_OMIT_IMAGE_CONTENT: &str = "id, source, source_key, source_app_id, source_app, source_url, label, content_type, CASE WHEN content_type LIKE 'image%' THEN NULL ELSE content END AS content, media_path, byte_size, created_at, pinned, pinned_at, sync_state";
+
 pub(super) fn stored_clip_from_row(r: &Row<'_>) -> rusqlite::Result<StoredClip> {
     Ok(StoredClip {
         id: r.get(0)?,
@@ -111,7 +123,60 @@ pub fn list_clips(
     pinned_only: bool,
     default_limit: i64,
 ) -> Result<Vec<StoredClip>, StoreError> {
-    let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
+    list_clips_with_columns(
+        store,
+        from,
+        exclude_source,
+        limit,
+        offset,
+        since_ms,
+        pinned_only,
+        default_limit,
+        CLIP_COLUMNS,
+    )
+}
+
+/// Like [`list_clips`], but image rows come back with `content == None`. See
+/// [`CLIP_COLUMNS_OMIT_IMAGE_CONTENT`] for why list/display callers prefer this
+/// (it avoids reading multi-MB image BLOBs the list never uses). Identical
+/// ordering, filtering, and pagination — only the `content` projection differs.
+#[allow(clippy::too_many_arguments)]
+pub fn list_clips_without_image_content(
+    store: &Store,
+    from: Option<&str>,
+    exclude_source: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    since_ms: Option<i64>,
+    pinned_only: bool,
+    default_limit: i64,
+) -> Result<Vec<StoredClip>, StoreError> {
+    list_clips_with_columns(
+        store,
+        from,
+        exclude_source,
+        limit,
+        offset,
+        since_ms,
+        pinned_only,
+        default_limit,
+        CLIP_COLUMNS_OMIT_IMAGE_CONTENT,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn list_clips_with_columns(
+    store: &Store,
+    from: Option<&str>,
+    exclude_source: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    since_ms: Option<i64>,
+    pinned_only: bool,
+    default_limit: i64,
+    columns: &str,
+) -> Result<Vec<StoredClip>, StoreError> {
+    let mut sql = format!("SELECT {columns} FROM clips WHERE 1=1");
     let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(s) = from {
         sql.push_str(" AND source = ?");
