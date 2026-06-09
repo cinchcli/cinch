@@ -16,11 +16,7 @@ const CI_ENV_VARS: &[&str] = &[
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NotifyAction {
-    Print {
-        from: String,
-        to: String,
-        hint: String,
-    },
+    Print { from: String, to: String },
     Silent,
 }
 
@@ -50,7 +46,6 @@ pub fn decide(
     NotifyAction::Print {
         from: current.to_string(),
         to: next.to_string(),
-        hint: crate::update::source::hint(source).to_string(),
     }
 }
 
@@ -114,9 +109,9 @@ pub async fn maybe_notify() {
     let source = crate::update::source::detect(&exe, &crate::update::source::RealDetector);
     let action = decide(env!("CARGO_PKG_VERSION"), &manifest, &source, now_unix);
 
-    if let NotifyAction::Print { from, to, hint } = action {
+    if let NotifyAction::Print { from, to } = action {
         eprintln!("A new version of cinch is available: {} → {}", from, to);
-        eprintln!("{}", hint);
+        eprintln!("Run: cinch update");
     }
 }
 
@@ -141,7 +136,6 @@ mod tests {
             NotifyAction::Print {
                 from: "0.5.0".into(),
                 to: "0.6.0".into(),
-                hint: "Run: cinch update".into(),
             }
         );
     }
@@ -195,9 +189,7 @@ mod tests {
             after_grace,
         );
         match action {
-            NotifyAction::Print { hint, .. } => {
-                assert_eq!(hint, "Run: brew upgrade cinchcli");
-            }
+            NotifyAction::Print { .. } => (),
             NotifyAction::Silent => panic!("expected Print after grace window"),
         }
     }

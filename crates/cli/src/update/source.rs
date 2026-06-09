@@ -41,17 +41,6 @@ pub fn detect(exe: &Path, d: &dyn Detector) -> InstallSource {
     InstallSource::Unknown
 }
 
-pub fn hint(source: &InstallSource) -> &'static str {
-    match source {
-        InstallSource::Homebrew { .. } => "Run: brew upgrade cinchcli",
-        InstallSource::Apt { .. } => {
-            "Run: sudo apt update && sudo apt install --only-upgrade cinch"
-        }
-        InstallSource::Rpm { .. } => "Run: sudo dnf upgrade cinch",
-        InstallSource::Unknown => "Run: cinch update",
-    }
-}
-
 /// A cask install resolves into an `.app` bundle (under `Caskroom` or
 /// `/Applications`); a formula install resolves into the `Cellar`. Pure string
 /// check so it's unit-testable. We anchor on `.app/Contents/` (the bundle's
