@@ -50,3 +50,89 @@ fn stdout_uses_default_var() {
     assert_eq!(code, Some(0));
     assert_eq!(stdout.trim_end(), "hi world");
 }
+
+#[test]
+fn list_json_outputs_names() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  a:\n    content: x\n    description: alpha\n  b:\n    content: y\n",
+    );
+    let (code, stdout, _stderr) = run_use(tmp.path(), &["--list", "--json"]);
+    assert_eq!(code, Some(0));
+    assert!(stdout.contains("\"name\":\"a\""), "got: {stdout}");
+    assert!(
+        stdout.contains("\"description\":\"alpha\""),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn missing_clipfile_errors_with_hint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (code, _stdout, stderr) = run_use(tmp.path(), &["anything"]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("no cinch.yaml"), "got: {stderr}");
+}
+
+#[test]
+fn unknown_clip_lists_available() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  deploy:\n    content: x\n",
+    );
+    let (code, _stdout, stderr) = run_use(tmp.path(), &["nope"]);
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("not found"), "got: {stderr}");
+    assert!(
+        stderr.contains("deploy"),
+        "fix hint should list available clips, got: {stderr}"
+    );
+}
+
+#[test]
+fn missing_required_var_errors_in_non_tty() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  api:\n    content: \"{{token}}\"\n    vars:\n      token: {}\n",
+    );
+    // stdin is null (non-TTY) via run_use, so this must error rather than hang.
+    let (code, _stdout, stderr) = run_use(tmp.path(), &["api", "--stdout"]);
+    assert_eq!(code, Some(1));
+    assert!(
+        stderr.contains("missing required variable"),
+        "got: {stderr}"
+    );
+    assert!(stderr.contains("token"), "got: {stderr}");
+}
+
+#[test]
+fn transform_pretty_json_is_applied() {
+    let tmp = tempfile::tempdir().unwrap();
+    // compact JSON content + pretty-json transform => multi-line output.
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  cfg:\n    content: '{\"a\":1}'\n    content_type: code\n    transform: pretty-json\n",
+    );
+    let (code, stdout, _stderr) = run_use(tmp.path(), &["cfg", "--stdout"]);
+    assert_eq!(code, Some(0));
+    assert!(
+        stdout.contains("\n"),
+        "pretty-json should add newlines, got: {stdout:?}"
+    );
+    assert!(stdout.contains("\"a\": 1"), "got: {stdout:?}");
+}
+
+#[test]
+fn undeclared_braces_pass_through() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_clipfile(
+        tmp.path(),
+        "version: 1\nclips:\n  gha:\n    content: \"token ${{ secrets.X }}\"\n",
+    );
+    let (code, stdout, _stderr) = run_use(tmp.path(), &["gha", "--stdout"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(stdout.trim_end(), "token ${{ secrets.X }}");
+}
