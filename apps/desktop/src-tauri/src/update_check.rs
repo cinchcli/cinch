@@ -1,8 +1,14 @@
-//! GitHub Releases fetcher + per-device outdated comparison.
+//! Release manifest fetcher + per-device outdated comparison.
 //!
-//! On launch and every 6 hours after, the desktop fetches the latest
-//! release tag for both `cinchcli/cinch` (CLI) and `cinchcli/desktop`
-//! (this binary) and caches the result in `app_local_data_dir()/
+//! On launch and every 6 hours after, the desktop fetches the single
+//! CDN-backed `version.json` manifest published by `cinchcli/cinch`:
+//!
+//!   `https://github.com/cinchcli/cinch/releases/latest/download/version.json`
+//!
+//! The manifest returns a bare semver (e.g. `{"version":"0.7.1",...}`).
+//! Because the monorepo is single-version, both the CLI and desktop
+//! share this version, so one fetch populates both `LatestVersions`
+//! fields. The result is cached in `app_local_data_dir()/
 //! version-cache.json`. The cached values drive the version badge
 //! rendered next to each device in `DevicesPanel` and the "Update"
 //! button on the user's own outdated desktop row.
@@ -18,8 +24,8 @@ use specta::Type;
 use tauri::Manager;
 
 const CACHE_TTL: Duration = Duration::from_secs(6 * 3600);
-const GH_CLI: &str = "https://api.github.com/repos/cinchcli/cinch/releases/latest";
-const GH_DESKTOP: &str = "https://api.github.com/repos/cinchcli/desktop/releases/latest";
+const VERSION_JSON: &str =
+    "https://github.com/cinchcli/cinch/releases/latest/download/version.json";
 
 /// Latest published release tag for each binary, plus the unix
 /// timestamp at which the desktop last refreshed it. Frontend reads
@@ -30,6 +36,13 @@ pub struct LatestVersions {
     pub desktop: Option<String>,
     /// Unix seconds.
     pub fetched_at: Option<u64>,
+}
+
+/// The CLI's release manifest. We read only `version` (single monorepo
+/// version drives both CLI and desktop).
+#[derive(Debug, Deserialize)]
+pub struct VersionManifest {
+    pub version: String,
 }
 
 /// Outcome of comparing a single device's reported version against the
@@ -107,9 +120,9 @@ pub fn is_stale(v: &LatestVersions) -> bool {
     now.saturating_sub(at) > CACHE_TTL.as_secs()
 }
 
-/// Fetches both GitHub release endpoints in sequence, merges them with
-/// the existing cache (so a single-endpoint failure doesn't wipe the
-/// other field), updates `fetched_at`, and writes the result back. On
+/// Fetches the single CDN-backed `version.json` manifest, populates
+/// both `cli` and `desktop` from it (they share the same monorepo
+/// version), updates `fetched_at`, and writes the result back. On
 /// total failure (e.g. reqwest builder error) returns the existing
 /// cache unchanged.
 pub async fn fetch_and_cache(app: tauri::AppHandle) -> LatestVersions {
@@ -122,14 +135,12 @@ pub async fn fetch_and_cache(app: tauri::AppHandle) -> LatestVersions {
         Err(_) => return load_cache(&app),
     };
 
-    let cli = fetch_one(&client, GH_CLI).await;
-    let desktop = fetch_one(&client, GH_DESKTOP).await;
+    let latest = fetch_version(&client).await;
 
     let mut current = load_cache(&app);
-    if let Some(v) = cli {
-        current.cli = Some(v);
-    }
-    if let Some(v) = desktop {
+    if let Some(v) = latest {
+        // Single monorepo version: CLI and desktop share it.
+        current.cli = Some(v.clone());
         current.desktop = Some(v);
     }
     let now = SystemTime::now()
@@ -141,12 +152,10 @@ pub async fn fetch_and_cache(app: tauri::AppHandle) -> LatestVersions {
     current
 }
 
-async fn fetch_one(client: &reqwest::Client, url: &str) -> Option<String> {
-    let resp = client.get(url).send().await.ok()?;
-    let body = resp.json::<serde_json::Value>().await.ok()?;
-    body.get("tag_name")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+async fn fetch_version(client: &reqwest::Client) -> Option<String> {
+    let resp = client.get(VERSION_JSON).send().await.ok()?;
+    let manifest = resp.json::<VersionManifest>().await.ok()?;
+    Some(manifest.version)
 }
 
 #[cfg(test)]
@@ -297,5 +306,31 @@ mod tests {
             fetched_at: Some(now.saturating_sub(60)),
         };
         assert!(!is_stale(&recent));
+    }
+
+    #[test]
+    fn parses_version_json() {
+        let body = r#"{"version":"0.7.1","published_at":1715000000}"#;
+        let m: VersionManifest = serde_json::from_str(body).unwrap();
+        assert_eq!(m.version, "0.7.1");
+    }
+
+    #[test]
+    fn clean_version_compares_without_prefix() {
+        // Regression: the old GitHub-API path returned "release/0.7.1" which
+        // compare_versions() could not parse. version.json gives a bare semver.
+        let l = LatestVersions {
+            cli: Some("0.7.1".into()),
+            desktop: Some("0.7.1".into()),
+            fetched_at: None,
+        };
+        assert_eq!(
+            compare(Some("0.7.0"), Some("desktop"), &l),
+            VersionStatus::Outdated
+        );
+        assert_eq!(
+            compare(Some("0.7.1"), Some("desktop"), &l),
+            VersionStatus::UpToDate
+        );
     }
 }

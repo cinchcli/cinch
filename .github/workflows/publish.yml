@@ -111,7 +111,7 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           tar -czf cinch-cli-${{ matrix.target }}.tar.gz cinch
-          # `cinch self-update` fetches `<asset>.sha256` next to the asset
+          # `cinch update` fetches `<asset>.sha256` next to the asset
           # and verifies the download. shasum on macOS, sha256sum on Linux.
           if command -v shasum >/dev/null 2>&1; then
             shasum -a 256 cinch-cli-${{ matrix.target }}.tar.gz > cinch-cli-${{ matrix.target }}.tar.gz.sha256
@@ -256,12 +256,12 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p dist
-          # `.sha256` is required for `cinch self-update` to verify the
+          # `.sha256` is required for `cinch update` to verify the
           # download against the expected checksum.
           find artifacts/ -type f \( -name "*.dmg" -o -name "*.tar.gz" -o -name "*.sig" -o -name "*.zip" -o -name "*.sha256" \) -exec cp {} dist/ \;
           ls dist/
       - name: Write version.json
-        # Consumed by `cinch self-update` (crates/cli/src/update/manifest.rs)
+        # Consumed by `cinch update` (crates/cli/src/update/manifest.rs)
         # to learn the latest version + publish time without parsing the
         # Tauri updater manifest. Kept separate so the schemas can drift
         # independently.
