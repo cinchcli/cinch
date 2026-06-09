@@ -36,7 +36,7 @@ fn to_exit_error(e: self_update::SelfUpdateError) -> crate::exit::ExitError {
     match e {
         SelfUpdateError::ManagedInstall(ref src) => {
             let kind = match src {
-                source::InstallSource::Homebrew => "Homebrew",
+                source::InstallSource::Homebrew { .. } => "Homebrew",
                 source::InstallSource::Apt { .. } => "apt",
                 source::InstallSource::Rpm { .. } => "rpm",
                 source::InstallSource::Unknown => "a package manager",
@@ -69,14 +69,16 @@ mod tests {
 
     #[test]
     fn to_exit_error_managed_homebrew_has_context_and_force_hint() {
-        let ee = to_exit_error(SelfUpdateError::ManagedInstall(InstallSource::Homebrew));
+        let ee = to_exit_error(SelfUpdateError::ManagedInstall(InstallSource::Homebrew {
+            cask: false,
+        }));
         assert!(ee.message.contains("Homebrew"), "msg: {}", ee.message);
         assert!(
             ee.message.contains("Self-update is disabled"),
             "msg: {}",
             ee.message
         );
-        assert!(ee.fix.contains("brew upgrade cinch"), "fix: {}", ee.fix);
+        assert!(ee.fix.contains("brew upgrade cinchcli"), "fix: {}", ee.fix);
         assert!(ee.fix.contains("--force"), "fix: {}", ee.fix);
     }
 

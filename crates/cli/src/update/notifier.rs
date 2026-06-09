@@ -141,7 +141,7 @@ mod tests {
             NotifyAction::Print {
                 from: "0.5.0".into(),
                 to: "0.6.0".into(),
-                hint: "Run: cinch self-update".into(),
+                hint: "Run: cinch update".into(),
             }
         );
     }
@@ -164,7 +164,12 @@ mod tests {
     fn grace_window_suppresses_recent_releases_for_brew() {
         let m = make_manifest("0.6.0", 1_715_000_000);
         let recent = 1_715_000_000 + 60 * 60; // 1h after publish
-        let action = decide("0.5.0", &m, &InstallSource::Homebrew, recent);
+        let action = decide(
+            "0.5.0",
+            &m,
+            &InstallSource::Homebrew { cask: false },
+            recent,
+        );
         assert_eq!(action, NotifyAction::Silent);
     }
 
@@ -183,10 +188,15 @@ mod tests {
     fn grace_window_expires_after_six_hours_for_brew() {
         let m = make_manifest("0.6.0", 1_715_000_000);
         let after_grace = 1_715_000_000 + GRACE_WINDOW_SECS + 1;
-        let action = decide("0.5.0", &m, &InstallSource::Homebrew, after_grace);
+        let action = decide(
+            "0.5.0",
+            &m,
+            &InstallSource::Homebrew { cask: false },
+            after_grace,
+        );
         match action {
             NotifyAction::Print { hint, .. } => {
-                assert_eq!(hint, "Run: brew upgrade cinch");
+                assert_eq!(hint, "Run: brew upgrade cinchcli");
             }
             NotifyAction::Silent => panic!("expected Print after grace window"),
         }

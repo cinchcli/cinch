@@ -75,7 +75,7 @@ impl std::fmt::Display for SelfUpdateError {
             Self::NotPermitted(s) => write!(f, "{}", s),
             Self::ManagedInstall(src) => {
                 let kind = match src {
-                    InstallSource::Homebrew => "Homebrew",
+                    InstallSource::Homebrew { .. } => "Homebrew",
                     InstallSource::Apt { .. } => "apt",
                     InstallSource::Rpm { .. } => "rpm",
                     InstallSource::Unknown => "a package manager",
@@ -134,7 +134,7 @@ pub async fn run(opts: RunOptions) -> Result<(), SelfUpdateError> {
             eprintln!(
                 "warning: cinch was installed via {}; --force will replace the package-managed binary.",
                 match src {
-                    InstallSource::Homebrew => "Homebrew",
+                    InstallSource::Homebrew { .. } => "Homebrew",
                     InstallSource::Apt { .. } => "apt",
                     InstallSource::Rpm { .. } => "rpm",
                     InstallSource::Unknown => "a package manager",
@@ -407,8 +407,8 @@ mod tests {
     #[test]
     fn gate_refuses_homebrew_without_force() {
         assert_eq!(
-            gate(&InstallSource::Homebrew, false),
-            SelfUpdateGate::Refuse(InstallSource::Homebrew),
+            gate(&InstallSource::Homebrew { cask: false }, false),
+            SelfUpdateGate::Refuse(InstallSource::Homebrew { cask: false }),
         );
     }
 
@@ -431,8 +431,8 @@ mod tests {
     #[test]
     fn gate_warns_when_homebrew_with_force() {
         assert_eq!(
-            gate(&InstallSource::Homebrew, true),
-            SelfUpdateGate::ProceedWithWarning(InstallSource::Homebrew),
+            gate(&InstallSource::Homebrew { cask: false }, true),
+            SelfUpdateGate::ProceedWithWarning(InstallSource::Homebrew { cask: false }),
         );
     }
 
@@ -446,10 +446,10 @@ mod tests {
 
     #[test]
     fn managed_install_error_display_includes_source_and_hint_for_homebrew() {
-        let err = SelfUpdateError::ManagedInstall(InstallSource::Homebrew);
+        let err = SelfUpdateError::ManagedInstall(InstallSource::Homebrew { cask: false });
         let s = err.to_string();
         assert!(s.contains("Homebrew"), "missing source kind: {}", s);
-        assert!(s.contains("brew upgrade cinch"), "missing hint: {}", s);
+        assert!(s.contains("brew upgrade cinchcli"), "missing hint: {}", s);
     }
 
     #[test]
