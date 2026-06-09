@@ -49,11 +49,18 @@ const S: Record<string, CSSProperties> = {
     borderRadius: 6,
     color: C.t1,
     fontFamily: 'var(--font-mono)',
+    // Geist Mono enables programming ligatures (e.g. it fuses " --"), which
+    // visually swallows the space before "--" in literal shell commands. Turn
+    // ligatures + contextual alternates off so copy-paste commands render
+    // exactly as typed. (The global html rule sets 'liga' 1, inherited here.)
+    fontFeatureSettings: "'liga' 0, 'calt' 0",
     fontSize: 12.5,
     lineHeight: 1.5,
     padding: '8px 12px',
-    overflowX: 'auto',
-    whiteSpace: 'pre',
+    // Wrap long values (e.g. the Cursor MCP JSON) instead of horizontally
+    // scrolling — the overlay scrollbar otherwise renders on top of the text.
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
   },
   btn: {
     flexShrink: 0,

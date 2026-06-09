@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallSource {
-    Homebrew,
+    Homebrew { cask: bool },
     Apt { pkg: String },
     Rpm { pkg: String },
     Unknown,
@@ -20,7 +20,12 @@ pub trait Detector {
 pub fn detect(exe: &Path, d: &dyn Detector) -> InstallSource {
     if let Some(prefix) = d.brew_prefix() {
         if exe.starts_with(&prefix) {
-            return InstallSource::Homebrew;
+            // Follow the symlink (/opt/homebrew/bin/cinch → real binary); if it
+            // can't be resolved, classify the input path as-is.
+            let resolved = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+            return InstallSource::Homebrew {
+                cask: path_looks_like_cask(&resolved),
+            };
         }
     }
     if let Some(pkg) = d.dpkg_owner(exe) {
@@ -36,15 +41,14 @@ pub fn detect(exe: &Path, d: &dyn Detector) -> InstallSource {
     InstallSource::Unknown
 }
 
-pub fn hint(source: &InstallSource) -> &'static str {
-    match source {
-        InstallSource::Homebrew => "Run: brew upgrade cinch",
-        InstallSource::Apt { .. } => {
-            "Run: sudo apt update && sudo apt install --only-upgrade cinch"
-        }
-        InstallSource::Rpm { .. } => "Run: sudo dnf upgrade cinch",
-        InstallSource::Unknown => "Run: cinch self-update",
-    }
+/// A cask install resolves into an `.app` bundle (under `Caskroom` or
+/// `/Applications`); a formula install resolves into the `Cellar`. Pure string
+/// check so it's unit-testable. We anchor on `.app/Contents/` (the bundle's
+/// real layout) rather than a bare `.app/` so a stray `foo.app`-named dir or a
+/// `webapp/` path can't false-positive a formula into a cask.
+fn path_looks_like_cask(resolved: &Path) -> bool {
+    let s = resolved.to_string_lossy();
+    s.contains("/Caskroom/") || s.contains(".app/Contents/") || s.contains("/Applications/")
 }
 
 pub struct RealDetector;
@@ -132,8 +136,10 @@ mod tests {
             dpkg: None,
             rpm: None,
         };
-        let exe = Path::new("/opt/homebrew/bin/cinch");
-        assert_eq!(detect(exe, &d), InstallSource::Homebrew);
+        // Use a Cellar path that does not exist on disk so canonicalize() falls
+        // back to the raw path, which is formula-shaped (no .app / Caskroom).
+        let exe = Path::new("/opt/homebrew/Cellar/cinchcli/0.0.0-test/bin/cinch");
+        assert_eq!(detect(exe, &d), InstallSource::Homebrew { cask: false });
     }
 
     #[test]
@@ -191,20 +197,45 @@ mod tests {
     }
 
     #[test]
-    fn hint_strings_match_spec() {
-        assert_eq!(hint(&InstallSource::Homebrew), "Run: brew upgrade cinch");
-        assert_eq!(
-            hint(&InstallSource::Apt {
-                pkg: "cinch".to_string()
-            }),
-            "Run: sudo apt update && sudo apt install --only-upgrade cinch"
-        );
-        assert_eq!(
-            hint(&InstallSource::Rpm {
-                pkg: "cinch".to_string()
-            }),
-            "Run: sudo dnf upgrade cinch"
-        );
-        assert_eq!(hint(&InstallSource::Unknown), "Run: cinch self-update");
+    fn path_looks_like_cask_true_for_app_bundle() {
+        assert!(path_looks_like_cask(Path::new(
+            "/opt/homebrew/Caskroom/cinchcli/0.7.1/Cinch.app/Contents/MacOS/Cinch"
+        )));
+        assert!(path_looks_like_cask(Path::new(
+            "/Applications/Cinch.app/Contents/MacOS/Cinch"
+        )));
+    }
+
+    #[test]
+    fn path_looks_like_cask_false_for_cellar() {
+        assert!(!path_looks_like_cask(Path::new(
+            "/opt/homebrew/Cellar/cinchcli/0.7.1/bin/cinch"
+        )));
+    }
+
+    #[test]
+    fn detects_homebrew_formula_for_cellar_path() {
+        let d = FakeDetector {
+            brew_prefix: Some(PathBuf::from("/opt/homebrew")),
+            dpkg: None,
+            rpm: None,
+        };
+        // canonicalize() fails on this nonexistent path, so detect() falls back to
+        // classifying the input path itself — which is a Cellar (formula) path.
+        let exe = Path::new("/opt/homebrew/Cellar/cinchcli/0.7.1/bin/cinch");
+        assert_eq!(detect(exe, &d), InstallSource::Homebrew { cask: false });
+    }
+
+    #[test]
+    fn detects_homebrew_cask_for_app_path() {
+        let d = FakeDetector {
+            brew_prefix: Some(PathBuf::from("/opt/homebrew")),
+            dpkg: None,
+            rpm: None,
+        };
+        // Nonexistent path, so canonicalize() falls back to the raw path — which
+        // is cask-shaped (Caskroom + .app/Contents) and classifies as a cask.
+        let exe = Path::new("/opt/homebrew/Caskroom/cinchcli/0.7.1/Cinch.app/Contents/MacOS/Cinch");
+        assert_eq!(detect(exe, &d), InstallSource::Homebrew { cask: true });
     }
 }

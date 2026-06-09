@@ -1,7 +1,7 @@
 //! Full-text and structured clip search: query parsing, FTS sanitisation,
 //! and the ranked `query_clips` / `search_clips` entry points.
 
-use super::clips::{stored_clip_from_row, CLIP_COLUMNS};
+use super::clips::{stored_clip_from_row, CLIP_COLUMNS, CLIP_COLUMNS_OMIT_IMAGE_CONTENT};
 use super::models::StoredClip;
 use super::{Store, StoreError};
 use rusqlite::params;
@@ -45,12 +45,41 @@ pub fn query_clips(
     limit: i64,
     exclude_source: Option<&str>,
 ) -> Result<Vec<StoredClip>, StoreError> {
+    query_clips_with_columns(store, raw_query, limit, exclude_source, CLIP_COLUMNS)
+}
+
+/// Like [`query_clips`], but image rows come back with `content == None` (see
+/// [`super::clips::CLIP_COLUMNS_OMIT_IMAGE_CONTENT`]). The desktop list and
+/// search panes use this. The `WHERE` clause is unchanged, so matching and
+/// ranking are identical — only the returned `content` projection differs.
+pub fn query_clips_without_image_content(
+    store: &Store,
+    raw_query: &str,
+    limit: i64,
+    exclude_source: Option<&str>,
+) -> Result<Vec<StoredClip>, StoreError> {
+    query_clips_with_columns(
+        store,
+        raw_query,
+        limit,
+        exclude_source,
+        CLIP_COLUMNS_OMIT_IMAGE_CONTENT,
+    )
+}
+
+fn query_clips_with_columns(
+    store: &Store,
+    raw_query: &str,
+    limit: i64,
+    exclude_source: Option<&str>,
+    columns: &str,
+) -> Result<Vec<StoredClip>, StoreError> {
     let pq = parse_query_string(raw_query);
     let fts_query = sanitize_fts_query(&pq.search_term);
     let like_query = format!("%{}%", pq.search_term);
 
     store.with_conn(|conn| {
-        let mut sql = format!("SELECT {CLIP_COLUMNS} FROM clips WHERE 1=1");
+        let mut sql = format!("SELECT {columns} FROM clips WHERE 1=1");
         let mut binds: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
         if !pq.search_term.is_empty() {
@@ -174,6 +203,23 @@ pub fn search_clips(
     query_clips(store, &full_query, limit, exclude_source)
 }
 
+/// Like [`search_clips`], but image rows come back with `content == None`
+/// (see [`query_clips_without_image_content`]). Used by the desktop search
+/// pane, which renders image bytes out-of-band via `cinch://media/`.
+pub fn search_clips_without_image_content(
+    store: &Store,
+    query: &str,
+    limit: i64,
+    filter_type: Option<&str>,
+    exclude_source: Option<&str>,
+) -> Result<Vec<StoredClip>, StoreError> {
+    let mut full_query = query.to_string();
+    if let Some(t) = filter_type {
+        full_query.push_str(&format!(" type:{}", t));
+    }
+    query_clips_without_image_content(store, &full_query, limit, exclude_source)
+}
+
 /// Make an arbitrary natural-language query safe for SQLite FTS5 `MATCH`.
 /// FTS5 treats `-`, `:`, `"`, `*`, `(`, `)`, `^`, and bare-word operators
 /// (`AND`/`OR`/`NEAR`) specially; raw AI/user input often produces syntax
@@ -269,5 +315,59 @@ mod tests {
                 .is_empty(),
             "type:image search must not match image *content*, only metadata"
         );
+    }
+
+    #[test]
+    fn query_clips_without_image_content_nulls_images_keeps_text() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(&store, &text_clip("t", "hello world")).unwrap();
+        let mut img = text_clip("i", "rawimagebytes");
+        img.content_type = "image/png".into();
+        insert_clip(&store, &img).unwrap();
+
+        // Empty query → default newest-first list, via the omitting projection.
+        let rows = query_clips_without_image_content(&store, "", 10, None).unwrap();
+        let t = rows.iter().find(|c| c.id == "t").unwrap();
+        let i = rows.iter().find(|c| c.id == "i").unwrap();
+        assert_eq!(
+            t.content.as_deref(),
+            Some(&b"hello world"[..]),
+            "text content must survive the image-omitting projection"
+        );
+        assert!(
+            i.content.is_none(),
+            "image content must be NULL in the image-omitting projection"
+        );
+    }
+
+    #[test]
+    fn query_clips_still_returns_image_content() {
+        // Regression guard: non-desktop callers (CLI/MCP) of the search path
+        // must keep receiving image bytes.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mut img = text_clip("i", "rawimagebytes");
+        img.content_type = "image/png".into();
+        insert_clip(&store, &img).unwrap();
+
+        let rows = query_clips(&store, "", 10, None).unwrap();
+        assert_eq!(rows[0].content.as_deref(), Some(&b"rawimagebytes"[..]));
+    }
+
+    #[test]
+    fn search_clips_without_image_content_omits_image_under_type_filter() {
+        // type:image surfaces image rows by metadata; through the omitting
+        // projection their content must be NULL (the desktop renders image
+        // bytes via cinch://media/, never from a list result).
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let mut img = text_clip("i", "rawimagebytes");
+        img.content_type = "image/png".into();
+        img.label = Some("screenshot".into());
+        insert_clip(&store, &img).unwrap();
+
+        let rows =
+            search_clips_without_image_content(&store, "screenshot", 10, Some("image"), None)
+                .unwrap();
+        assert_eq!(rows.len(), 1, "label search must surface the image row");
+        assert!(rows[0].content.is_none(), "image content must be omitted");
     }
 }

@@ -2,8 +2,13 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { commands } from '../bindings';
 import { C } from '../design';
 
-/** Read-only identity rows for the signed-in account. No display name. */
+/**
+ * Read-only identity rows for the signed-in account. The Name is the display
+ * name fetched from the OAuth provider (GitHub/Google) at login, surfaced via
+ * `get_user_profile`; it is not user-editable here.
+ */
 export function AccountIdentity() {
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [provider, setProvider] = useState('');
   const [userId, setUserId] = useState('');
@@ -13,6 +18,7 @@ export function AccountIdentity() {
     (async () => {
       const p = await commands.getUserProfile();
       if (!mounted) return;
+      setDisplayName(p.display_name);
       setEmail(p.email);
       setProvider(p.identity_provider);
       setUserId(p.user_id);
@@ -24,6 +30,10 @@ export function AccountIdentity() {
 
   return (
     <dl style={S.dl}>
+      <div style={S.dlRow}>
+        <dt style={S.dt}>Name</dt>
+        <dd style={S.dd}>{displayName || '—'}</dd>
+      </div>
       <div style={S.dlRow}>
         <dt style={S.dt}>Email</dt>
         <dd style={S.dd}>{email || '—'}</dd>

@@ -14,12 +14,14 @@
 
 pub use super::clips::{
     clear_all_clips, clip_count, count_clips_before, delete_clip, get_clip, insert_clip,
-    list_clips, purge_clips_before, recent_clip_id_by_content, set_pinned,
+    list_clips, list_clips_without_image_content, purge_clips_before, recent_clip_id_by_content,
+    set_pinned,
 };
 pub use super::devices::{list_devices, list_sources};
 pub use super::retention::{list_retention, set_retention};
 pub use super::search::{
-    parse_query_string, query_clips, sanitize_fts_query, search_clips, ParsedQuery,
+    parse_query_string, query_clips, query_clips_without_image_content, sanitize_fts_query,
+    search_clips, search_clips_without_image_content, ParsedQuery,
 };
 pub use super::sync_state::{
     enforce_offline_cap, list_pending_clips, mark_local, mark_pending, replace_id_and_mark_synced,
@@ -843,6 +845,85 @@ mod tests {
             count, 1,
             "only the old non-pinned clip should be counted; \
              pinned-old is retention-exempt and boundary-clip is outside strict-< window"
+        );
+    }
+
+    #[test]
+    fn list_clips_without_image_content_nulls_images_keeps_text() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "t".into(),
+                source: "s".into(),
+                content_type: "text".into(),
+                content: Some(b"hello".to_vec()),
+                byte_size: 5,
+                created_at: 10,
+                sync_state: SyncState::Synced,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "i".into(),
+                source: "s".into(),
+                content_type: "image/png".into(),
+                content: Some(vec![0x89, 0x50, 0x4E, 0x47]),
+                byte_size: 4,
+                created_at: 20,
+                sync_state: SyncState::Synced,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let rows =
+            list_clips_without_image_content(&store, None, None, None, None, None, false, 10)
+                .unwrap();
+        let t = rows.iter().find(|c| c.id == "t").unwrap();
+        let i = rows.iter().find(|c| c.id == "i").unwrap();
+        assert_eq!(
+            t.content.as_deref(),
+            Some(&b"hello"[..]),
+            "text content must survive the image-omitting list projection"
+        );
+        assert!(
+            i.content.is_none(),
+            "image content must be NULL in the image-omitting list projection"
+        );
+        assert_eq!(
+            i.byte_size, 4,
+            "byte_size metadata must still be reported for image rows"
+        );
+    }
+
+    #[test]
+    fn list_clips_still_returns_image_content() {
+        // Regression guard: the CLI `cinch get <index>` path reads image bytes
+        // straight from list_clips, so the standard projection must keep them.
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(
+            &store,
+            &StoredClip {
+                id: "i".into(),
+                source: "s".into(),
+                content_type: "image/png".into(),
+                content: Some(vec![0x89, 0x50, 0x4E, 0x47]),
+                byte_size: 4,
+                created_at: 20,
+                sync_state: SyncState::Synced,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let rows = list_clips(&store, None, None, Some(1), Some(0), None, false, 10).unwrap();
+        assert_eq!(
+            rows[0].content.as_deref(),
+            Some(&[0x89u8, 0x50, 0x4E, 0x47][..])
         );
     }
 }

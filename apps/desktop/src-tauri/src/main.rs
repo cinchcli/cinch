@@ -5,18 +5,45 @@
 use std::path::Path;
 
 #[cfg(feature = "builtin-cli")]
+fn is_cli_name(exe: &str) -> bool {
+    // The desktop launcher invokes the app as "Cinch" (capital), so matching
+    // the lowercase CLI names is unambiguous. `ci` is the short symlink alias.
+    matches!(exe, "cinch" | "cinch.exe" | "ci" | "ci.exe")
+}
+
+#[cfg(feature = "builtin-cli")]
 fn invoked_as_cli() -> bool {
     let args: Vec<String> = std::env::args().collect();
-    if args.is_empty() {
+    let Some(arg0) = args.first() else {
         return false;
-    }
-    let exe = Path::new(&args[0])
+    };
+    let exe = Path::new(arg0)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    // If the binary is symlinked/renamed as "cinch", dispatch to CLI.
-    // The desktop launcher invokes as "Cinch" (capital), so this is unambiguous.
-    matches!(exe, "cinch" | "cinch.exe")
+    is_cli_name(exe)
+}
+
+#[cfg(all(test, feature = "builtin-cli"))]
+mod tests {
+    use super::is_cli_name;
+
+    #[test]
+    fn cli_invocation_names_dispatch_to_cli() {
+        assert!(is_cli_name("cinch"));
+        assert!(is_cli_name("cinch.exe"));
+        assert!(is_cli_name("ci"));
+        assert!(is_cli_name("ci.exe"));
+    }
+
+    #[test]
+    fn desktop_and_unknown_names_do_not_dispatch() {
+        assert!(!is_cli_name("Cinch"));
+        assert!(!is_cli_name("Cinch.exe"));
+        assert!(!is_cli_name("cinchd"));
+        assert!(!is_cli_name("cid"));
+        assert!(!is_cli_name(""));
+    }
 }
 
 fn main() {
