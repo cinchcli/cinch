@@ -92,13 +92,47 @@ enum Cmd {
     Push(commands::push::Args),
 }
 
-fn print_completion_override(shell: Shell) {
-    match shell {
-        Shell::Zsh => print!("{}", ZSH_FROM_OVERRIDE),
-        Shell::Bash => print!("{}", BASH_FROM_OVERRIDE),
-        Shell::Fish => print!("{}", FISH_FROM_OVERRIDE),
-        _ => {}
+/// The basename the binary was invoked under, normalized to one of our two
+/// supported command names. Invoked via the `ci` symlink → `"ci"`; anything
+/// else (including `cinch` and odd argv[0]s) → `"cinch"`.
+fn invoked_bin_name() -> &'static str {
+    let arg0 = std::env::args_os().next();
+    let base = arg0
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .map(|s| s.strip_suffix(".exe").unwrap_or(s));
+    match base {
+        Some("ci") => "ci",
+        _ => "cinch",
     }
+}
+
+/// The hand-written device-name completion override, keyed to `name`
+/// (`cinch` or `ci`) so the two completion files never collide when sourced.
+fn completion_override(shell: Shell, name: &str) -> String {
+    let template = match shell {
+        Shell::Zsh => ZSH_FROM_OVERRIDE,
+        Shell::Bash => BASH_FROM_OVERRIDE,
+        Shell::Fish => FISH_FROM_OVERRIDE,
+        _ => return String::new(),
+    };
+    template.replace("{bin}", name)
+}
+
+/// Render the full completion script for `name`: clap's AOT output (hidden
+/// subcommands stripped) plus the dynamic override, both keyed to `name`.
+fn render_completion(shell: Shell, name: &str) -> String {
+    let full = Cli::command();
+    // AOT generators don't skip `hide = true` subcommands; rebuild the tree
+    // without them so deprecated aliases never appear as candidates (§4d).
+    let mut cmd = strip_hidden_subcommands(&full).version(env!("CARGO_PKG_VERSION"));
+    let mut buf: Vec<u8> = Vec::new();
+    clap_complete::generate(shell, &mut cmd, name, &mut buf);
+    let mut out = String::from_utf8(buf).expect("clap completion output is valid UTF-8");
+    out.push_str(&completion_override(shell, name));
+    out
 }
 
 /// Rebuild `cmd` keeping only **non-hidden** subcommands, recursively.
@@ -140,66 +174,67 @@ fn strip_hidden_subcommands(cmd: &clap::Command) -> clap::Command {
 
 // Appended after clap_complete's static output.
 // Teaches the shell to complete device-name values (`pull --from`)
-// with `cinch fleet list --names` (the post-0.5 name; `device` is a hidden
+// with `{bin} fleet list --names` (the post-0.5 name; `device` is a hidden
 // deprecated alias and must not appear in generated completions, §4d).
+// `{bin}` is substituted at runtime with the invoked binary name (cinch or ci).
 
 const ZSH_FROM_OVERRIDE: &str = r#"
-# cinch device-name dynamic completion
-_cinch_devices_names() {
+# {bin} device-name dynamic completion
+_{bin}_devices_names() {
   local -a devs
-  devs=( ${(f)"$(cinch fleet list --names 2>/dev/null)"} )
+  devs=( ${(f)"$({bin} fleet list --names 2>/dev/null)"} )
   _describe 'device' devs
 }
-# clap_complete inlines subcommands inside _cinch, so we rename it
+# clap_complete inlines subcommands inside _{bin}, so we rename it
 # and wrap with a version that intercepts device-name completion.
 # `compset -P '--flag='` strips the `--flag=` prefix from $PREFIX so
 # candidates match against the value portion; it's a no-op when the
 # current word has no `=`, so it works for both `--from <tab>` and
 # `--from=<tab>`.
-functions[_cinch_generated]=$functions[_cinch]
-_cinch() {
+functions[_{bin}_generated]=$functions[_{bin}]
+_{bin}() {
   if [[ ${words[2]} == pull ]] && \
      [[ ${words[CURRENT-1]} == --from || ${words[CURRENT]} == --from=* ]]; then
     compset -P '--from='
-    _cinch_devices_names
+    _{bin}_devices_names
     return
   fi
-  _cinch_generated "$@"
+  _{bin}_generated "$@"
 }
 "#;
 
 const BASH_FROM_OVERRIDE: &str = r#"
-# cinch device-name dynamic completion.
+# {bin} device-name dynamic completion.
 # Bash's default COMP_WORDBREAKS contains `=`, so `--from=foo` is split
 # into three tokens (`--from`, `=`, `foo`). Detect both forms by also
 # inspecting the token two slots back when the previous token is `=`.
-_cinch_devices_names() {
+_{bin}_devices_names() {
   local word="${COMP_WORDS[COMP_CWORD]}"
-  mapfile -t COMPREPLY < <(cinch fleet list --names 2>/dev/null | grep -- "^${word}")
+  mapfile -t COMPREPLY < <({bin} fleet list --names 2>/dev/null | grep -- "^${word}")
 }
-_cinch_with_from() {
+_{bin}_with_from() {
   local cur prev prev2
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   prev2="${COMP_WORDS[COMP_CWORD-2]:-}"
   if [[ "$prev" == "--from" ]]; then
-    _cinch_devices_names
+    _{bin}_devices_names
     return
   fi
   if [[ "$prev" == "=" && "$prev2" == "--from" ]]; then
-    _cinch_devices_names
+    _{bin}_devices_names
     return
   fi
-  _cinch
+  _{bin}
 }
-complete -F _cinch_with_from cinch
+complete -F _{bin}_with_from {bin}
 "#;
 
 const FISH_FROM_OVERRIDE: &str = r#"
-# cinch device-name dynamic completion
-complete -c cinch -n '__fish_seen_subcommand_from pull' -l from -f \
+# {bin} device-name dynamic completion
+complete -c {bin} -n '__fish_seen_subcommand_from pull' -l from -f \
   -d 'Device nickname or hostname' \
-  -a '(cinch fleet list --names 2>/dev/null)'
+  -a '({bin} fleet list --names 2>/dev/null)'
 "#;
 
 fn command_name(cmd: &Cmd) -> &'static str {
@@ -269,13 +304,9 @@ pub fn run() -> i32 {
     let cli = Cli::parse();
 
     if let Cmd::Completion { shell } = cli.cmd {
-        let full = Cli::command();
-        let bin_name = full.get_name().to_string();
-        // AOT generators don't skip `hide = true` subcommands; rebuild the tree
-        // without them so deprecated aliases never appear as candidates (§4d).
-        let mut cmd = strip_hidden_subcommands(&full).version(env!("CARGO_PKG_VERSION"));
-        clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
-        print_completion_override(shell);
+        // Key completions to the name we were invoked as, so the `ci` symlink
+        // gets a working `_ci` script while `cinch` is byte-for-byte unchanged.
+        print!("{}", render_completion(shell, invoked_bin_name()));
         return 0;
     }
 
@@ -384,6 +415,44 @@ pub fn run() -> i32 {
             err.print_stderr();
             err.code
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{completion_override, render_completion};
+    use clap_complete::Shell;
+
+    #[test]
+    fn cinch_completion_keeps_existing_tokens() {
+        let z = render_completion(Shell::Zsh, "cinch");
+        assert!(z.contains("_cinch_generated"));
+        assert!(z.contains("_cinch_devices_names"));
+        let b = render_completion(Shell::Bash, "cinch");
+        assert!(b.contains("complete -F _cinch_with_from cinch"));
+        let f = render_completion(Shell::Fish, "cinch");
+        assert!(f.contains("complete -c cinch"));
+    }
+
+    #[test]
+    fn ci_completion_is_namespaced_to_ci() {
+        let z = render_completion(Shell::Zsh, "ci");
+        assert!(z.contains("_ci_generated"));
+        assert!(z.contains("_ci_devices_names"));
+        // The cinch-keyed override fns must NOT leak, or sourcing both the
+        // _cinch and _ci files would collide.
+        assert!(!z.contains("_cinch_generated"));
+        let b = render_completion(Shell::Bash, "ci");
+        assert!(b.contains("complete -F _ci_with_from ci"));
+        assert!(!b.contains("_cinch_with_from"));
+        let f = render_completion(Shell::Fish, "ci");
+        assert!(f.contains("complete -c ci"));
+        assert!(!f.contains("complete -c cinch"));
+    }
+
+    #[test]
+    fn override_is_empty_for_unsupported_shell() {
+        assert_eq!(completion_override(Shell::Elvish, "ci"), "");
     }
 }
 
