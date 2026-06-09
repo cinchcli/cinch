@@ -17,6 +17,15 @@ pub(crate) struct MediaResponse {
     pub body: Vec<u8>,
 }
 
+/// `Cache-Control` for a `cinch://` response, or `None` if it must not be
+/// cached. Clip bytes are immutable per (ULID) clip id and ids are never
+/// reused, so a successful image response is safe to cache hard — letting a
+/// revisit hit the webview cache instead of re-reading the BLOB from SQLite on
+/// every navigation. Non-200 responses (404 / errors) are never cached.
+pub(crate) fn media_cache_control(status: u16) -> Option<&'static str> {
+    (status == 200).then_some("public, max-age=31536000, immutable")
+}
+
 /// Serve an image clip's bytes from the store. 404 unless the clip exists,
 /// is `content_type == "image"`, and has non-empty content.
 pub(crate) fn serve_clip_image(store: &Store, clip_id: &str) -> MediaResponse {
@@ -284,6 +293,20 @@ mod tests {
         let s = mem_store();
         insert(&s, "t1", "text", Some(b"hello".to_vec()));
         assert_eq!(serve_clip_image(&s, "t1").status, 404);
+    }
+
+    #[test]
+    fn cache_control_is_set_only_for_success() {
+        // Clip bytes are immutable per (ULID) clip id and ids are never reused,
+        // so a 200 image response is safe to cache hard — this is what lets a
+        // revisit hit the webview cache instead of re-reading the BLOB. Errors
+        // (404 / 5xx) must never be cached.
+        assert_eq!(
+            media_cache_control(200),
+            Some("public, max-age=31536000, immutable")
+        );
+        assert_eq!(media_cache_control(404), None);
+        assert_eq!(media_cache_control(500), None);
     }
 
     #[test]
