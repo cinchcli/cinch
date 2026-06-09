@@ -5,6 +5,16 @@
 
 use crate::exit::{ExitError, AUTH_FAILURE, GENERIC_ERROR};
 
+/// Accepted retention window, in days. Mirrors the desktop Settings clamp
+/// (`apps/desktop/src-tauri/src/commands/clips/retention.rs`) so neither client
+/// can write a value below the relay's old broken 1-day default.
+const MIN_RETENTION_DAYS: i64 = 7;
+const MAX_RETENTION_DAYS: i64 = 365;
+
+fn retention_days_in_range(days: i64) -> bool {
+    (MIN_RETENTION_DAYS..=MAX_RETENTION_DAYS).contains(&days)
+}
+
 #[derive(Debug, clap::Args)]
 pub struct Args {
     /// Device ID prefix or `self` for this device (read-only for non-self).
@@ -48,6 +58,15 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
 
     match (target.as_deref(), args.days) {
         (Some(id), Some(days)) => {
+            if !retention_days_in_range(days) {
+                return Err(ExitError::new(
+                    GENERIC_ERROR,
+                    format!(
+                        "retention must be between {MIN_RETENTION_DAYS} and {MAX_RETENTION_DAYS} days, got {days}"
+                    ),
+                    "",
+                ));
+            }
             if self_id.as_deref() != Some(id) {
                 return Err(ExitError::new(
                     GENERIC_ERROR,
@@ -125,5 +144,18 @@ mod tests {
         // semantic validation lives in run().
         let cli = TestCli::try_parse_from(["test", "--days=-1"]).expect("parse");
         assert_eq!(cli.args.days, Some(-1));
+    }
+
+    #[test]
+    fn test_retention_range_boundaries() {
+        // The relay's old broken 1-day default sits below the floor, so it can
+        // never be written from the CLI once this guard is in place.
+        assert!(!retention_days_in_range(1));
+        assert!(!retention_days_in_range(6));
+        assert!(retention_days_in_range(7));
+        assert!(retention_days_in_range(30));
+        assert!(retention_days_in_range(365));
+        assert!(!retention_days_in_range(366));
+        assert!(!retention_days_in_range(-1));
     }
 }

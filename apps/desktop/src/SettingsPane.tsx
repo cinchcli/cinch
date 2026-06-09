@@ -719,7 +719,7 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
                 <RetentionSlider
                   id="remote-retention"
                   label="Remote retention"
-                  description="How long to keep clips on the relay server. Phase 1 saves this locally; enforcement lands with the next release."
+                  description="How long to keep clips on the relay server. Clips older than this are deleted from the relay automatically."
                   value={state.config.remote_days}
                   onCommit={commitRemoteRetention}
                 />
