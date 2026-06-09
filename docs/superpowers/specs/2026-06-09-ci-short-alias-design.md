@@ -137,11 +137,31 @@ file; `cinch` is unaffected.
 `version` + `sha256`; it never touches `binary` stanzas. The `ci` stanza
 survives every release.
 
-### 5. Docs — README + website
+### 5. curl installer — `website/main/public/install.sh`
+
+The Linux `curl … | sh` installer (`brew` is recommended on macOS) drops
+`cinch` into `${PREFIX}/bin` (default `/usr/local`). Add the same defensive
+`ci` symlink right after, only when `ci` is free on PATH:
+
+```sh
+# Short alias: link `ci` → cinch, but only if `ci` is free (don't clobber
+# RCS check-in or a user's own ci).
+if command -v ci >/dev/null 2>&1 || [ -e "${PREFIX}/bin/ci" ]; then
+  info "Skipping 'ci' alias — a 'ci' command already exists. Use 'cinch'."
+else
+  run_root ln -s cinch "${PREFIX}/bin/ci"
+  info "Also linked 'ci' as a short alias for 'cinch'."
+fi
+```
+
+Edit `public/install.sh` only; `dist/install.sh` is build output. The
+symlink target is relative (`ln -s cinch`, not an absolute path) so it
+survives a relocated prefix.
+
+### 6. Docs — README + website
 
 Low churn (the chosen low-blast-radius path). All examples stay `cinch …`.
-Add one sentence to the README install section and the website
-getting-started:
+Add one sentence to the README install section and the website quick-start:
 
 > `ci` is installed as a short alias for `cinch` — every command works under
 > both names.
@@ -153,16 +173,17 @@ getting-started:
   mechanics and deferred. The step-1 dispatch already matches `ci.exe`, so
   it's a small follow-up; a user who copies `cinch.exe` → `ci.exe` gets it
   working today.
-- **Manual / `cargo install` users.** The release tarball ships `cinch`
-  only. Document a one-line `ln -s cinch ci` for hand-placed binaries.
+- **Hand-placed binaries / `cargo install`.** Users who place the binary
+  manually (not via brew or `install.sh`) get `cinch` only. Document a
+  one-line `ln -s cinch ci` for them.
 
 ## Cross-repo footprint
 
 | Repo | Changes |
 |---|---|
-| cinch monorepo (`agent/claude/ci-alias`) | Steps 1, 2, README sentence |
+| cinch monorepo (`agent/claude/ci-alias`) | Steps 1, 2, README sentence (step 6) |
 | homebrew-tap | Steps 3, 4 |
-| website | Step 5 getting-started sentence |
+| website | Step 5 (`install.sh`), step 6 quick-start sentence |
 
 ## Testing
 
@@ -173,5 +194,8 @@ getting-started:
   `cinch` output is unchanged from today (guards against accidental drift in
   the existing script). Cover zsh, bash, fish.
 - **Formula:** `brew test` runs `cinch --version` and `ci --version`.
+- **install.sh:** `sh -n install.sh` (syntax) + a manual run into a temp
+  `--prefix` confirming `ci` is symlinked when free and skipped when a
+  pre-seeded `ci` exists.
 - **Manual:** `brew install` from the local tap on a clean machine; confirm
   both `cinch` and `ci` resolve and `ci <tab>` completes a subcommand.
