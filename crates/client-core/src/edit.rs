@@ -39,10 +39,6 @@ pub fn apply_edit(store: &Store, original_id: &str, new_text: &str) -> Result<St
     let content = new_text.as_bytes().to_vec();
     let content_type = crate::classify::detect(&content).as_wire().to_string();
     let new_id = ulid::Ulid::new().to_string();
-    let created_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
 
     let stored = StoredClip {
         id: new_id.clone(),
@@ -54,12 +50,10 @@ pub fn apply_edit(store: &Store, original_id: &str, new_text: &str) -> Result<St
         label: original.label,
         content_type,
         content: Some(content),
-        media_path: None,
         byte_size: new_text.len() as i64,
-        created_at,
-        pinned: false,
-        pinned_at: None,
+        created_at: chrono::Utc::now().timestamp_millis(),
         sync_state: SyncState::Local,
+        ..Default::default()
     };
 
     queries::insert_clip(store, &stored).map_err(|e| EditError::Store(e.to_string()))?;
