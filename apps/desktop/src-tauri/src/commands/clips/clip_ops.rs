@@ -182,6 +182,29 @@ pub fn copy_clip_to_clipboard(
     clipboard.write_text(&content).map_err(|e| e.to_string())
 }
 
+/// Edit a clip's text: insert the edited text as a NEW local clip (original
+/// untouched), copy it to the clipboard, and return the new clip. The
+/// clipboard monitor's echo guard (`find_existing_echo`) prevents a duplicate
+/// from the subsequent poll tick.
+#[tauri::command]
+#[specta::specta]
+pub fn edit_clip(
+    store: State<'_, SharedStore>,
+    clipboard: State<'_, Arc<ClipboardService>>,
+    original_id: String,
+    new_content: String,
+) -> Result<LocalClip, String> {
+    let new_id = client_core::edit::apply_edit(&store, &original_id, &new_content)
+        .map_err(|e| e.to_string())?;
+    clipboard
+        .write_text(&new_content)
+        .map_err(|e| e.to_string())?;
+    let row = queries::get_clip(&store, &new_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "edited clip vanished after insert".to_string())?;
+    Ok(stored_to_local(row))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn copy_image_to_clipboard(
@@ -459,6 +482,44 @@ mod send_clip_tests {
             queries::get_clip(&store, &id).unwrap().unwrap().sync_state,
             SyncState::Pending
         );
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use client_core::store::models::{StoredClip, SyncState};
+    use client_core::store::{queries, Store};
+    use std::path::Path;
+
+    #[test]
+    fn edit_clip_core_inserts_new_clip_and_keeps_original() {
+        // Exercises the shared core the command delegates to. The command
+        // itself only adds clipboard write + LocalClip conversion on top.
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        queries::insert_clip(
+            &store,
+            &StoredClip {
+                id: "01HXFFFFFFFFFFFFFFFFFFFFFF".to_string(),
+                source: "local".to_string(),
+                content_type: "text".to_string(),
+                content: Some(b"![[a.webp|703]]".to_vec()),
+                byte_size: 15,
+                created_at: 1,
+                sync_state: SyncState::Local,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let new_id =
+            client_core::edit::apply_edit(&store, "01HXFFFFFFFFFFFFFFFFFFFFFF", "![[a.webp]]")
+                .unwrap();
+        let new_clip = queries::get_clip(&store, &new_id).unwrap().unwrap();
+        assert_eq!(new_clip.content.as_deref(), Some(&b"![[a.webp]]"[..]));
+        let original = queries::get_clip(&store, "01HXFFFFFFFFFFFFFFFFFFFFFF")
+            .unwrap()
+            .unwrap();
+        assert_eq!(original.content.as_deref(), Some(&b"![[a.webp|703]]"[..]));
     }
 }
 

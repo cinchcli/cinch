@@ -34,6 +34,13 @@ export const commands = {
 	setSourceAlertEnabled: (source: string, enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_source_alert_enabled", { source, enabled })),
 	getAllSourceAlertSettings: () => typedError<SourceAlertSetting[], string>(__TAURI_INVOKE("get_all_source_alert_settings")),
 	copyClipToClipboard: (content: string) => typedError<null, string>(__TAURI_INVOKE("copy_clip_to_clipboard", { content })),
+	/**
+	 *  Edit a clip's text: insert the edited text as a NEW local clip (original
+	 *  untouched), copy it to the clipboard, and return the new clip. The
+	 *  clipboard monitor's echo guard (`find_existing_echo`) prevents a duplicate
+	 *  from the subsequent poll tick.
+	 */
+	editClip: (originalId: string, newContent: string) => typedError<LocalClip, string>(__TAURI_INVOKE("edit_clip", { originalId, newContent })),
 	copyImageToClipboard: (clipId: string) => typedError<null, string>(__TAURI_INVOKE("copy_image_to_clipboard", { clipId })),
 	saveImageToFile: (clipId: string) => typedError<string | null, string>(__TAURI_INVOKE("save_image_to_file", { clipId })),
 	/**
