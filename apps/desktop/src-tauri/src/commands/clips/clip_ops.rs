@@ -183,9 +183,14 @@ pub fn copy_clip_to_clipboard(
 }
 
 /// Edit a clip's text: insert the edited text as a NEW local clip (original
-/// untouched), copy it to the clipboard, and return the new clip. The
-/// clipboard monitor's echo guard (`find_existing_echo`) prevents a duplicate
-/// from the subsequent poll tick.
+/// untouched), copy it to the clipboard, and return the new clip. The clipboard
+/// monitor's `is_self_write` guard suppresses the echo on the next poll tick
+/// (with `recent_store_duplicate_id` as a secondary cross-process guard), so
+/// the copy does not surface as a duplicate clip.
+///
+/// If the clipboard write fails the command returns an error even though the
+/// new clip is already persisted — local history is append-only, so this is a
+/// UI inconvenience, not data loss.
 #[tauri::command]
 #[specta::specta]
 pub fn edit_clip(
