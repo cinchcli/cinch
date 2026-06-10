@@ -7,7 +7,7 @@ import type { LocalClip, SourceInfo, Device } from './bindings';
 import { unwrap } from './lib/tauri';
 import { groupByTimeBucket } from './lib/timeBuckets';
 import { type ClipFilter } from './lib/clipFilters';
-import { physicalKey } from './lib/keyboard';
+import { physicalKey, isImeComposition } from './lib/keyboard';
 import { loadMachineDisplayNames } from './lib/machineDisplayNames';
 import { useMachineLabels } from './lib/state/machineLabels';
 import { useTheme } from './lib/state/theme';
@@ -410,6 +410,11 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ignore IME composition keydowns (e.g. the Enter that commits a Korean
+      // composition arrives as key "Process" / keyCode 229) so they never
+      // swallow a shortcut. The next, real keydown is handled normally.
+      if (isImeComposition(e)) return;
+
       // While the edit modal is open it owns the keyboard (its own Esc and
       // ⌘↵ handlers). Suppress every global shortcut so that, e.g., ⌘↵ to
       // save does not also broadcast the selected clip via sendClip, ⌘P does

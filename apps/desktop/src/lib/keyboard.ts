@@ -13,3 +13,12 @@ export function physicalKey(e: Pick<KeyboardEvent, "code" | "key">): string {
   if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) return e.key.toUpperCase();
   return e.key;
 }
+
+// True when a keydown is an IME composition event (e.g. committing a Korean
+// composition with Enter). Such events must not trigger shortcuts: the browser
+// fires them with `isComposing` set, and WebKit additionally reports the legacy
+// `keyCode === 229`. `physicalKey` would otherwise yield "Process" for these,
+// silently swallowing the action (this is the Enter-to-copy bug).
+export function isImeComposition(e: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
