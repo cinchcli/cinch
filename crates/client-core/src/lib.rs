@@ -15,6 +15,7 @@ pub mod config;
 pub mod config_migrate;
 pub mod credstore;
 pub mod crypto;
+pub mod edit;
 pub mod http;
 pub mod key_exchange;
 pub mod machine;
