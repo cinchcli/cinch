@@ -26,6 +26,7 @@ import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipListSkeleton } from './components/ClipListSkeleton';
 import { ClipDetail } from './components/ClipDetail';
+import { EditClipModal } from './components/EditClipModal';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
@@ -117,6 +118,7 @@ function App() {
   const { tagColors, displayNames } = useMachineLabels();
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
+  const [editDialog, setEditDialog] = useState<{ clip: LocalClip } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const openSettings = (tab: SettingsTab = 'general') => {
@@ -353,6 +355,14 @@ function App() {
     }
   }, [refreshClips, showToast]);
 
+  const handleEdit = useCallback(async (clip: LocalClip, newContent: string) => {
+    const newClip = await unwrap(commands.editClip(clip.id, newContent));
+    setEditDialog(null);
+    await refreshClips();
+    setSelectedClip(newClip);
+    showToast('Edited & copied', 'copy');
+  }, [refreshClips, showToast]);
+
   const handleDelete = async (id: string) => {
     await unwrap(commands.deleteClip(id));
     if (selectedClip?.id === id) setSelectedClip(null);
@@ -480,6 +490,11 @@ function App() {
         }
         return;
       }
+      if (key === 'E' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextEntry && selectedClip && selectedClip.content_type !== 'image') {
+        e.preventDefault();
+        setEditDialog({ clip: selectedClip });
+        return;
+      }
       if (selectedClip) {
         // ⌘↵ / Ctrl+↵ — explicitly send the selected clip. Checked before the
         // plain-Enter copy below, which is gated on no modifier so the two
@@ -522,7 +537,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -665,6 +680,7 @@ function App() {
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
               onSaveImage={handleSaveImage}
+              onEdit={(c) => setEditDialog({ clip: c })}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
@@ -686,6 +702,14 @@ function App() {
           clip={pinNoteDialog.clip}
           onConfirm={(note) => handlePin(pinNoteDialog.clip, note || null)}
           onCancel={() => setPinNoteDialog(null)}
+        />
+      )}
+
+      {editDialog && (
+        <EditClipModal
+          clip={editDialog.clip}
+          onSave={(text) => handleEdit(editDialog.clip, text)}
+          onCancel={() => setEditDialog(null)}
         />
       )}
 
