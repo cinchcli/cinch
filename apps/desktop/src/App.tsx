@@ -356,11 +356,19 @@ function App() {
   }, [refreshClips, showToast]);
 
   const handleEdit = useCallback(async (clip: LocalClip, newContent: string) => {
-    const newClip = await unwrap(commands.editClip(clip.id, newContent));
-    setEditDialog(null);
-    await refreshClips();
-    setSelectedClip(newClip);
-    showToast('Edited & copied', 'copy');
+    try {
+      const newClip = await unwrap(commands.editClip(clip.id, newContent));
+      setEditDialog(null);
+      await refreshClips();
+      setSelectedClip(newClip);
+      showToast('Edited & copied', 'copy');
+    } catch (e) {
+      // editClip can fail after persisting the new clip (e.g. clipboard write).
+      // Close the modal and surface the error rather than leaving it stuck open.
+      console.error('editClip failed', e);
+      setEditDialog(null);
+      showToast(e instanceof Error ? e.message : 'Edit failed', 'error');
+    }
   }, [refreshClips, showToast]);
 
   const handleDelete = async (id: string) => {

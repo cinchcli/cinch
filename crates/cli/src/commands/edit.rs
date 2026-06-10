@@ -88,6 +88,13 @@ pub(crate) fn resolve_clip_text(
         }
     };
 
+    if clip.content_type == "image" {
+        return Err(ExitError::new(
+            GENERIC_ERROR,
+            "clip is an image and cannot be edited as text",
+            "",
+        ));
+    }
     let bytes = clip
         .content
         .ok_or_else(|| ExitError::new(GENERIC_ERROR, "clip has no text content", ""))?;
@@ -143,7 +150,11 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         Ok(_) => {}
     }
 
-    if edited == original_text || edited.trim().is_empty() {
+    // Most editors append a trailing newline; ignore a difference that is only
+    // trailing newlines so saving an unchanged clip in vim/nano is a true no-op.
+    if edited.trim_end_matches('\n') == original_text.trim_end_matches('\n')
+        || edited.trim().is_empty()
+    {
         eprintln!("No changes; clip not modified.");
         return Ok(());
     }
@@ -211,5 +222,14 @@ mod tests {
         let (id, text) = resolve_clip_text(&store, None).unwrap();
         assert_eq!(id, "01HXEEEEEEEEEEEEEEEEEEEEEE");
         assert_eq!(text, "only");
+    }
+
+    #[test]
+    fn resolve_clip_text_rejects_image_clips() {
+        // Resolve via `None` (latest); image bytes are non-UTF-8 so the prefix
+        // path can't reach them. The content-type check fires before the decode.
+        let store = store_with("01HXGGGGGGGGGGGGGGGGGGGGGG", b"\x89PNG\r\n", "image");
+        let err = resolve_clip_text(&store, None).unwrap_err();
+        assert!(err.to_string().contains("image"));
     }
 }
