@@ -26,39 +26,46 @@ pub(crate) fn resolve_clip_text(
     reference: Option<&str>,
 ) -> Result<(String, String), ExitError> {
     let clip = match reference {
-        Some(r) if r.parse::<i64>().is_ok() => {
-            let index: i64 = r.parse().unwrap();
-            if index < 1 {
-                return Err(ExitError::new(
-                    GENERIC_ERROR,
-                    "index must be at least 1 (1 = latest)",
-                    "",
-                ));
-            }
-            let mut rows = client_core::store::queries::list_clips(
-                store,
-                None,
-                None,
-                Some(1),
-                Some(index - 1),
-                None,
-                false,
-                1,
-            )
-            .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
-            rows.pop().ok_or_else(|| {
-                ExitError::new(GENERIC_ERROR, format!("no clip found at index {index}"), "")
-            })?
-        }
-        Some(r) => {
-            let id = client_core::store::prefix::resolve_clip_id(store, r)
-                .map_err(crate::commands::get::render_resolve_error)?;
-            client_core::store::queries::get_clip(store, &id)
-                .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?
-                .ok_or_else(|| {
-                    ExitError::new(GENERIC_ERROR, "clip vanished after resolution", "")
+        // Relative index (`1` = latest) when REF parses as an integer, else a
+        // clip id prefix. Single parse, mirroring get.rs.
+        Some(r) => match r.parse::<i64>() {
+            Ok(index) => {
+                if index < 1 {
+                    return Err(ExitError::new(
+                        GENERIC_ERROR,
+                        "index must be at least 1 (1 = latest)",
+                        "",
+                    ));
+                }
+                let mut rows = client_core::store::queries::list_clips(
+                    store,
+                    None,
+                    None,
+                    Some(1),
+                    Some(index - 1),
+                    None,
+                    false,
+                    1,
+                )
+                .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?;
+                rows.pop().ok_or_else(|| {
+                    ExitError::new(
+                        GENERIC_ERROR,
+                        format!("no clip found at index {index}"),
+                        "Run 'cinch history' to see available clips",
+                    )
                 })?
-        }
+            }
+            Err(_) => {
+                let id = client_core::store::prefix::resolve_clip_id(store, r)
+                    .map_err(crate::commands::get::render_resolve_error)?;
+                client_core::store::queries::get_clip(store, &id)
+                    .map_err(|e| ExitError::new(GENERIC_ERROR, format!("store: {e}"), ""))?
+                    .ok_or_else(|| {
+                        ExitError::new(GENERIC_ERROR, "clip vanished after resolution", "")
+                    })?
+            }
+        },
         None => {
             let mut rows = client_core::store::queries::list_clips(
                 store,
@@ -145,6 +152,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         .map_err(|e| ExitError::new(GENERIC_ERROR, e.to_string(), ""))?;
 
     if !args.no_copy {
+        // Best-effort: the edited clip is already persisted to local history,
+        // so a failed clipboard write is non-fatal.
         copy_text_to_clipboard(&edited);
     }
     eprintln!("\u{2713} Saved edited clip to local history (id={new_id}).");
