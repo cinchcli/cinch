@@ -410,6 +410,12 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // While the edit modal is open it owns the keyboard (its own Esc and
+      // ⌘↵ handlers). Suppress every global shortcut so that, e.g., ⌘↵ to
+      // save does not also broadcast the selected clip via sendClip, ⌘P does
+      // not pin it, and Esc does not deselect it underneath the modal.
+      if (editDialog) return;
+
       const target = e.target as HTMLElement | null;
       const isTextEntry =
         target instanceof HTMLInputElement ||

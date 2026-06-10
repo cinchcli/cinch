@@ -36,12 +36,14 @@ export function EditClipModal({ clip, onSave, onCancel }: EditClipModalProps) {
     },
     dialog: {
       background: C.card, border: '1px solid var(--border)', borderRadius: 12,
-      maxWidth: 560, width: 'calc(100% - 48px)', padding: '20px 20px 14px',
+      maxWidth: 560, width: 'calc(100% - 48px)', maxHeight: 'calc(100vh - 80px)',
+      overflow: 'hidden', padding: '20px 20px 14px',
       color: C.t1, boxShadow: DARK_SHADOW, display: 'flex', flexDirection: 'column', gap: 12,
     },
     title: { fontSize: 16, fontWeight: 500, color: C.t1, margin: 0 },
     textarea: {
-      width: '100%', minHeight: 200, resize: 'vertical', boxSizing: 'border-box',
+      width: '100%', minHeight: 200, maxHeight: '60vh', resize: 'vertical',
+      overflow: 'auto', boxSizing: 'border-box',
       background: C.card2, border: `1px solid ${C.border}`, borderRadius: 6,
       padding: 12, color: C.t1, fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6,
     },
