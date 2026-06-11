@@ -160,7 +160,8 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
     }
 
     let new_id = client_core::edit::apply_edit(&ctx.store, &clip_id, &edited)
-        .map_err(|e| ExitError::new(GENERIC_ERROR, e.to_string(), ""))?;
+        .map_err(|e| ExitError::new(GENERIC_ERROR, e.to_string(), ""))?
+        .id;
 
     if !args.no_copy {
         // Best-effort: the edited clip is already persisted to local history,

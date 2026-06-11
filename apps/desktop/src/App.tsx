@@ -423,11 +423,12 @@ function App() {
       // swallow a shortcut. The next, real keydown is handled normally.
       if (isImeComposition(e)) return;
 
-      // While the edit modal is open it owns the keyboard (its own Esc and
-      // ⌘↵ handlers). Suppress every global shortcut so that, e.g., ⌘↵ to
-      // save does not also broadcast the selected clip via sendClip, ⌘P does
-      // not pin it, and Esc does not deselect it underneath the modal.
-      if (editDialog) return;
+      // While a modal is open it owns the keyboard (each has its own Esc and,
+      // for the edit modal, ⌘↵ handler). Suppress every global shortcut so
+      // that, e.g., ⌘↵ to save does not also broadcast the selected clip via
+      // sendClip, ⌘P does not pin it, and Esc does not deselect it underneath
+      // the modal.
+      if (editDialog || pinNoteDialog) return;
 
       const target = e.target as HTMLElement | null;
       const isTextEntry =
@@ -556,7 +557,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';

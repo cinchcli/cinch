@@ -199,15 +199,12 @@ pub fn edit_clip(
     original_id: String,
     new_content: String,
 ) -> Result<LocalClip, String> {
-    let new_id = client_core::edit::apply_edit(&store, &original_id, &new_content)
+    let stored = client_core::edit::apply_edit(&store, &original_id, &new_content)
         .map_err(|e| e.to_string())?;
     clipboard
         .write_text(&new_content)
         .map_err(|e| e.to_string())?;
-    let row = queries::get_clip(&store, &new_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "edited clip vanished after insert".to_string())?;
-    Ok(stored_to_local(row))
+    Ok(stored_to_local(stored))
 }
 
 #[tauri::command]
@@ -516,10 +513,9 @@ mod edit_tests {
         )
         .unwrap();
 
-        let new_id =
+        let new_clip =
             client_core::edit::apply_edit(&store, "01HXFFFFFFFFFFFFFFFFFFFFFF", "![[a.webp]]")
                 .unwrap();
-        let new_clip = queries::get_clip(&store, &new_id).unwrap().unwrap();
         assert_eq!(new_clip.content.as_deref(), Some(&b"![[a.webp]]"[..]));
         let original = queries::get_clip(&store, "01HXFFFFFFFFFFFFFFFFFFFFFF")
             .unwrap()

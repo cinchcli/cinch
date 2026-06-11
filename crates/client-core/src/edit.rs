@@ -29,19 +29,23 @@ impl fmt::Display for EditError {
 impl Error for EditError {}
 
 /// Insert a new local clip whose content is `new_text`, inheriting provenance
-/// from `original_id`. Returns the new clip's id. Does NOT touch the clipboard
-/// or the original clip.
-pub fn apply_edit(store: &Store, original_id: &str, new_text: &str) -> Result<String, EditError> {
+/// from `original_id`. Returns the newly inserted clip so callers don't have to
+/// read it back. Does NOT touch the clipboard or the original clip.
+pub fn apply_edit(
+    store: &Store,
+    original_id: &str,
+    new_text: &str,
+) -> Result<StoredClip, EditError> {
     let original = queries::get_clip(store, original_id)
         .map_err(|e| EditError::Store(e.to_string()))?
         .ok_or(EditError::OriginalNotFound)?;
 
-    let content = new_text.as_bytes().to_vec();
-    let content_type = crate::classify::detect(&content).as_wire().to_string();
-    let new_id = ulid::Ulid::new().to_string();
+    let content_type = crate::classify::detect(new_text.as_bytes())
+        .as_wire()
+        .to_string();
 
     let stored = StoredClip {
-        id: new_id.clone(),
+        id: ulid::Ulid::new().to_string(),
         source: original.source,
         source_key: original.source_key,
         source_app_id: original.source_app_id,
@@ -49,7 +53,7 @@ pub fn apply_edit(store: &Store, original_id: &str, new_text: &str) -> Result<St
         source_url: original.source_url,
         label: original.label,
         content_type,
-        content: Some(content),
+        content: Some(new_text.as_bytes().to_vec()),
         byte_size: new_text.len() as i64,
         created_at: chrono::Utc::now().timestamp_millis(),
         sync_state: SyncState::Local,
@@ -57,7 +61,7 @@ pub fn apply_edit(store: &Store, original_id: &str, new_text: &str) -> Result<St
     };
 
     queries::insert_clip(store, &stored).map_err(|e| EditError::Store(e.to_string()))?;
-    Ok(new_id)
+    Ok(stored)
 }
 
 #[cfg(test)]
@@ -94,7 +98,9 @@ mod tests {
             "text",
             "remote:macbook",
         );
-        let new_id = apply_edit(&store, "01HXAAAAAAAAAAAAAAAAAAAAAA", "![[a.webp]]").unwrap();
+        let new_id = apply_edit(&store, "01HXAAAAAAAAAAAAAAAAAAAAAA", "![[a.webp]]")
+            .unwrap()
+            .id;
 
         assert_ne!(new_id, "01HXAAAAAAAAAAAAAAAAAAAAAA");
         let new_clip = queries::get_clip(&store, &new_id).unwrap().unwrap();
@@ -113,9 +119,8 @@ mod tests {
     #[test]
     fn apply_edit_reclassifies_content_type() {
         let store = store_with_clip("01HXBBBBBBBBBBBBBBBBBBBBBB", b"hello", "text", "local");
-        let new_id =
+        let new_clip =
             apply_edit(&store, "01HXBBBBBBBBBBBBBBBBBBBBBB", "https://example.com").unwrap();
-        let new_clip = queries::get_clip(&store, &new_id).unwrap().unwrap();
         assert_eq!(new_clip.content_type, "url");
     }
 
