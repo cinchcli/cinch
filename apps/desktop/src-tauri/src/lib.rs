@@ -68,6 +68,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::set_source_alert_enabled,
             commands::clips::get_all_source_alert_settings,
             commands::clips::copy_clip_to_clipboard,
+            commands::clips::edit_clip,
             commands::clips::copy_image_to_clipboard,
             commands::clips::save_image_to_file,
             commands::clips::focus_previous_app,

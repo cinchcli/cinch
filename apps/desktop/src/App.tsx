@@ -7,7 +7,7 @@ import type { LocalClip, SourceInfo, Device } from './bindings';
 import { unwrap } from './lib/tauri';
 import { groupByTimeBucket } from './lib/timeBuckets';
 import { type ClipFilter } from './lib/clipFilters';
-import { physicalKey } from './lib/keyboard';
+import { physicalKey, isImeComposition } from './lib/keyboard';
 import { loadMachineDisplayNames } from './lib/machineDisplayNames';
 import { useMachineLabels } from './lib/state/machineLabels';
 import { useTheme } from './lib/state/theme';
@@ -26,6 +26,7 @@ import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipListSkeleton } from './components/ClipListSkeleton';
 import { ClipDetail } from './components/ClipDetail';
+import { EditClipModal } from './components/EditClipModal';
 import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
@@ -117,6 +118,7 @@ function App() {
   const { tagColors, displayNames } = useMachineLabels();
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
+  const [editDialog, setEditDialog] = useState<{ clip: LocalClip } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const openSettings = (tab: SettingsTab = 'general') => {
@@ -353,6 +355,22 @@ function App() {
     }
   }, [refreshClips, showToast]);
 
+  const handleEdit = useCallback(async (clip: LocalClip, newContent: string) => {
+    try {
+      const newClip = await unwrap(commands.editClip(clip.id, newContent));
+      setEditDialog(null);
+      await refreshClips();
+      setSelectedClip(newClip);
+      showToast('Edited & copied', 'copy');
+    } catch (e) {
+      // editClip can fail after persisting the new clip (e.g. clipboard write).
+      // Close the modal and surface the error rather than leaving it stuck open.
+      console.error('editClip failed', e);
+      setEditDialog(null);
+      showToast(e instanceof Error ? e.message : 'Edit failed', 'error');
+    }
+  }, [refreshClips, showToast]);
+
   const handleDelete = async (id: string) => {
     await unwrap(commands.deleteClip(id));
     if (selectedClip?.id === id) setSelectedClip(null);
@@ -400,6 +418,18 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ignore IME composition keydowns (e.g. the Enter that commits a Korean
+      // composition arrives as key "Process" / keyCode 229) so they never
+      // swallow a shortcut. The next, real keydown is handled normally.
+      if (isImeComposition(e)) return;
+
+      // While a modal is open it owns the keyboard (each has its own Esc and,
+      // for the edit modal, ⌘↵ handler). Suppress every global shortcut so
+      // that, e.g., ⌘↵ to save does not also broadcast the selected clip via
+      // sendClip, ⌘P does not pin it, and Esc does not deselect it underneath
+      // the modal.
+      if (editDialog || pinNoteDialog) return;
+
       const target = e.target as HTMLElement | null;
       const isTextEntry =
         target instanceof HTMLInputElement ||
@@ -480,6 +510,11 @@ function App() {
         }
         return;
       }
+      if (key === 'E' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextEntry && selectedClip && selectedClip.content_type !== 'image') {
+        e.preventDefault();
+        setEditDialog({ clip: selectedClip });
+        return;
+      }
       if (selectedClip) {
         // ⌘↵ / Ctrl+↵ — explicitly send the selected clip. Checked before the
         // plain-Enter copy below, which is gated on no modifier so the two
@@ -522,7 +557,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -665,6 +700,7 @@ function App() {
               onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
               onDelete={(c) => handleDelete(c.id)}
               onSaveImage={handleSaveImage}
+              onEdit={(c) => setEditDialog({ clip: c })}
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
@@ -686,6 +722,14 @@ function App() {
           clip={pinNoteDialog.clip}
           onConfirm={(note) => handlePin(pinNoteDialog.clip, note || null)}
           onCancel={() => setPinNoteDialog(null)}
+        />
+      )}
+
+      {editDialog && (
+        <EditClipModal
+          clip={editDialog.clip}
+          onSave={(text) => handleEdit(editDialog.clip, text)}
+          onCancel={() => setEditDialog(null)}
         />
       )}
 

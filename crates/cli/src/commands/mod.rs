@@ -7,6 +7,7 @@ pub mod clip;
 pub mod copy;
 pub mod device;
 pub mod devices;
+pub mod edit;
 pub mod fleet;
 pub mod get;
 pub mod history;

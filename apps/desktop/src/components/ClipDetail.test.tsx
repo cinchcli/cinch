@@ -158,4 +158,16 @@ describe('ClipDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save/i }));
     expect(onSaveImage).toHaveBeenCalledWith(imageClip);
   });
+
+  it('shows an Edit button for text clips when onEdit is provided', () => {
+    const onEdit = vi.fn();
+    render(<ClipDetail clip={baseClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} onEdit={onEdit} />);
+    fireEvent.click(screen.getByRole('button', { name: /^edit/i }));
+    expect(onEdit).toHaveBeenCalledWith(baseClip);
+  });
+
+  it('hides the Edit button for image clips', () => {
+    render(<ClipDetail clip={{ ...baseClip, content_type: 'image' }} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} onEdit={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument();
+  });
 });

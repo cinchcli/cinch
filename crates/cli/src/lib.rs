@@ -45,6 +45,8 @@ enum Cmd {
     Send(commands::send::Args),
     /// Pull clipboard content to stdout.
     Pull(commands::pull::Args),
+    /// Edit a LOCAL clip's text in $EDITOR and save the result as a new clip.
+    Edit(commands::edit::Args),
     /// AI workflows over explicit terminal or clipboard context.
     Ai(commands::ai::Args),
     /// Browse, search, and manage your LOCAL clip history (list/search/show/rm/transform).
@@ -252,6 +254,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::Send(_) => "send",
         Cmd::Push(_) => "push",
         Cmd::Pull(_) => "pull",
+        Cmd::Edit(_) => "edit",
         Cmd::Ai(_) => "ai",
         Cmd::History(_) => "history",
         Cmd::Clip(_) => "clip",
@@ -377,6 +380,7 @@ pub fn run() -> i32 {
             Cmd::Send(args) => commands::send::run(args).await,
             Cmd::Push(args) => commands::push::run(args).await,
             Cmd::Pull(args) => commands::pull::run(args).await,
+            Cmd::Edit(args) => commands::edit::run(args).await,
             Cmd::Ai(args) => commands::ai::run(args).await,
             Cmd::History(args) => commands::history::run(args).await,
             Cmd::Clip(args) => commands::clip::run(args).await,
