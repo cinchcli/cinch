@@ -8,6 +8,7 @@ import { unwrap } from './lib/tauri';
 import { groupByTimeBucket } from './lib/timeBuckets';
 import { type ClipFilter } from './lib/clipFilters';
 import { physicalKey, isImeComposition } from './lib/keyboard';
+import { matchesAccelerator, formatShortcutDisplay, DEFAULT_ACTION_SHORTCUTS, type ActionShortcuts } from './lib/keymap';
 import { loadMachineDisplayNames } from './lib/machineDisplayNames';
 import { useMachineLabels } from './lib/state/machineLabels';
 import { useTheme } from './lib/state/theme';
@@ -416,6 +417,16 @@ function App() {
     return groupByTimeBucket(clips).flatMap((g) => g.items);
   }, [clips, activePanel]);
 
+  // User-customizable clip-action shortcuts (Settings → Keyboard). Loaded once;
+  // SettingsPane pushes edits back via onActionShortcutsChange so the live
+  // handler below updates without a restart.
+  const [actionShortcuts, setActionShortcuts] = useState<ActionShortcuts>(DEFAULT_ACTION_SHORTCUTS);
+  useEffect(() => {
+    unwrap(commands.getActionShortcuts())
+      .then((s) => { if (s) setActionShortcuts(s); })
+      .catch(() => {/* keep defaults */});
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Ignore IME composition keydowns (e.g. the Enter that commits a Korean
@@ -498,8 +509,10 @@ function App() {
         setSelectedSource(null);
         return;
       }
-      // Cmd+P — pin/unpin: prevent print dialog unconditionally, act when a clip is selected.
-      if ((e.metaKey || e.ctrlKey) && key === 'P') {
+      // Pin/unpin (default ⌘P): keep the unconditional preventDefault so the
+      // default binding still suppresses the webview print dialog; act only
+      // when a clip is selected.
+      if (matchesAccelerator(e, actionShortcuts.pin)) {
         e.preventDefault();
         if (selectedClip) {
           if (selectedClip.is_pinned) {
@@ -510,22 +523,24 @@ function App() {
         }
         return;
       }
-      if (key === 'E' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextEntry && selectedClip && selectedClip.content_type !== 'image') {
+      // Edit (default ⌘E): text clips only, never while typing in a field.
+      if (matchesAccelerator(e, actionShortcuts.edit) && !isTextEntry && selectedClip && selectedClip.content_type !== 'image') {
         e.preventDefault();
         setEditDialog({ clip: selectedClip });
         return;
       }
       if (selectedClip) {
-        // ⌘↵ / Ctrl+↵ — explicitly send the selected clip. Checked before the
-        // plain-Enter copy below, which is gated on no modifier so the two
-        // don't both fire.
-        if ((e.metaKey || e.ctrlKey) && key === 'Enter') {
+        // Send (default ⌘↵) is checked before Copy (default ↵). Exact-modifier
+        // matching already keeps them mutually exclusive, but the else-if
+        // preserves the original "only one fires" intent.
+        if (matchesAccelerator(e, actionShortcuts.send)) {
           e.preventDefault();
           void sendClip(selectedClip);
-        } else if (key === 'Enter' && (!isTextEntry || e.target === searchRef.current)) {
+        } else if (matchesAccelerator(e, actionShortcuts.copy) && (!isTextEntry || e.target === searchRef.current)) {
           e.preventDefault();
           copyClip(selectedClip);
         }
+        // ⌘C stays a fixed copy alias (only when no text is selected).
         if ((e.metaKey || e.ctrlKey) && key === 'C') {
           if (!window.getSelection()?.toString()) copyClip(selectedClip);
         }
@@ -557,7 +572,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog, actionShortcuts]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -579,6 +594,7 @@ function App() {
           onClose={() => { setShowSettings(false); if (auth.variant === 'Authenticated') refreshDevices(); }}
           clipCount={totalClips}
           initialTab={settingsTab}
+          onActionShortcutsChange={setActionShortcuts}
         />
         {handoffDialog}
       </>
@@ -671,6 +687,7 @@ function App() {
             deviceNicknames={nicknameBySource}
             tagColors={tagColors}
             listRef={clipListRef}
+            actionShortcuts={actionShortcuts}
           />
         ) : !clipsLoaded ? (
           <ClipListSkeleton />
@@ -704,6 +721,7 @@ function App() {
               searchQuery={debouncedQuery}
               tagColors={tagColors}
               sourceDisplayNames={nicknameBySource}
+              actionShortcuts={actionShortcuts}
             />
           </>
         )}
@@ -741,7 +759,7 @@ function App() {
         />
       )}
 
-      {showShortcuts && <ShortcutPanel onClose={() => setShowShortcuts(false)} />}
+      {showShortcuts && <ShortcutPanel onClose={() => setShowShortcuts(false)} actionShortcuts={actionShortcuts} />}
       {toast && <Toast message={toast.message} icon={toast.icon} />}
       <AdoptedAuthToast />
       <OfflineQueueDroppedToast />
@@ -939,7 +957,7 @@ function HiddenActions({ onCopy, onDelete }: { onCopy: () => void; onDelete: () 
   );
 }
 
-function ShortcutPanel({ onClose }: { onClose: () => void }) {
+function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; actionShortcuts: ActionShortcuts }) {
   const groups: { title: string; rows: { keys: string[]; label: string }[] }[] = [
     {
       title: 'Navigation',
@@ -955,11 +973,15 @@ function ShortcutPanel({ onClose }: { onClose: () => void }) {
       ],
     },
     {
+      // Action keys mirror the user's configured clip-action shortcuts
+      // (Settings → Keyboard → Clip actions). ⌘C stays a fixed copy alias.
       title: 'Actions',
       rows: [
-        { keys: ['↵'], label: 'Copy selected clip' },
+        { keys: [formatShortcutDisplay(actionShortcuts.copy)], label: 'Copy selected clip' },
         { keys: ['⌘C'], label: 'Copy selected clip' },
-        { keys: ['⌘P'], label: 'Pin / unpin selected clip' },
+        { keys: [formatShortcutDisplay(actionShortcuts.pin)], label: 'Pin / unpin selected clip' },
+        { keys: [formatShortcutDisplay(actionShortcuts.edit)], label: 'Edit selected clip' },
+        { keys: [formatShortcutDisplay(actionShortcuts.send)], label: 'Send / broadcast selected clip' },
       ],
     },
     {

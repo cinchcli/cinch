@@ -72,6 +72,29 @@ describe('ClipDetail', () => {
     expect(screen.getByRole('button', { name: /^delete/i })).toBeInTheDocument();
   });
 
+  it('renders button hints from the configured action shortcuts', () => {
+    render(
+      <ClipDetail
+        clip={baseClip}
+        onCopy={noOp}
+        onPin={noOp}
+        onDelete={noOp}
+        onSaveImage={noOp}
+        onEdit={noOp}
+        actionShortcuts={{
+          edit: 'CmdOrCtrl+Shift+E',
+          copy: 'CmdOrCtrl+C',
+          pin: 'Alt+P',
+          send: 'CmdOrCtrl+Enter',
+        }}
+      />,
+    );
+    // Hints reflect the passed bindings, not the old hardcoded glyphs.
+    expect(screen.getByRole('button', { name: /^edit ⌘⇧E$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^copy ⌘C$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^pin ⌥P$/i })).toBeInTheDocument();
+  });
+
   it('renders copied app and source URL metadata', () => {
     render(
       <ClipDetail

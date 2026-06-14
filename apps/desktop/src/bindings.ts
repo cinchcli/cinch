@@ -79,6 +79,9 @@ export const commands = {
 	setGlobalShortcut: (shortcut: string) => typedError<null, string>(__TAURI_INVOKE("set_global_shortcut", { shortcut })),
 	getSendShortcut: () => typedError<string | null, string>(__TAURI_INVOKE("get_send_shortcut")),
 	setSendShortcut: (shortcut: string | null) => typedError<null, string>(__TAURI_INVOKE("set_send_shortcut", { shortcut })),
+	getActionShortcuts: () => typedError<ActionShortcuts, string>(__TAURI_INVOKE("get_action_shortcuts")),
+	setActionShortcuts: (shortcuts: ActionShortcuts) => typedError<null, string>(__TAURI_INVOKE("set_action_shortcuts", { shortcuts })),
+	resetActionShortcuts: () => typedError<ActionShortcuts, string>(__TAURI_INVOKE("reset_action_shortcuts")),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**
@@ -226,6 +229,22 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  The four user-customizable in-app clip-action shortcuts. Persisted as one
+ *  JSON blob under the `action_shortcuts` settings key.
+ * 
+ *  Fields are required on the wire (specta emits non-optional TS strings); a
+ *  partial/legacy stored blob is tolerated by merging through
+ *  `PartialActionShortcuts` in the getter rather than via `#[serde(default)]`
+ *  (which would make every generated TS field optional).
+ */
+export type ActionShortcuts = {
+	edit: string,
+	copy: string,
+	pin: string,
+	send: string,
+};
+
 /**
  *  Fired when the desktop notices that credentials on disk came from the CLI
  *  (the FS watcher observed a credential_version bump while the desktop was

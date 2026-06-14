@@ -38,6 +38,7 @@ coverage/
 
 # AI
 .superpowers/
+.playwright-mcp/
 
 # Internal product strategy (specs, plans, release secrets) — keep out of public repo
 docs/

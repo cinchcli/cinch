@@ -13,6 +13,14 @@ import { commands, events } from "./bindings";
 import type { RetentionConfig, PendingDeviceCode } from "./bindings";
 import { unwrap } from "./lib/tauri";
 import { physicalKey } from "./lib/keyboard";
+import {
+  ACTION_META,
+  findConflict,
+  formatShortcutDisplay,
+  DEFAULT_ACTION_SHORTCUTS,
+  type ActionId,
+  type ActionShortcuts,
+} from "./lib/keymap";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { C } from "./design";
@@ -45,6 +53,9 @@ interface SettingsPaneProps {
   onClose: () => void;
   clipCount: number;
   initialTab?: SettingsTab;
+  /** Notifies the parent when a clip-action shortcut changes, so the live
+   *  keydown handler in App can update without a restart. */
+  onActionShortcutsChange?: (next: ActionShortcuts) => void;
 }
 
 type LoadState =
@@ -61,19 +72,8 @@ export const CATEGORY_META: Record<SettingsTab, { label: string; title: string; 
   privacy: { label: "Privacy", title: "Storage & privacy", subtitle: "What the relay can see, how long clips live on this Mac and on the relay, and how to wipe this Mac." },
   devices: { label: "Devices", title: "Relay & devices", subtitle: "Manage your relay connection, the machines linked to this account, and pending sign-ins." },
   agents: { label: "Agents & CLI", title: "Agents & CLI", subtitle: "Connect your coding agent over MCP and use the cinch command line." },
-  shortcuts: { label: "Keyboard", title: "Keyboard", subtitle: "Customize the global launch shortcut. The list below shows the built-in shortcuts." },
+  shortcuts: { label: "Keyboard", title: "Keyboard", subtitle: "Customize the launch shortcut and the per-clip actions. The list below shows the remaining built-in shortcuts." },
 };
-
-/** Format the internal shortcut string for display using macOS symbols. */
-function formatShortcutDisplay(shortcut: string): string {
-  return shortcut
-    .replace(/CommandOrControl/g, "⌘")
-    .replace(/CmdOrCtrl/g, "⌘")
-    .replace(/Shift/g, "⇧")
-    .replace(/Alt/g, "⌥")
-    .replace(/Control/g, "⌃")
-    .replace(/\+/g, "");
-}
 
 /** Register the global shortcut to show/focus the main window. */
 async function registerWindowShortcut(shortcut: string): Promise<void> {
@@ -86,7 +86,7 @@ async function registerWindowShortcut(shortcut: string): Promise<void> {
   });
 }
 
-export default function SettingsPane({ onClose, clipCount, initialTab }: SettingsPaneProps) {
+export default function SettingsPane({ onClose, clipCount, initialTab, onActionShortcutsChange }: SettingsPaneProps) {
   const titleId = useId();
   const auth = useAuthState();
   const { mode, setMode } = useTheme();
@@ -126,6 +126,11 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
   const [sendShortcutError, setSendShortcutError] = useState<string | null>(null);
   const [sendShortcutSaving, setSendShortcutSaving] = useState(false);
 
+  // Clip-action shortcuts (Edit / Copy / Pin / Send) — customizable in-app keys.
+  const [actionShortcuts, setActionShortcutsState] = useState<ActionShortcuts>(DEFAULT_ACTION_SHORTCUTS);
+  const [actionShortcutErrors, setActionShortcutErrors] = useState<Partial<Record<ActionId, string>>>({});
+  const [actionCapturing, setActionCapturing] = useState<ActionId | null>(null);
+
   // Subscribe to device_code_pending events while the pane is mounted.
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -160,6 +165,13 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
       setSendShortcut(s);
       setSendShortcutInput(s !== null ? formatShortcutDisplay(s) : "Off");
     }).catch(() => {/* default to disabled */});
+  }, []);
+
+  // Load persisted clip-action shortcuts on mount.
+  useEffect(() => {
+    unwrap(commands.getActionShortcuts())
+      .then((s) => { if (s) setActionShortcutsState(s); })
+      .catch(() => {/* keep defaults */});
   }, []);
 
   // Load retention config on mount.
@@ -348,6 +360,63 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
       setSendShortcutError("Couldn't clear shortcut");
     } finally {
       setSendShortcutSaving(false);
+    }
+  };
+
+  // Capture a new clip-action shortcut. Modifier is OPTIONAL here (bare keys
+  // are valid for in-app actions); only the conflict check can block a save.
+  const handleActionShortcutKeyDown = async (
+    action: ActionId,
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    e.preventDefault();
+    const ignoredKeys = ["Meta", "Control", "Shift", "Alt", "OS"];
+    if (ignoredKeys.includes(e.key)) return;
+
+    const modifiers: string[] = [];
+    if (e.metaKey || e.ctrlKey) modifiers.push("CmdOrCtrl");
+    if (e.shiftKey) modifiers.push("Shift");
+    if (e.altKey) modifiers.push("Alt");
+
+    // physicalKey resolves Korean IME / non-QWERTY layouts to the
+    // QWERTY-positioned key, so the saved accelerator matches the keydown
+    // handler's own physicalKey comparison.
+    const key = physicalKey(e);
+    const newShortcut = [...modifiers, key].join("+");
+
+    const conflict = findConflict(action, newShortcut, actionShortcuts);
+    if (!conflict.ok) {
+      const who =
+        conflict.conflictWith === "reserved"
+          ? "another shortcut"
+          : ACTION_META.find((a) => a.id === conflict.conflictWith)?.label ?? conflict.conflictWith;
+      setActionShortcutErrors((p) => ({
+        ...p,
+        [action]: `${formatShortcutDisplay(newShortcut)} is already used by ${who}`,
+      }));
+      return;
+    }
+
+    const next: ActionShortcuts = { ...actionShortcuts, [action]: newShortcut };
+    setActionShortcutErrors((p) => ({ ...p, [action]: undefined }));
+    try {
+      await unwrap(commands.setActionShortcuts(next));
+      setActionShortcutsState(next);
+      onActionShortcutsChange?.(next);
+      setActionCapturing(null);
+    } catch {
+      setActionShortcutErrors((p) => ({ ...p, [action]: "Invalid shortcut" }));
+    }
+  };
+
+  const handleResetActionShortcuts = async () => {
+    try {
+      const defaults = await unwrap(commands.resetActionShortcuts());
+      setActionShortcutsState(defaults);
+      setActionShortcutErrors({});
+      onActionShortcutsChange?.(defaults);
+    } catch {
+      /* leave current values in place */
     }
   };
 
@@ -573,6 +642,61 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
               <hr style={S.divider} />
 
               <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Clip actions</div>
+                <div style={S.fieldDescription}>
+                  Shortcuts for the selected clip. Click a field and press a new
+                  combination — bare keys are allowed. ⌘C always copies.
+                </div>
+                {ACTION_META.map((a, i) => (
+                  <div key={a.id}>
+                    <div
+                      style={{
+                        ...S.kbdRow,
+                        borderTop: i === 0 ? "none" : `1px solid ${C.border}`,
+                      }}
+                    >
+                      <span style={S.kbdDesc}>{a.label}</span>
+                      <input
+                        type="text"
+                        readOnly
+                        value={
+                          actionCapturing === a.id
+                            ? "Press…"
+                            : formatShortcutDisplay(actionShortcuts[a.id])
+                        }
+                        onFocus={() => setActionCapturing(a.id)}
+                        onBlur={() =>
+                          setActionCapturing((c) => (c === a.id ? null : c))
+                        }
+                        onKeyDown={(e) => void handleActionShortcutKeyDown(a.id, e)}
+                        aria-label={`${a.label} shortcut`}
+                        style={{
+                          ...S.shortcutInput,
+                          minWidth: 88,
+                          textAlign: "center",
+                          borderColor: actionShortcutErrors[a.id]
+                            ? C.error
+                            : C.border,
+                        }}
+                      />
+                    </div>
+                    {actionShortcutErrors[a.id] && (
+                      <div style={S.errorRegion}>{actionShortcutErrors[a.id]}</div>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void handleResetActionShortcuts()}
+                  style={{ ...S.ghostBtn, marginTop: 16 }}
+                >
+                  Reset to defaults
+                </button>
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
                 <div style={S.fieldHeading}>Built-in shortcuts</div>
                 {([
                   {
@@ -581,14 +705,6 @@ export default function SettingsPane({ onClose, clipCount, initialTab }: Setting
                       { keys: ["↑", "↓"], desc: "Move between clips" },
                       { keys: ["j", "k"], desc: "Move between clips (vim)" },
                       { keys: ["Tab"], desc: "Switch between All / Pinned" },
-                    ],
-                  },
-                  {
-                    group: "Actions",
-                    rows: [
-                      { keys: ["⌘C"], desc: "Copy selected clip" },
-                      { keys: ["⌘P"], desc: "Pin / unpin selected clip" },
-                      { keys: ["⌘⌫"], desc: "Delete selected clip" },
                     ],
                   },
                   {

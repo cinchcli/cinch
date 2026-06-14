@@ -177,6 +177,18 @@ pub fn set_send_shortcut(store: &Store, shortcut: &str) -> Result<(), StoreError
     set_setting(store, "send_shortcut", shortcut)
 }
 
+/// In-app clip-action shortcuts (Edit / Copy / Pin / Send), stored as a single
+/// JSON blob. Distinct from the OS-global `global_shortcut` / `send_shortcut`
+/// keys above — these are matched in the desktop keydown handler, never
+/// registered with the OS. The shape lives in the desktop command layer.
+pub fn action_shortcuts(store: &Store) -> Result<Option<String>, StoreError> {
+    get_setting(store, "action_shortcuts")
+}
+
+pub fn set_action_shortcuts(store: &Store, json: &str) -> Result<(), StoreError> {
+    set_setting(store, "action_shortcuts", json)
+}
+
 // ── Excluded apps (clipboard monitoring) ────────────────────────────────────
 
 pub fn excluded_apps(store: &Store) -> Result<Vec<String>, StoreError> {
