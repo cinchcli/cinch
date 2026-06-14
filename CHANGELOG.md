@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and the 
   `CINCH_MCP_FLEET=1` to enable a lazy, once-per-session backfill on the first
   fleet call. See `docs/headless-send-and-fleet-read.md` for the provisioning
   recipe + the agent loop.
+- **Desktop: customizable clip-action shortcuts** — the Edit / Copy / Pin /
+  Send keys for the selected clip are now remappable in **Settings → Keyboard →
+  Clip actions** (bare keys allowed; collisions with another action or a
+  reserved app key are blocked with an inline error and nothing is saved). Edit
+  moves off the bare `E` key to **`⌘E`** by default so a single keystroke no
+  longer opens the editor by accident; `⌘C` stays a fixed always-on copy alias.
 
 ### Changed (breaking)
 

@@ -2,6 +2,7 @@ import type { CSSProperties, RefObject } from 'react';
 import type { LocalClip } from '../bindings';
 import { C, formatTime } from '../design';
 import type { MachineTagColorMap } from '../lib/machineTagColors';
+import { formatShortcutDisplay, DEFAULT_ACTION_SHORTCUTS, type ActionShortcuts } from '../lib/keymap';
 import { SourcePill } from './SourcePill';
 import { ClipDetail } from './ClipDetail';
 
@@ -18,11 +19,13 @@ interface PinnedPanelProps {
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
   listRef: RefObject<HTMLDivElement | null>;
+  actionShortcuts?: ActionShortcuts;
 }
 
 export function PinnedPanel({
   clips, selected, onSelect, onCopy, onPin, onUnpin, onDelete, onSaveImage,
   query, deviceNicknames, tagColors = {}, listRef,
+  actionShortcuts = DEFAULT_ACTION_SHORTCUTS,
 }: PinnedPanelProps) {
   const groups = groupByPinNote(clips);
 
@@ -36,7 +39,7 @@ export function PinnedPanel({
             </div>
             {!query && (
               <div style={S.emptyHint}>
-                Press <kbd style={S.kbd}>⌘P</kbd> on any clip to pin it.
+                Press <kbd style={S.kbd}>{formatShortcutDisplay(actionShortcuts.pin)}</kbd> on any clip to pin it.
               </div>
             )}
           </div>
@@ -68,6 +71,7 @@ export function PinnedPanel({
         onSaveImage={onSaveImage}
         tagColors={tagColors}
         sourceDisplayNames={deviceNicknames}
+        actionShortcuts={actionShortcuts}
       />
     </>
   );

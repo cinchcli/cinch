@@ -4,6 +4,7 @@ import type { LocalClip } from '../bindings';
 import { C, formatBytes } from '../design';
 import { parseColorClip, type ParsedColorClip } from '../lib/colorClip';
 import type { MachineTagColorMap } from '../lib/machineTagColors';
+import { formatShortcutDisplay, DEFAULT_ACTION_SHORTCUTS, type ActionShortcuts } from '../lib/keymap';
 import { SourcePill } from './SourcePill';
 
 interface ClipDetailProps {
@@ -16,6 +17,8 @@ interface ClipDetailProps {
   searchQuery?: string;
   tagColors?: MachineTagColorMap;
   sourceDisplayNames?: Record<string, string>;
+  /** Live clip-action bindings, so button hints reflect the user's config. */
+  actionShortcuts?: ActionShortcuts;
 }
 
 export function ClipDetail({
@@ -28,6 +31,7 @@ export function ClipDetail({
   searchQuery,
   tagColors = {},
   sourceDisplayNames = {},
+  actionShortcuts = DEFAULT_ACTION_SHORTCUTS,
 }: ClipDetailProps) {
   const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => { setImgDims(null); }, [clip?.id]);
@@ -36,7 +40,9 @@ export function ClipDetail({
     return (
       <div style={S.placeholder}>
         <span style={S.placeholderTitle}>Select a clip</span>
-        <span style={S.placeholderHint}>↵ copy · ⌘P pin · ⌘⌫ delete</span>
+        <span style={S.placeholderHint}>
+          {formatShortcutDisplay(actionShortcuts.copy)} copy · {formatShortcutDisplay(actionShortcuts.pin)} pin · ⌘⌫ delete
+        </span>
       </div>
     );
   }
@@ -116,14 +122,14 @@ export function ClipDetail({
       <div style={S.footer}>
         <div style={S.actions}>
           <button type="button" onClick={() => onCopy(clip)} className="btn-primary" style={S.btnPrimary}>
-            Copy <span style={S.kbdHint}>↵</span>
+            Copy <span style={S.kbdHint}>{formatShortcutDisplay(actionShortcuts.copy)}</span>
           </button>
           <button type="button" onClick={() => onPin(clip)} className="btn-ghost" style={S.btnGhost}>
-            {clip.is_pinned ? 'Unpin' : 'Pin'} <span style={S.kbdHint}>⌘P</span>
+            {clip.is_pinned ? 'Unpin' : 'Pin'} <span style={S.kbdHint}>{formatShortcutDisplay(actionShortcuts.pin)}</span>
           </button>
           {onEdit && !isImage && (
             <button type="button" onClick={() => onEdit(clip)} className="btn-ghost" style={S.btnGhost}>
-              Edit <span style={S.kbdHint}>E</span>
+              Edit <span style={S.kbdHint}>{formatShortcutDisplay(actionShortcuts.edit)}</span>
             </button>
           )}
           {isImage && (

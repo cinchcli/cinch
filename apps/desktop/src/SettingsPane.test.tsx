@@ -68,6 +68,17 @@ describe("SettingsPane", () => {
       if (cmd === "set_send_shortcut") {
         return Promise.resolve(null);
       }
+      if (cmd === "get_action_shortcuts" || cmd === "reset_action_shortcuts") {
+        return Promise.resolve({
+          edit: "CmdOrCtrl+E",
+          copy: "Enter",
+          pin: "CmdOrCtrl+P",
+          send: "CmdOrCtrl+Enter",
+        });
+      }
+      if (cmd === "set_action_shortcuts") {
+        return Promise.resolve();
+      }
       if (cmd === "get_user_profile") {
         return Promise.resolve({
           email: "user@example.com",
@@ -185,6 +196,74 @@ describe("SettingsPane", () => {
       const input = await screen.findByLabelText("Send clipboard shortcut");
       await waitFor(() => {
         expect(input).toHaveValue("Off");
+      });
+    });
+  });
+
+  describe("Clip action shortcuts", () => {
+    it("captures a free chord, persists it, and propagates to the parent", async () => {
+      const onChange = vi.fn();
+      render(
+        <SettingsPane onClose={() => {}} clipCount={0} onActionShortcutsChange={onChange} />,
+      );
+      fireEvent.click(screen.getByText("Keyboard"));
+      const input = await screen.findByLabelText("Edit clip shortcut");
+      // ⌘B is free (no fixed handler owns B, not a default action binding).
+      fireEvent.keyDown(input, { code: "KeyB", key: "b", metaKey: true });
+
+      const expected = {
+        edit: "CmdOrCtrl+B",
+        copy: "Enter",
+        pin: "CmdOrCtrl+P",
+        send: "CmdOrCtrl+Enter",
+      };
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("set_action_shortcuts", { shortcuts: expected });
+      });
+      expect(onChange).toHaveBeenCalledWith(expected);
+    });
+
+    it("blocks a conflicting binding, shows an inline error, and persists nothing", async () => {
+      const onChange = vi.fn();
+      render(
+        <SettingsPane onClose={() => {}} clipCount={0} onActionShortcutsChange={onChange} />,
+      );
+      fireEvent.click(screen.getByText("Keyboard"));
+      const input = await screen.findByLabelText("Edit clip shortcut");
+      // Bare Enter is Copy's default binding → duplicate-within-four conflict.
+      fireEvent.keyDown(input, { code: "Enter", key: "Enter" });
+
+      expect(await screen.findByText(/already used by Copy clip/i)).toBeInTheDocument();
+      expect(invoke).not.toHaveBeenCalledWith("set_action_shortcuts", expect.anything());
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("ignores a modifier-only key press", async () => {
+      render(<SettingsPane onClose={() => {}} clipCount={0} />);
+      fireEvent.click(screen.getByText("Keyboard"));
+      const input = await screen.findByLabelText("Edit clip shortcut");
+      fireEvent.keyDown(input, { key: "Meta", metaKey: true });
+
+      expect(invoke).not.toHaveBeenCalledWith("set_action_shortcuts", expect.anything());
+    });
+
+    it("reset to defaults calls reset_action_shortcuts and propagates the defaults", async () => {
+      const onChange = vi.fn();
+      render(
+        <SettingsPane onClose={() => {}} clipCount={0} onActionShortcutsChange={onChange} />,
+      );
+      fireEvent.click(screen.getByText("Keyboard"));
+      const resetBtn = await screen.findByRole("button", { name: /Reset to defaults/i });
+      fireEvent.click(resetBtn);
+
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith("reset_action_shortcuts");
+      });
+      expect(onChange).toHaveBeenCalledWith({
+        edit: "CmdOrCtrl+E",
+        copy: "Enter",
+        pin: "CmdOrCtrl+P",
+        send: "CmdOrCtrl+Enter",
       });
     });
   });

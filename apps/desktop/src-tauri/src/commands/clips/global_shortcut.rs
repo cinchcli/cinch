@@ -10,7 +10,8 @@ use client_core::store::settings;
 const DEFAULT_GLOBAL_SHORTCUT: &str = "CmdOrCtrl+Shift+V";
 
 /// Modifier key names recognized by Tauri's global-shortcut plugin.
-const MODIFIER_NAMES: &[&str] = &[
+/// Shared with the in-app action-shortcut validator in `action_shortcut.rs`.
+pub(crate) const MODIFIER_NAMES: &[&str] = &[
     "cmd",
     "ctrl",
     "alt",

@@ -6,6 +6,7 @@ use crate::protocol::MultiConfigHandle;
 use client_core::store::models::{SourceRow, StoredClip};
 use client_core::store::queries;
 
+mod action_shortcut;
 mod clip_ops;
 mod device_cache;
 mod devices;
@@ -14,6 +15,7 @@ mod misc;
 mod retention;
 mod source_settings;
 
+pub use action_shortcut::*;
 pub use clip_ops::*;
 pub use device_cache::{DeviceCache, DeviceCacheHandle};
 pub use devices::*;
