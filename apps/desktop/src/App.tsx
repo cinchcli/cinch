@@ -16,6 +16,7 @@ import { C } from './design';
 import { useAuthState, retryAuth, signOut, type AuthProgress, type AuthErrorReason } from './lib/state/auth';
 import { useNotifyOnRemoteLogin } from './lib/settings';
 import SettingsPane, { type SettingsTab } from './SettingsPane';
+import ConfirmDialog from './ConfirmDialog';
 import { AdoptedAuthToast } from './components/AdoptedAuthToast';
 import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast';
 import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
@@ -120,6 +121,7 @@ function App() {
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
   const [editDialog, setEditDialog] = useState<{ clip: LocalClip } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{ clip: LocalClip } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const openSettings = (tab: SettingsTab = 'general') => {
@@ -132,6 +134,9 @@ function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const clipListRef = useRef<HTMLDivElement>(null);
   const copyRecencyRef = useRef<Map<string, number>>(new Map());
+  // Tracks whether a clip-action modal was open on the previous render, so the
+  // effect below can detect the open→closed edge and restore keyboard focus.
+  const modalWasOpenRef = useRef(false);
 
   const clipRecency = useCallback((clip: LocalClip) => {
     const override = copyRecencyRef.current.get(clip.id);
@@ -230,6 +235,21 @@ function App() {
     const el = clipListRef.current.querySelector<HTMLElement>(`[data-id="${selectedClip.id}"]`);
     el?.scrollIntoView({ block: 'nearest' });
   }, [selectedClip]);
+
+  // Return keyboard focus to the selected clip's row when a clip-action modal
+  // (pin / edit / delete) closes. Those modals autofocus an input; unmounting
+  // it on close would otherwise drop DOM focus to <body>, making the detail
+  // panel feel "focused out" even though the clip stays selected. Refocusing
+  // the row keeps the selection as the keyboard context.
+  const modalOpen = Boolean(pinNoteDialog || editDialog || deleteDialog);
+  useEffect(() => {
+    if (modalWasOpenRef.current && !modalOpen && selectedClip && clipListRef.current) {
+      clipListRef.current
+        .querySelector<HTMLElement>(`[data-id="${selectedClip.id}"]`)
+        ?.focus({ preventScroll: true });
+    }
+    modalWasOpenRef.current = modalOpen;
+  }, [modalOpen, selectedClip]);
 
   useEffect(() => {
     commands.getWsStatus().then(setStatus).catch(() => {});
@@ -439,7 +459,7 @@ function App() {
       // that, e.g., ⌘↵ to save does not also broadcast the selected clip via
       // sendClip, ⌘P does not pin it, and Esc does not deselect it underneath
       // the modal.
-      if (editDialog || pinNoteDialog) return;
+      if (editDialog || pinNoteDialog || deleteDialog) return;
 
       const target = e.target as HTMLElement | null;
       const isTextEntry =
@@ -529,6 +549,16 @@ function App() {
         setEditDialog({ clip: selectedClip });
         return;
       }
+      // Delete (⌘⌫): confirm before removing the selected clip. Honors the ⌘⌫
+      // hint already shown on the Delete button and the empty-state placeholder
+      // in ClipDetail. Skipped while typing in a field so ⌘⌫ keeps its native
+      // "delete to line start" behavior in the search box; preventDefault
+      // suppresses the webview's Cmd+Backspace back-navigation.
+      if ((e.metaKey || e.ctrlKey) && key === 'Backspace' && !isTextEntry) {
+        e.preventDefault();
+        if (selectedClip) setDeleteDialog({ clip: selectedClip });
+        return;
+      }
       if (selectedClip) {
         // Send (default ⌘↵) is checked before Copy (default ↵). Exact-modifier
         // matching already keeps them mutually exclusive, but the else-if
@@ -572,7 +602,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog, actionShortcuts]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, actionShortcuts]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -748,6 +778,22 @@ function App() {
           clip={editDialog.clip}
           onSave={(text) => handleEdit(editDialog.clip, text)}
           onCancel={() => setEditDialog(null)}
+        />
+      )}
+
+      {deleteDialog && (
+        <ConfirmDialog
+          open
+          title="Delete clip?"
+          body="Permanently remove this clip from your local history. This can't be undone."
+          primaryLabel="Delete"
+          secondaryLabel="Cancel"
+          tone="destructive"
+          onConfirm={() => {
+            handleDelete(deleteDialog.clip.id);
+            setDeleteDialog(null);
+          }}
+          onCancel={() => setDeleteDialog(null)}
         />
       )}
 
@@ -982,6 +1028,7 @@ function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; acti
         { keys: [formatShortcutDisplay(actionShortcuts.pin)], label: 'Pin / unpin selected clip' },
         { keys: [formatShortcutDisplay(actionShortcuts.edit)], label: 'Edit selected clip' },
         { keys: [formatShortcutDisplay(actionShortcuts.send)], label: 'Send / broadcast selected clip' },
+        { keys: ['⌘⌫'], label: 'Delete selected clip' },
       ],
     },
     {

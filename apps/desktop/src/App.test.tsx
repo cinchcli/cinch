@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import App from './App';
 import { useAuthState, type AuthState } from './lib/state/auth';
@@ -434,6 +434,131 @@ describe('App', () => {
         });
         expect(invoke).not.toHaveBeenCalledWith('copy_clip_to_clipboard', { content: 'clip to pin' });
         expect(invoke).not.toHaveBeenCalledWith('focus_previous_app');
+    });
+
+    it('keeps the clip selected and returns focus to its row after closing the pin modal with Esc', async () => {
+        const clip: LocalClip = {
+            id: 'c1', user_id: 'u1', content: 'focus return clip', content_type: 'text',
+            source: 'local', source_app_id: null, source_app: null, source_url: null,
+            label: '', byte_size: 17, media_path: null, created_at: 1_777_614_529,
+            synced: true, is_pinned: false, pin_note: null, received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            return Promise.resolve();
+        });
+        vi.mocked(useAuthState).mockReturnValue({
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        } as AuthState);
+        render(<App />);
+
+        const row = await screen.findByRole('button', { name: /focus return clip/i });
+        fireEvent.click(row);
+        fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+        const note = await screen.findByPlaceholderText('Add a note (optional)');
+        fireEvent.keyDown(note, { key: 'Escape' });
+
+        await waitFor(() => expect(screen.queryByPlaceholderText('Add a note (optional)')).toBeNull());
+        // Clip stays selected (detail panel still shows it, not the placeholder)
+        // and focus returns to the row instead of dropping to <body>.
+        expect(screen.queryByText('Select a clip')).toBeNull();
+        expect(document.activeElement).toBe(row);
+    });
+
+    it('confirms before deleting the selected clip with ⌘⌫, then deletes on confirm', async () => {
+        const clip: LocalClip = {
+            id: 'c1',
+            user_id: 'u1',
+            content: 'clip to delete',
+            content_type: 'text',
+            source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
+            label: '',
+            byte_size: 14,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        const row = await screen.findByRole('button', { name: /clip to delete/i });
+        fireEvent.click(row);
+        fireEvent.keyDown(window, { key: 'Backspace', metaKey: true });
+
+        // Confirmation dialog appears; nothing is deleted until the user confirms.
+        const dialog = await screen.findByRole('dialog');
+        expect(invoke).not.toHaveBeenCalledWith('delete_clip', { id: 'c1' });
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+        await waitFor(() => {
+            expect(invoke).toHaveBeenCalledWith('delete_clip', { id: 'c1' });
+        });
+    });
+
+    it('does not delete when the ⌘⌫ confirmation is cancelled with Esc', async () => {
+        const clip: LocalClip = {
+            id: 'c1',
+            user_id: 'u1',
+            content: 'keep me',
+            content_type: 'text',
+            source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
+            label: '',
+            byte_size: 7,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        const row = await screen.findByRole('button', { name: /keep me/i });
+        fireEvent.click(row);
+        fireEvent.keyDown(window, { key: 'Backspace', metaKey: true });
+
+        await screen.findByRole('dialog');
+        fireEvent.keyDown(window, { key: 'Escape' });
+
+        await waitFor(() => {
+            expect(screen.queryByRole('dialog')).toBeNull();
+        });
+        expect(invoke).not.toHaveBeenCalledWith('delete_clip', { id: 'c1' });
     });
 
     it('renders GettingStartedCard when authenticated, inbox empty, and only self device', async () => {
