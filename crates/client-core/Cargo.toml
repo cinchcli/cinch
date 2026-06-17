@@ -37,7 +37,9 @@ sha2 = { workspace = true }
 base64 = { workspace = true }
 hostname = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# `preserve_order` keeps a user's hand-maintained settings.json key order on
+# rewrite (agent_resume edits it in place) instead of re-sorting alphabetically.
+serde_json = { workspace = true, features = ["preserve_order"] }
 dirs = { workspace = true }
 ulid = { workspace = true }
 url = { workspace = true }

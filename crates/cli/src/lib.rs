@@ -77,6 +77,10 @@ enum Cmd {
     Update(update::UpdateArgs),
     /// Run a read-only MCP server over your local clipboard (stdio).
     Mcp(commands::mcp::Args),
+    /// Copy an agent's "resume this session" command when a session ends.
+    /// Hidden: holds machine-invoked hook entrypoints plus enable/disable/status.
+    #[command(hide = true)]
+    AgentHook(commands::agent_hook::Args),
     /// Resolve a named clip from the project's cinch.yaml onto your clipboard.
     #[command(name = "use")]
     Use(commands::use_::Args),
@@ -271,6 +275,7 @@ fn command_name(cmd: &Cmd) -> &'static str {
         Cmd::SelfUpdate(_) => "self-update",
         Cmd::Mcp(_) => "mcp",
         Cmd::Use(_) => "use",
+        Cmd::AgentHook(_) => "agent-hook",
     }
 }
 
@@ -339,6 +344,24 @@ pub fn run() -> i32 {
         };
     }
 
+    // Agent-hook is fully synchronous (clipboard + store + filesystem only) and
+    // fires on every agent session end, so — like MCP — it skips the tokio
+    // runtime, telemetry, and the update notifier. That keeps the per-exit hook
+    // fast (Claude's SessionEnd hook has a tight default timeout) and free of
+    // background side effects.
+    if matches!(cli.cmd, Cmd::AgentHook(_)) {
+        let Cmd::AgentHook(args) = cli.cmd else {
+            unreachable!()
+        };
+        return match commands::agent_hook::run(args) {
+            Ok(()) => exit::SUCCESS,
+            Err(e) => {
+                e.print_stderr();
+                e.code
+            }
+        };
+    }
+
     // Skip telemetry init for the `cinch account telemetry` meta-command so
     // that inspecting/toggling state does not itself create the distinct_id
     // file or print the first-run notice.
@@ -397,6 +420,7 @@ pub fn run() -> i32 {
             Cmd::Use(args) => commands::use_::run(args).await,
             Cmd::Completion { .. } => unreachable!(),
             Cmd::Mcp(_) => unreachable!(),
+            Cmd::AgentHook(_) => unreachable!(),
         };
         // Best-effort update notifier: never delays user-facing output by >300ms,
         // never affects exit status, never surfaces its errors. Replaces the

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod admin;
+pub mod agent_hook;
 pub mod ai;
 pub mod auth;
 pub mod auth_recovery;

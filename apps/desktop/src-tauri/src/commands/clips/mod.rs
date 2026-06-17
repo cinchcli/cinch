@@ -7,6 +7,7 @@ use client_core::store::models::{SourceRow, StoredClip};
 use client_core::store::queries;
 
 mod action_shortcut;
+mod agent_resume;
 mod clip_ops;
 mod device_cache;
 mod devices;
@@ -16,6 +17,7 @@ mod retention;
 mod source_settings;
 
 pub use action_shortcut::*;
+pub use agent_resume::*;
 pub use clip_ops::*;
 pub use device_cache::{DeviceCache, DeviceCacheHandle};
 pub use devices::*;
