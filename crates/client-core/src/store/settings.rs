@@ -189,6 +189,29 @@ pub fn set_action_shortcuts(store: &Store, json: &str) -> Result<(), StoreError>
     set_setting(store, "action_shortcuts", json)
 }
 
+// ── Agent resume-on-exit ────────────────────────────────────────────────────
+
+/// Whether cinch copies an agent's "resume this session" command to the
+/// clipboard when a coding-agent session ends. Keyed per agent (`claude` /
+/// `codex`). Defaults to `false` (off) when unset. Read by the hidden
+/// `cinch agent-hook` entrypoints so a stale hook left in a config file
+/// no-ops once the user turns the feature off.
+pub fn is_agent_resume_enabled(store: &Store, agent: &str) -> Result<bool, StoreError> {
+    Ok(get_setting(store, &format!("agent_resume:{agent}"))?.as_deref() == Some("true"))
+}
+
+pub fn set_agent_resume_enabled(
+    store: &Store,
+    agent: &str,
+    enabled: bool,
+) -> Result<(), StoreError> {
+    set_setting(
+        store,
+        &format!("agent_resume:{agent}"),
+        if enabled { "true" } else { "false" },
+    )
+}
+
 // ── Excluded apps (clipboard monitoring) ────────────────────────────────────
 
 pub fn excluded_apps(store: &Store) -> Result<Vec<String>, StoreError> {
@@ -339,6 +362,19 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].source, "remote:b");
         assert!(!rows[0].alert_enabled);
+    }
+
+    #[test]
+    fn agent_resume_defaults_false_and_toggles_per_agent() {
+        let s = store();
+        assert!(!is_agent_resume_enabled(&s, "claude").unwrap());
+        assert!(!is_agent_resume_enabled(&s, "codex").unwrap());
+        set_agent_resume_enabled(&s, "claude", true).unwrap();
+        assert!(is_agent_resume_enabled(&s, "claude").unwrap());
+        // Toggling claude must not affect codex.
+        assert!(!is_agent_resume_enabled(&s, "codex").unwrap());
+        set_agent_resume_enabled(&s, "claude", false).unwrap();
+        assert!(!is_agent_resume_enabled(&s, "claude").unwrap());
     }
 
     #[test]

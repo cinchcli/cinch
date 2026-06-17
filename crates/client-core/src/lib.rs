@@ -8,6 +8,7 @@
 //! The optional `specta` feature wires up `specta::Type` derives on wire
 //! DTOs that desktop exposes to the frontend. CLI builds without it.
 
+pub mod agent_resume;
 pub mod auth;
 pub mod auth_session;
 pub mod classify;

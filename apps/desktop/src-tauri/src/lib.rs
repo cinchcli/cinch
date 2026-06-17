@@ -90,6 +90,8 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::get_action_shortcuts,
             commands::clips::set_action_shortcuts,
             commands::clips::reset_action_shortcuts,
+            commands::clips::get_agent_resume_config,
+            commands::clips::set_agent_resume_enabled,
             commands::auth::get_auth_state,
             commands::auth::get_user_profile,
             commands::auth::set_display_name,

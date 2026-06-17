@@ -82,6 +82,8 @@ export const commands = {
 	getActionShortcuts: () => typedError<ActionShortcuts, string>(__TAURI_INVOKE("get_action_shortcuts")),
 	setActionShortcuts: (shortcuts: ActionShortcuts) => typedError<null, string>(__TAURI_INVOKE("set_action_shortcuts", { shortcuts })),
 	resetActionShortcuts: () => typedError<ActionShortcuts, string>(__TAURI_INVOKE("reset_action_shortcuts")),
+	getAgentResumeConfig: () => typedError<AgentResumeConfig, string>(__TAURI_INVOKE("get_agent_resume_config")),
+	setAgentResumeEnabled: (agent: Agent, enabled: boolean) => typedError<AgentResumeResult, string>(__TAURI_INVOKE("set_agent_resume_enabled", { agent, enabled })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**
@@ -243,6 +245,37 @@ export type ActionShortcuts = {
 	copy: string,
 	pin: string,
 	send: string,
+};
+
+// A supported coding agent.
+export type Agent = "claude" | "codex";
+
+// Per-agent state for the resume-on-exit feature, surfaced to Settings.
+export type AgentResumeConfig = {
+	claude_enabled: boolean,
+	codex_enabled: boolean,
+	/**
+	 *  Whether the SessionEnd hook / shell wrapper is actually present on disk,
+	 *  so the UI can flag drift if the user removed it by hand.
+	 */
+	claude_installed: boolean,
+	codex_installed: boolean,
+	/**
+	 *  True when Codex can't be auto-installed for this shell (fish / unknown):
+	 *  the user pastes a snippet by hand, so `codex_installed` is never known
+	 *  and the UI must not treat "enabled but not installed" as drift here.
+	 */
+	codex_manual_shell: boolean,
+};
+
+// Outcome of a toggle, so the UI can tell the user what changed.
+export type AgentResumeResult = {
+	// True after a Codex change — the shell wrapper only loads in a new shell.
+	needs_shell_restart: boolean,
+	// Absolute paths cinch edited (the rc file or settings.json).
+	files_modified: string[],
+	// For fish / unknown shells: the snippet to paste manually (no auto-edit).
+	manual_snippet: string | null,
 };
 
 /**
