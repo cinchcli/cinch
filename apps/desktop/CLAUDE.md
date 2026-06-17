@@ -139,6 +139,14 @@ Cargo feature (on by default; see `src-tauri/Cargo.toml`). At runtime,
 `cinch_cli::run()` via `std::process::exit`; otherwise it launches Tauri
 via `cinch_desktop_lib::run()`.
 
+It **also** dispatches to the CLI when `argv[1] == "agent-hook"`, even
+though the bundle's binary basename is `Cinch`. This lets the
+agent-resume SessionEnd hook / Codex wrapper bake the app's *own*
+absolute path (`…/Cinch.app/Contents/MacOS/Cinch agent-hook …`) so the
+hook is immune to PATH ordering / a stale `cinch` resolving first. A GUI
+launch never passes `agent-hook`, so this stays unambiguous. See
+`should_dispatch_cli` in `main.rs`.
+
 ### macOS: Cask `target:` rename, no in-bundle symlink
 
 Homebrew Cask exposes the CLI to users with:

@@ -88,6 +88,48 @@ pub const DEFAULT_CINCH_BIN: &str = "cinch";
 pub const CODEX_BLOCK_START: &str = "# >>> cinch agent-resume (codex) >>>";
 pub const CODEX_BLOCK_END: &str = "# <<< cinch agent-resume (codex) <<<";
 
+// ── Baked binary path (PATH-independent hook commands) ────────────────────────
+
+/// Shell-single-quote a value so an absolute path with spaces or other shell
+/// metacharacters survives intact inside the hook command string.
+fn sh_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// The Claude `SessionEnd` hook command to install. Prefer the absolute path of
+/// the current binary (`current_exe`) so the hook always invokes the exact
+/// cinch that installed it — immune to PATH ordering or a stale `cinch`
+/// resolving first. Falls back to bare `cinch` when the path is unknown.
+///
+/// The desktop bakes its own app-binary path (basename `Cinch`); the app's
+/// argv dispatch recognizes the `agent-hook` subcommand and routes to the CLI.
+pub fn claude_hook_command(current_exe: Option<&Path>) -> String {
+    match current_exe {
+        Some(p) => format!("{} {CLAUDE_HOOK_MARKER}", sh_quote(&p.to_string_lossy())),
+        None => DEFAULT_CLAUDE_HOOK_COMMAND.to_string(),
+    }
+}
+
+/// The cinch binary token to embed in the Codex shell wrapper: the current
+/// binary's absolute, shell-quoted path when known (PATH-independent), else
+/// bare `cinch`. `command <token> agent-hook codex-exit` runs it directly.
+pub fn codex_bin_token(current_exe: Option<&Path>) -> String {
+    match current_exe {
+        Some(p) => sh_quote(&p.to_string_lossy()),
+        None => DEFAULT_CINCH_BIN.to_string(),
+    }
+}
+
 // ── Resume command ──────────────────────────────────────────────────────────
 
 /// Build the agent's resume command line for a given session id.
@@ -322,7 +364,28 @@ pub fn claude_settings_with_hook(
     let arr = session_end
         .as_array_mut()
         .ok_or(AgentResumeError::NotAnObject)?;
-    if !session_end_has_our_hook(arr) {
+    // Update our existing hook's command in place (migrating e.g. a bare `cinch`
+    // to a baked absolute path), or append a fresh group if we have none.
+    let mut updated = false;
+    for group in arr.iter_mut() {
+        if let Some(hooks) = group.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+            for h in hooks.iter_mut() {
+                let is_ours = h
+                    .get("command")
+                    .and_then(|c| c.as_str())
+                    .is_some_and(|c| c.contains(CLAUDE_HOOK_MARKER));
+                if is_ours {
+                    h["command"] = serde_json::json!(command);
+                    if let Some(o) = h.as_object_mut() {
+                        o.entry("type")
+                            .or_insert_with(|| serde_json::json!("command"));
+                    }
+                    updated = true;
+                }
+            }
+        }
+    }
+    if !updated {
         arr.push(serde_json::json!({
             "hooks": [ { "type": "command", "command": command } ]
         }));
@@ -421,16 +484,28 @@ pub fn codex_fish_snippet(bin: &str) -> String {
     )
 }
 
-/// Add the Codex wrapper block to rc content if absent (idempotent).
+/// Add the Codex wrapper block to rc content (idempotent). If a block for a
+/// *different* `bin` is already present it is replaced in place (so re-enabling
+/// migrates e.g. a bare `cinch` to a baked absolute path) rather than appending
+/// a second block.
 pub fn rc_with_codex_block(existing: &str, bin: &str) -> String {
-    if existing.contains(CODEX_BLOCK_START) {
+    let desired = codex_wrapper_block(bin);
+    // Already exactly present → no-op.
+    if existing.contains(desired.trim_end_matches('\n')) {
         return existing.to_string();
     }
-    let mut out = existing.to_string();
+    // Remove any existing well-formed block, then append the desired one.
+    let stripped = rc_without_codex_block(existing);
+    // A dangling START survived the (fail-safe) strip — don't risk a duplicate;
+    // leave the file untouched for the user to repair by hand.
+    if stripped.contains(CODEX_BLOCK_START) {
+        return existing.to_string();
+    }
+    let mut out = stripped;
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
-    out.push_str(&codex_wrapper_block(bin));
+    out.push_str(&desired);
     out
 }
 
@@ -820,6 +895,20 @@ mod tests {
     }
 
     #[test]
+    fn claude_with_hook_migrates_stale_command_in_place() {
+        // A hook first installed with the bare command...
+        let existing = claude_settings_with_hook(None, DEFAULT_CLAUDE_HOOK_COMMAND).unwrap();
+        // ...is rewritten to a new (absolute-path) command on re-install, with
+        // no duplicate group — so toggling picks up the baked path.
+        let abs = "'/abs/cinch' agent-hook claude-session-end";
+        let out = claude_settings_with_hook(Some(&existing), abs).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let se = v["hooks"]["SessionEnd"].as_array().unwrap();
+        assert_eq!(se.len(), 1, "must not duplicate our hook");
+        assert_eq!(se[0]["hooks"][0]["command"], abs);
+    }
+
+    #[test]
     fn claude_with_hook_is_idempotent() {
         let once = claude_settings_with_hook(None, DEFAULT_CLAUDE_HOOK_COMMAND).unwrap();
         let twice = claude_settings_with_hook(Some(&once), DEFAULT_CLAUDE_HOOK_COMMAND).unwrap();
@@ -908,6 +997,53 @@ mod tests {
 
     // ── Codex rc editing ───────────────────────────────────────────────────────
 
+    // ── Baked hook command / wrapper bin ───────────────────────────────────────
+
+    #[test]
+    fn claude_hook_command_bakes_absolute_path_and_stays_detectable() {
+        let p = Path::new("/Users/me/dev/target/debug/cinch");
+        let cmd = claude_hook_command(Some(p));
+        assert_eq!(
+            cmd,
+            "'/Users/me/dev/target/debug/cinch' agent-hook claude-session-end"
+        );
+        // A baked command must still be recognized as *our* hook (marker check).
+        let json = format!(
+            r#"{{"hooks":{{"SessionEnd":[{{"hooks":[{{"type":"command","command":"{cmd}"}}]}}]}}}}"#
+        );
+        assert!(claude_hook_present_in(&json));
+    }
+
+    #[test]
+    fn claude_hook_command_falls_back_to_bare_cinch() {
+        assert_eq!(claude_hook_command(None), DEFAULT_CLAUDE_HOOK_COMMAND);
+    }
+
+    #[test]
+    fn claude_hook_command_quotes_paths_with_spaces() {
+        let p = Path::new("/Applications/My Cinch.app/Contents/MacOS/Cinch");
+        let cmd = claude_hook_command(Some(p));
+        assert!(
+            cmd.starts_with("'/Applications/My Cinch.app/Contents/MacOS/Cinch' "),
+            "path with spaces must be shell-quoted: {cmd}"
+        );
+        assert!(cmd.ends_with(" agent-hook claude-session-end"));
+    }
+
+    #[test]
+    fn codex_bin_token_bakes_absolute_path_else_bare() {
+        assert_eq!(
+            codex_bin_token(Some(Path::new("/abs/cinch"))),
+            "'/abs/cinch'"
+        );
+        assert_eq!(codex_bin_token(None), DEFAULT_CINCH_BIN);
+        // The wrapper built from the baked token keeps the guard markers and
+        // calls the quoted absolute path via `command`.
+        let block = codex_wrapper_block(&codex_bin_token(Some(Path::new("/abs/cinch"))));
+        assert!(block.contains(CODEX_BLOCK_START));
+        assert!(block.contains("command '/abs/cinch' agent-hook codex-exit"));
+    }
+
     #[test]
     fn codex_block_contains_markers_and_call() {
         let block = codex_wrapper_block(DEFAULT_CINCH_BIN);
@@ -937,6 +1073,24 @@ mod tests {
         assert!(!without.contains(CODEX_BLOCK_END));
         assert!(!without.contains("agent-hook codex-exit"));
         assert!(without.contains("alias ll='ls -l'"));
+    }
+
+    #[test]
+    fn rc_with_codex_block_migrates_to_new_bin() {
+        let original = "alias x=1\n";
+        let old = rc_with_codex_block(original, "cinch");
+        assert!(old.contains("command cinch agent-hook codex-exit"));
+        // Re-install with a different bin (e.g. an absolute path) replaces the
+        // block in place rather than appending a second one.
+        let new = rc_with_codex_block(&old, "'/abs/cinch'");
+        assert_eq!(
+            new.matches(CODEX_BLOCK_START).count(),
+            1,
+            "must not duplicate the block"
+        );
+        assert!(new.contains("command '/abs/cinch' agent-hook codex-exit"));
+        assert!(!new.contains("command cinch agent-hook codex-exit"));
+        assert!(new.contains("alias x=1"));
     }
 
     #[test]

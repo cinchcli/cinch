@@ -40,11 +40,21 @@ pub struct AgentResumeResult {
     pub manual_snippet: Option<String>,
 }
 
-/// Resolve the Codex install target for the desktop's environment.
-fn codex_target() -> CodexTarget {
+/// Resolve the Codex install target for the desktop's environment. `bin` is the
+/// token embedded in the wrapper — an absolute path when enabling, or the bare
+/// default when we only need the rc path (config read / disable).
+fn codex_target_for(bin: &str) -> CodexTarget {
     let shell = std::env::var("SHELL").ok();
     let home = dirs::home_dir().unwrap_or_default();
-    agent_resume::codex_target(shell.as_deref(), &home, agent_resume::DEFAULT_CINCH_BIN)
+    agent_resume::codex_target(shell.as_deref(), &home, bin)
+}
+
+/// Absolute path of the running binary, baked into the installed hook / wrapper
+/// so they invoke this exact app regardless of PATH ordering or a stale `cinch`.
+/// The app's argv dispatch routes the `agent-hook` subcommand to the CLI even
+/// though the bundle's binary basename is `Cinch`.
+fn current_exe() -> Option<std::path::PathBuf> {
+    std::env::current_exe().ok()
 }
 
 #[tauri::command]
@@ -57,10 +67,11 @@ pub fn get_agent_resume_config(store: State<'_, SharedStore>) -> Result<AgentRes
     let claude_installed = agent_resume::claude_settings_path()
         .map(|p| agent_resume::is_claude_hook_installed(&p))
         .unwrap_or(false);
-    let (codex_installed, codex_manual_shell) = match codex_target() {
-        CodexTarget::Posix(rc) => (agent_resume::is_codex_wrapper_installed(&rc), false),
-        CodexTarget::Manual(_) => (false, true),
-    };
+    let (codex_installed, codex_manual_shell) =
+        match codex_target_for(agent_resume::DEFAULT_CINCH_BIN) {
+            CodexTarget::Posix(rc) => (agent_resume::is_codex_wrapper_installed(&rc), false),
+            CodexTarget::Manual(_) => (false, true),
+        };
     Ok(AgentResumeConfig {
         claude_enabled,
         codex_enabled,
@@ -89,8 +100,8 @@ fn set_claude(enabled: bool) -> Result<AgentResumeResult, String> {
     let path = agent_resume::claude_settings_path()
         .ok_or_else(|| "Could not resolve home directory".to_string())?;
     if enabled {
-        agent_resume::install_claude_hook(&path, agent_resume::DEFAULT_CLAUDE_HOOK_COMMAND)
-            .map_err(|e| e.to_string())?;
+        let command = agent_resume::claude_hook_command(current_exe().as_deref());
+        agent_resume::install_claude_hook(&path, &command).map_err(|e| e.to_string())?;
     } else {
         agent_resume::uninstall_claude_hook(&path).map_err(|e| e.to_string())?;
     }
@@ -102,11 +113,11 @@ fn set_claude(enabled: bool) -> Result<AgentResumeResult, String> {
 }
 
 fn set_codex(enabled: bool) -> Result<AgentResumeResult, String> {
-    match codex_target() {
+    let bin = agent_resume::codex_bin_token(current_exe().as_deref());
+    match codex_target_for(&bin) {
         CodexTarget::Posix(rc) => {
             if enabled {
-                agent_resume::install_codex_wrapper(&rc, agent_resume::DEFAULT_CINCH_BIN)
-                    .map_err(|e| e.to_string())?;
+                agent_resume::install_codex_wrapper(&rc, &bin).map_err(|e| e.to_string())?;
             } else {
                 agent_resume::uninstall_codex_wrapper(&rc).map_err(|e| e.to_string())?;
             }

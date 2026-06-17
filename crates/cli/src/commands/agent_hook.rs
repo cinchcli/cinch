@@ -155,10 +155,18 @@ fn save_resume_clip(store: &Store, agent: Agent, session_id: &str) -> Option<Str
 // ── enable / disable / status ─────────────────────────────────────────────────
 
 /// Where the Codex shell wrapper should be installed for the current shell.
-fn codex_install_target() -> CodexTarget {
+/// `bin` is the token embedded in the wrapper (an absolute path when enabling,
+/// or the bare default when we only need the rc path for disable/status).
+fn codex_install_target(bin: &str) -> CodexTarget {
     let shell = std::env::var("SHELL").ok();
     let home = dirs::home_dir().unwrap_or_default();
-    agent_resume::codex_target(shell.as_deref(), &home, agent_resume::DEFAULT_CINCH_BIN)
+    agent_resume::codex_target(shell.as_deref(), &home, bin)
+}
+
+/// Absolute path of the running cinch binary, baked into the installed hook /
+/// wrapper so they invoke this exact binary regardless of PATH ordering.
+fn current_exe() -> Option<std::path::PathBuf> {
+    std::env::current_exe().ok()
 }
 
 fn run_enable(agent: Agent) -> Result<(), ExitError> {
@@ -170,42 +178,43 @@ fn run_enable(agent: Agent) -> Result<(), ExitError> {
             let path = agent_resume::claude_settings_path().ok_or_else(|| {
                 ExitError::new(GENERIC_ERROR, "Could not resolve home directory.", "")
             })?;
-            agent_resume::install_claude_hook(&path, agent_resume::DEFAULT_CLAUDE_HOOK_COMMAND)
-                .map_err(|e| {
-                    ExitError::new(
-                        GENERIC_ERROR,
-                        format!("Could not install Claude hook: {e}"),
-                        "",
-                    )
-                })?;
+            let command = agent_resume::claude_hook_command(current_exe().as_deref());
+            agent_resume::install_claude_hook(&path, &command).map_err(|e| {
+                ExitError::new(
+                    GENERIC_ERROR,
+                    format!("Could not install Claude hook: {e}"),
+                    "",
+                )
+            })?;
             eprintln!("\u{2713} Claude Code will copy its resume command when a session ends.");
             eprintln!("  SessionEnd hook installed in {}", path.display());
         }
-        Agent::Codex => match codex_install_target() {
-            CodexTarget::Posix(rc) => {
-                agent_resume::install_codex_wrapper(&rc, agent_resume::DEFAULT_CINCH_BIN).map_err(
-                    |e| {
+        Agent::Codex => {
+            let bin = agent_resume::codex_bin_token(current_exe().as_deref());
+            match codex_install_target(&bin) {
+                CodexTarget::Posix(rc) => {
+                    agent_resume::install_codex_wrapper(&rc, &bin).map_err(|e| {
                         ExitError::new(
                             GENERIC_ERROR,
                             format!("Could not install Codex wrapper: {e}"),
                             "",
                         )
-                    },
-                )?;
-                eprintln!("\u{2713} Codex will copy its resume command when a session ends.");
-                eprintln!("  Wrapper added to {}", rc.display());
-                eprintln!(
-                    "  Restart your terminal (or run `source {}`) to apply.",
-                    rc.display()
-                );
-            }
-            CodexTarget::Manual(snippet) => {
-                eprintln!(
+                    })?;
+                    eprintln!("\u{2713} Codex will copy its resume command when a session ends.");
+                    eprintln!("  Wrapper added to {}", rc.display());
+                    eprintln!(
+                        "  Restart your terminal (or run `source {}`) to apply.",
+                        rc.display()
+                    );
+                }
+                CodexTarget::Manual(snippet) => {
+                    eprintln!(
                     "\u{2713} Enabled. Codex uses a shell function — add this to your shell config:\n"
                 );
-                println!("{snippet}");
+                    println!("{snippet}");
+                }
             }
-        },
+        }
     }
     Ok(())
 }
@@ -227,7 +236,7 @@ fn run_disable(agent: Agent) -> Result<(), ExitError> {
             }
             eprintln!("\u{2713} Disabled resume-on-exit for Claude Code.");
         }
-        Agent::Codex => match codex_install_target() {
+        Agent::Codex => match codex_install_target(agent_resume::DEFAULT_CINCH_BIN) {
             CodexTarget::Posix(rc) => {
                 agent_resume::uninstall_codex_wrapper(&rc).map_err(|e| {
                     ExitError::new(
@@ -258,7 +267,7 @@ fn run_status() -> Result<(), ExitError> {
             Agent::Claude => agent_resume::claude_settings_path()
                 .map(|p| agent_resume::is_claude_hook_installed(&p))
                 .unwrap_or(false),
-            Agent::Codex => match codex_install_target() {
+            Agent::Codex => match codex_install_target(agent_resume::DEFAULT_CINCH_BIN) {
                 CodexTarget::Posix(rc) => agent_resume::is_codex_wrapper_installed(&rc),
                 CodexTarget::Manual(_) => false,
             },
