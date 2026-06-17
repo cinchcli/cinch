@@ -65,6 +65,30 @@ pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     activate_self();
     let _ = window.set_focus();
+
+    // macOS: re-assert activation + focus on the next run-loop pass so the
+    // first Command-modified shortcut after a summon is not swallowed.
+    //
+    // The Accessory→Regular activation transition above (set_dock_visible →
+    // activate_self) does NOT fully settle within this synchronous call — the
+    // window server processes it on a later run-loop iteration. Until it does,
+    // the app's main-menu key-equivalent routing is in flux: the FIRST
+    // Command-modified keydown after a summon (⌘P pin, ⌘E edit, ⌘↵ send) is
+    // consumed by the in-flight transition and never reaches the WebView's JS
+    // keydown handler, while a plain keydown (↵ copy) is delivered to the
+    // focused WebView normally. Re-running activate_self + set_focus once the
+    // run loop has processed the transition completes it without spending a
+    // user keypress, so the first Command shortcut fires as expected.
+    #[cfg(target_os = "macos")]
+    {
+        let app_for_settle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            activate_self();
+            if let Some(window) = app_for_settle.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        });
+    }
 }
 
 /// Captures the pid of the macOS frontmost application and stores it in PreviousAppPid state.
