@@ -56,6 +56,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::unpin_clip,
             commands::clips::search_clips,
             commands::clips::get_sources,
+            commands::clips::list_source_apps,
             commands::clips::delete_clip,
             commands::clips::send_clip,
             commands::clips::send_current_clipboard,

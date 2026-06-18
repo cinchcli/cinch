@@ -11,6 +11,11 @@ export const commands = {
 	unpinClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("unpin_clip", { id })),
 	searchClips: (query: string, limit: number | null) => typedError<LocalClip[], string>(__TAURI_INVOKE("search_clips", { query, limit })),
 	getSources: () => typedError<SourceInfo[], string>(__TAURI_INVOKE("get_sources")),
+	/**
+	 *  The distinct apps the user has copied from (bundle id + display name +
+	 *  clip count), most-used first. Backs the search bar's `app:` filter picker.
+	 */
+	listSourceApps: () => typedError<SourceAppInfo[], string>(__TAURI_INVOKE("list_source_apps")),
 	deleteClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_clip", { id })),
 	/**
 	 *  Explicitly send an already-captured local clip to the relay (and thus to
@@ -533,6 +538,12 @@ export type SnapGuideUpdate = {
 export type SourceAlertSetting = {
 	source: string,
 	alert_enabled: boolean,
+};
+
+export type SourceAppInfo = {
+	app_id: string,
+	app_name: string,
+	count: number,
 };
 
 export type SourceInfo = {

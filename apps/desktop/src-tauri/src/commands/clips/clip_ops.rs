@@ -5,8 +5,8 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
 use super::{
-    image_bytes_for, resolve_active_creds, source_row_to_info, stored_to_local, LocalClip,
-    SourceInfo,
+    image_bytes_for, resolve_active_creds, source_app_row_to_info, source_row_to_info,
+    stored_to_local, LocalClip, SourceAppInfo, SourceInfo,
 };
 use crate::clipboard::ClipboardService;
 use crate::protocol::MultiConfigHandle;
@@ -120,6 +120,16 @@ pub fn search_clips(
 pub fn get_sources(store: State<'_, SharedStore>) -> Result<Vec<SourceInfo>, String> {
     queries::list_sources(&store)
         .map(|v| v.into_iter().map(source_row_to_info).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// The distinct apps the user has copied from (bundle id + display name +
+/// clip count), most-used first. Backs the search bar's `app:` filter picker.
+#[tauri::command]
+#[specta::specta]
+pub fn list_source_apps(store: State<'_, SharedStore>) -> Result<Vec<SourceAppInfo>, String> {
+    queries::list_source_apps(&store)
+        .map(|v| v.into_iter().map(source_app_row_to_info).collect())
         .map_err(|e| e.to_string())
 }
 

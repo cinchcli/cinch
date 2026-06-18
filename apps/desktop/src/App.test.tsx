@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/plugin-notification', () => ({
 }));
 vi.mock('@tauri-apps/api/core', () => ({
     invoke: vi.fn((cmd) => {
-        if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+        if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
             return Promise.resolve([]);
         }
         if (cmd === 'get_ws_status') return Promise.resolve('connected');
@@ -47,7 +47,7 @@ describe('App', () => {
         vi.clearAllMocks();
         Element.prototype.scrollIntoView = vi.fn();
         vi.mocked(invoke).mockImplementation((cmd) => {
-            if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+            if (cmd === 'list_clips' || cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
                 return Promise.resolve([]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
@@ -158,7 +158,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -219,7 +219,7 @@ describe('App', () => {
         ];
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve(clips);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -263,7 +263,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -311,7 +311,7 @@ describe('App', () => {
         ];
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve(clips);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
                 return Promise.resolve([]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
@@ -362,7 +362,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([imageClip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') {
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
                 return Promise.resolve([]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
@@ -410,7 +410,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -445,7 +445,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -490,7 +490,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });
@@ -537,7 +537,7 @@ describe('App', () => {
         };
         vi.mocked(invoke).mockImplementation((cmd) => {
             if (cmd === 'list_clips') return Promise.resolve([clip]);
-            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices') return Promise.resolve([]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             return Promise.resolve();
         });

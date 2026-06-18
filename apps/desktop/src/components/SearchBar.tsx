@@ -19,6 +19,15 @@ export interface DeviceOption {
   colorSlot?: SourceColorSlot;
 }
 
+/// One entry in the source-app picker (the `>` filter): the macOS bundle id
+/// (`id`, the stable filter key), the human display name (`label`), and how
+/// many clips were captured from that app.
+export interface AppOption {
+  id: string;
+  label: string;
+  count: number;
+}
+
 type ThemeMode = 'light' | 'dark' | 'system';
 
 interface SearchBarProps {
@@ -33,6 +42,9 @@ interface SearchBarProps {
   deviceOptions: DeviceOption[];
   selectedSource: string | null;
   onSourceChange: (source: string | null) => void;
+  appOptions: AppOption[];
+  selectedApp: string | null;
+  onAppChange: (app: string | null) => void;
 }
 
 const THEME_MODES: ThemeMode[] = ['light', 'dark', 'system'];
@@ -54,6 +66,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     value, onChange, onClear, themeMode, onSetThemeMode, onMouseDown,
     activeFilter, onFilterChange,
     deviceOptions, selectedSource, onSourceChange,
+    appOptions, selectedApp, onAppChange,
   }, ref) => {
     const [themeMenuOpen, setThemeMenuOpen] = useState(false);
     const themeMenuRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +97,12 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     const [deviceDropdownQuery, setDeviceDropdownQuery] = useState('');
     const [highlightedDevice, setHighlightedDevice] = useState<string | null>(null);
 
+    const [appDropdownOpen, setAppDropdownOpen] = useState(false);
+    const [appDropdownQuery, setAppDropdownQuery] = useState('');
+    const [highlightedApp, setHighlightedApp] = useState<string | null>(null);
+
     const selectedDevice = deviceOptions.find((d) => d.source === selectedSource) ?? null;
+    const selectedAppOption = appOptions.find((a) => a.id === selectedApp) ?? null;
 
     const matchingFilters = CLIP_FILTERS.filter(
       f => dropdownQuery === '' || f.startsWith(dropdownQuery)
@@ -94,9 +112,15 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       d => deviceDropdownQuery === '' || d.label.toLowerCase().startsWith(deviceDropdownQuery)
     );
 
+    const matchingApps = appOptions.filter(
+      a => appDropdownQuery === '' || a.label.toLowerCase().startsWith(appDropdownQuery)
+    );
+
     const openDropdown = useCallback((preHighlight: ClipFilter = 'all') => {
       setDeviceDropdownOpen(false);
       setDeviceDropdownQuery('');
+      setAppDropdownOpen(false);
+      setAppDropdownQuery('');
       setDropdownOpen(true);
       setDropdownQuery('');
       setHighlightedFilter(preHighlight);
@@ -110,6 +134,8 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     const openDeviceDropdown = useCallback((preHighlight: string | null) => {
       setDropdownOpen(false);
       setDropdownQuery('');
+      setAppDropdownOpen(false);
+      setAppDropdownQuery('');
       setDeviceDropdownOpen(true);
       setDeviceDropdownQuery('');
       setHighlightedDevice(preHighlight ?? deviceOptions[0]?.source ?? null);
@@ -118,6 +144,21 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     const closeDeviceDropdown = useCallback(() => {
       setDeviceDropdownOpen(false);
       setDeviceDropdownQuery('');
+    }, []);
+
+    const openAppDropdown = useCallback((preHighlight: string | null) => {
+      setDropdownOpen(false);
+      setDropdownQuery('');
+      setDeviceDropdownOpen(false);
+      setDeviceDropdownQuery('');
+      setAppDropdownOpen(true);
+      setAppDropdownQuery('');
+      setHighlightedApp(preHighlight ?? appOptions[0]?.id ?? null);
+    }, [appOptions]);
+
+    const closeAppDropdown = useCallback(() => {
+      setAppDropdownOpen(false);
+      setAppDropdownQuery('');
     }, []);
 
     const selectFilter = useCallback((f: ClipFilter) => {
@@ -130,20 +171,33 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       closeDeviceDropdown();
     }, [onSourceChange, closeDeviceDropdown]);
 
+    const selectApp = useCallback((app: string | null) => {
+      onAppChange(app);
+      closeAppDropdown();
+    }, [onAppChange, closeAppDropdown]);
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
-      const hashIdx = raw.indexOf('#');
-      const atIdx = raw.indexOf('@');
-      // Whichever sigil appears first wins, mirroring the existing # behavior.
-      const firstSigilIdx =
-        hashIdx === -1 ? atIdx :
-        atIdx  === -1 ? hashIdx :
-        Math.min(hashIdx, atIdx);
-      if (firstSigilIdx !== -1) {
-        const isHash = raw[firstSigilIdx] === '#';
-        if (isHash) openDropdown(CLIP_FILTERS[0]);
-        else openDeviceDropdown(deviceOptions[0]?.source ?? null);
-        onChange(raw.slice(0, firstSigilIdx));
+      // `#` → type, `@` → device, `>` → app. Whichever sigil appears first in
+      // the typed value wins; everything from it onward is stripped and the
+      // matching dropdown opens (mirrors the original # behavior).
+      const sigils: Array<[string, () => void]> = [
+        ['#', () => openDropdown(CLIP_FILTERS[0])],
+        ['@', () => openDeviceDropdown(deviceOptions[0]?.source ?? null)],
+        ['>', () => openAppDropdown(appOptions[0]?.id ?? null)],
+      ];
+      let firstIdx = -1;
+      let firstOpen: (() => void) | null = null;
+      for (const [ch, open] of sigils) {
+        const idx = raw.indexOf(ch);
+        if (idx !== -1 && (firstIdx === -1 || idx < firstIdx)) {
+          firstIdx = idx;
+          firstOpen = open;
+        }
+      }
+      if (firstOpen) {
+        firstOpen();
+        onChange(raw.slice(0, firstIdx));
         return;
       }
       onChange(raw);
@@ -159,15 +213,21 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      // Backspace on empty input removes the closest chip: type first, then source.
+      // Backspace on empty input removes the closest chip, right-to-left in
+      // render order: type, then app, then device.
       if (
         e.key === 'Backspace' &&
         !dropdownOpen &&
         !deviceDropdownOpen &&
+        !appDropdownOpen &&
         value === ''
       ) {
         if (activeFilter !== 'all') {
           onFilterChange('all');
+          return;
+        }
+        if (selectedApp !== null) {
+          onAppChange(null);
           return;
         }
         if (selectedSource !== null) {
@@ -182,6 +242,10 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       }
       if (deviceDropdownOpen) {
         handleDeviceDropdownKey(e);
+        return;
+      }
+      if (appDropdownOpen) {
+        handleAppDropdownKey(e);
         return;
       }
     };
@@ -280,10 +344,57 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       }
     };
 
+    const handleAppDropdownKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      const currentIdx = matchingApps.findIndex((a) => a.id === highlightedApp);
+      const safeIdx = currentIdx === -1 ? 0 : currentIdx;
+
+      if (e.key === 'ArrowDown') {
+        consume(e);
+        if (matchingApps.length === 0) return;
+        setHighlightedApp(matchingApps[(safeIdx + 1) % matchingApps.length].id);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        consume(e);
+        if (matchingApps.length === 0) return;
+        setHighlightedApp(matchingApps[(safeIdx - 1 + matchingApps.length) % matchingApps.length].id);
+        return;
+      }
+      if (e.key === 'Enter') {
+        consume(e);
+        if (highlightedApp) selectApp(highlightedApp);
+        return;
+      }
+      if (e.key === 'Escape') {
+        consume(e);
+        closeAppDropdown();
+        return;
+      }
+      if (e.key === 'Backspace') {
+        consume(e);
+        if (appDropdownQuery.length > 0) {
+          const q = appDropdownQuery.slice(0, -1);
+          setAppDropdownQuery(q);
+          const first = appOptions.find(a => q === '' || a.label.toLowerCase().startsWith(q));
+          if (first) setHighlightedApp(first.id);
+        } else {
+          closeAppDropdown();
+        }
+        return;
+      }
+      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        consume(e);
+        const q = appDropdownQuery + e.key.toLowerCase();
+        setAppDropdownQuery(q);
+        const first = appOptions.find(a => a.label.toLowerCase().startsWith(q));
+        if (first) setHighlightedApp(first.id);
+      }
+    };
+
     const placeholder =
-      activeFilter !== 'all' || selectedSource !== null
+      activeFilter !== 'all' || selectedSource !== null || selectedApp !== null
         ? ''
-        : 'Search clips…  # type, @ device';
+        : 'Search clips…  # type, @ device, > app';
 
     return (
       <div style={S.bar} onMouseDown={onMouseDown} data-testid="search-bar">
@@ -301,6 +412,30 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                 style={S.chipX}
                 data-testid="device-chip-x"
                 onClick={(e) => { e.stopPropagation(); onSourceChange(null); }}
+              >
+                ✕
+              </span>
+            </span>
+        )}
+
+        {selectedAppOption && (
+            <span
+              style={{ ...S.chip, background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' }}
+              data-testid="app-chip"
+              onClick={() => openAppDropdown(selectedAppOption.id)}
+            >
+              <img
+                src={`cinch://app-icon/${encodeURIComponent(selectedAppOption.id)}`}
+                alt=""
+                aria-hidden="true"
+                style={S.chipIcon}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+              {selectedAppOption.label}
+              <span
+                style={S.chipX}
+                data-testid="app-chip-x"
+                onClick={(e) => { e.stopPropagation(); onAppChange(null); }}
               >
                 ✕
               </span>
@@ -441,6 +576,42 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             )}
           </div>
         )}
+
+        {appDropdownOpen && (
+          <div style={S.dropdown} data-testid="app-dropdown">
+            {appOptions.map((a) => {
+              const matches = appDropdownQuery === '' || a.label.toLowerCase().startsWith(appDropdownQuery);
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    ...S.dropItem,
+                    ...(highlightedApp === a.id ? S.dropItemHL : {}),
+                    ...(!matches ? S.dropItemDim : {}),
+                  }}
+                  aria-selected={highlightedApp === a.id}
+                  data-testid={`app-option-${a.id}`}
+                  onMouseDown={(e) => { e.preventDefault(); selectApp(a.id); }}
+                >
+                  <img
+                    src={`cinch://app-icon/${encodeURIComponent(a.id)}`}
+                    alt=""
+                    aria-hidden="true"
+                    style={S.appIcon}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  />
+                  {a.label}
+                  <span style={S.dropHint}>{a.count} clip{a.count === 1 ? '' : 's'}</span>
+                </div>
+              );
+            })}
+            {appOptions.length === 0 && (
+              <div style={{ ...S.dropItem, opacity: 0.55 }} data-testid="app-option-empty">
+                no apps yet
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -506,6 +677,20 @@ const S: Record<string, CSSProperties> = {
     borderRadius: '50%',
     background: 'currentColor',
     flexShrink: 0,
+  },
+  chipIcon: {
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    flexShrink: 0,
+    objectFit: 'contain',
+  },
+  appIcon: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    flexShrink: 0,
+    objectFit: 'contain',
   },
   chipX: {
     fontSize: 9,

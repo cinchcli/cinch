@@ -3,7 +3,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::protocol::MultiConfigHandle;
-use client_core::store::models::{SourceRow, StoredClip};
+use client_core::store::models::{SourceAppRow, SourceRow, StoredClip};
 use client_core::store::queries;
 
 mod action_shortcut;
@@ -127,6 +127,27 @@ fn source_row_to_info(r: SourceRow) -> SourceInfo {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SourceAppInfo — the "apps you've copied from" picker entries returned to the
+// frontend's search bar `app:` filter. Mirrors client_core's SourceAppRow but
+// is defined here so Specta exports it (same pattern as SourceInfo).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct SourceAppInfo {
+    pub app_id: String,
+    pub app_name: String,
+    pub count: i64,
+}
+
+fn source_app_row_to_info(r: SourceAppRow) -> SourceAppInfo {
+    SourceAppInfo {
+        app_id: r.app_id,
+        app_name: r.app_name,
+        count: r.count,
+    }
+}
+
 /// Read an image clip's raw bytes from the store. Err if absent / not an image.
 pub(crate) fn image_bytes_for(
     store: &client_core::store::Store,
@@ -162,6 +183,20 @@ fn resolve_active_creds(mc: &State<'_, MultiConfigHandle>) -> Result<(String, St
 mod tests {
     use super::*;
     use client_core::store::models::SyncState;
+
+    #[test]
+    fn source_app_row_to_info_copies_fields() {
+        // Boundary DTO mapping is identity (no unit conversion) — this guards
+        // against field drift, e.g. accidentally sourcing app_name from app_id.
+        let info = source_app_row_to_info(client_core::store::models::SourceAppRow {
+            app_id: "com.apple.Safari".into(),
+            app_name: "Safari".into(),
+            count: 7,
+        });
+        assert_eq!(info.app_id, "com.apple.Safari");
+        assert_eq!(info.app_name, "Safari");
+        assert_eq!(info.count, 7);
+    }
 
     #[test]
     fn stored_to_local_converts_ms_to_seconds() {

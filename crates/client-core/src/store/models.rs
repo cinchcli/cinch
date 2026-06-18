@@ -85,6 +85,17 @@ pub struct SourceRow {
     pub last_seen: Option<i64>,
 }
 
+/// One row of the clip-derived "apps you've copied from" list. Keyed on the
+/// macOS bundle id (`app_id`); `app_name` is the human display name and
+/// `count` is how many clips were captured from that app. Powers the search
+/// bar's `app:` filter picker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceAppRow {
+    pub app_id: String,
+    pub app_name: String,
+    pub count: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetentionPref {
     pub device_id: String,

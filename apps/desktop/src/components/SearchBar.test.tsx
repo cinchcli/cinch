@@ -1,13 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createRef } from 'react';
-import { SearchBar, type DeviceOption } from './SearchBar';
+import { SearchBar, type DeviceOption, type AppOption } from './SearchBar';
 import type { ClipFilter } from '../lib/clipFilters';
 
 const DEFAULT_DEVICES: DeviceOption[] = [
   { source: 'remote:macbook', label: 'MacBook',    count: 87, colorSlot: 'mint' },
   { source: 'remote:iphone',  label: 'iPhone',     count: 31, colorSlot: 'sky' },
   { source: 'remote:linux',   label: 'Linux Box',  count: 24, colorSlot: 'amber' },
+];
+
+const DEFAULT_APPS: AppOption[] = [
+  { id: 'com.apple.Safari',     label: 'Safari',   count: 42 },
+  { id: 'com.microsoft.VSCode', label: 'Code',     count: 17 },
+  { id: 'com.apple.Terminal',   label: 'Terminal', count: 9 },
 ];
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -20,12 +26,16 @@ function renderBar(overrides: Partial<{
   deviceOptions: DeviceOption[];
   selectedSource: string | null;
   onSourceChange: (s: string | null) => void;
+  appOptions: AppOption[];
+  selectedApp: string | null;
+  onAppChange: (a: string | null) => void;
   themeMode: ThemeMode;
   onSetThemeMode: (m: ThemeMode) => void;
 }> = {}) {
   const onChange = overrides.onChange ?? vi.fn();
   const onFilterChange = overrides.onFilterChange ?? vi.fn();
   const onSourceChange = overrides.onSourceChange ?? vi.fn();
+  const onAppChange = overrides.onAppChange ?? vi.fn();
   const onSetThemeMode = overrides.onSetThemeMode ?? vi.fn();
   const result = render(
     <SearchBar
@@ -41,9 +51,12 @@ function renderBar(overrides: Partial<{
       deviceOptions={overrides.deviceOptions ?? DEFAULT_DEVICES}
       selectedSource={overrides.selectedSource ?? null}
       onSourceChange={onSourceChange}
+      appOptions={overrides.appOptions ?? DEFAULT_APPS}
+      selectedApp={overrides.selectedApp ?? null}
+      onAppChange={onAppChange}
     />
   );
-  return { ...result, onChange, onFilterChange, onSourceChange, onSetThemeMode };
+  return { ...result, onChange, onFilterChange, onSourceChange, onAppChange, onSetThemeMode };
 }
 
 describe('SearchBar', () => {
@@ -332,6 +345,196 @@ describe('SearchBar', () => {
     });
   });
 
+  describe('app dropdown (> trigger)', () => {
+    it('opens when > is typed in the input', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('lists every app you have copied from', () => {
+      renderBar();
+      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      expect(screen.getByTestId('app-option-com.apple.Safari')).toBeInTheDocument();
+      expect(screen.getByTestId('app-option-com.microsoft.VSCode')).toBeInTheDocument();
+      expect(screen.getByTestId('app-option-com.apple.Terminal')).toBeInTheDocument();
+    });
+
+    it('strips > from the value passed to onChange', () => {
+      const { onChange } = renderBar({ value: 'hello' });
+      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: 'hello>' } });
+      expect(onChange).toHaveBeenCalledWith('hello');
+    });
+
+    it('autocomplete narrows by label prefix', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      fireEvent.keyDown(input, { key: 't' });
+      const terminal = screen.getByTestId('app-option-com.apple.Terminal');
+      const safari = screen.getByTestId('app-option-com.apple.Safari');
+      expect(terminal).not.toHaveStyle({ opacity: '0.28' });
+      expect(safari).toHaveStyle({ opacity: '0.28' });
+    });
+
+    it('Enter selects highlighted app and closes dropdown', () => {
+      const { onAppChange } = renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      fireEvent.keyDown(input, { key: 't' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onAppChange).toHaveBeenCalledWith('com.apple.Terminal');
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('ArrowDown moves highlight to the next app', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      // initial highlight is the first app (Safari); ArrowDown → Code
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      expect(screen.getByTestId('app-option-com.microsoft.VSCode')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('app-option-com.apple.Safari')).toHaveAttribute('aria-selected', 'false');
+    });
+
+    it('clicking an app option selects it', () => {
+      const { onAppChange } = renderBar();
+      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      fireEvent.mouseDown(screen.getByTestId('app-option-com.microsoft.VSCode'));
+      expect(onAppChange).toHaveBeenCalledWith('com.microsoft.VSCode');
+    });
+
+    it('Escape closes the app dropdown without calling onAppChange', () => {
+      const { onAppChange } = renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(onAppChange).not.toHaveBeenCalled();
+    });
+
+    it('opening > closes the # dropdown (mutually exclusive)', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '#' } });
+      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.queryByTestId('filter-dropdown')).not.toBeInTheDocument();
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('opening > closes the @ device dropdown (mutually exclusive)', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '@' } });
+      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('opening @ closes the > app dropdown (mutually exclusive)', () => {
+      renderBar();
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: '@' } });
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+    });
+
+    it('shows empty-state when there are no apps', () => {
+      renderBar({ appOptions: [] });
+      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      expect(screen.getByTestId('app-option-empty')).toBeInTheDocument();
+    });
+  });
+
+  describe('app chip', () => {
+    it('shows chip when selectedApp is set', () => {
+      renderBar({ selectedApp: 'com.apple.Safari' });
+      const chip = screen.getByTestId('app-chip');
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveTextContent('Safari');
+    });
+
+    it('does not show chip when selectedApp is null', () => {
+      renderBar({ selectedApp: null });
+      expect(screen.queryByTestId('app-chip')).not.toBeInTheDocument();
+    });
+
+    it('clicking ✕ calls onAppChange with null', () => {
+      const { onAppChange } = renderBar({ selectedApp: 'com.microsoft.VSCode' });
+      fireEvent.click(screen.getByTestId('app-chip-x'));
+      expect(onAppChange).toHaveBeenCalledWith(null);
+    });
+
+    it('clicking chip body (not ✕) reopens app dropdown', () => {
+      renderBar({ selectedApp: 'com.apple.Safari' });
+      fireEvent.click(screen.getByTestId('app-chip'));
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('unknown selectedApp (not in options) does not render a chip', () => {
+      renderBar({ selectedApp: 'com.ghost.App' });
+      expect(screen.queryByTestId('app-chip')).not.toBeInTheDocument();
+    });
+
+    it('Backspace on empty clears app chip before device chip (no type)', () => {
+      const { onAppChange, onSourceChange } = renderBar({
+        value: '',
+        selectedApp: 'com.apple.Safari',
+        selectedSource: 'remote:macbook',
+      });
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(onAppChange).toHaveBeenCalledWith(null);
+      expect(onSourceChange).not.toHaveBeenCalled();
+    });
+
+    it('Backspace on empty clears type chip before app chip', () => {
+      const { onFilterChange, onAppChange } = renderBar({
+        value: '',
+        activeFilter: 'code',
+        selectedApp: 'com.apple.Safari',
+      });
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(onFilterChange).toHaveBeenCalledWith('all');
+      expect(onAppChange).not.toHaveBeenCalled();
+    });
+
+    it('placeholder shows the > app hint when nothing is active', () => {
+      renderBar({ activeFilter: 'all', selectedSource: null, selectedApp: null });
+      expect(screen.getByPlaceholderText(/> app/i)).toBeInTheDocument();
+    });
+
+    it('renders all three chips when type, app, and device are active', () => {
+      renderBar({ activeFilter: 'code', selectedApp: 'com.apple.Safari', selectedSource: 'remote:macbook' });
+      expect(screen.getByTestId('filter-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('app-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('device-chip')).toBeInTheDocument();
+    });
+
+    it('Backspace on empty clears the type chip first when all three are active', () => {
+      // Head of the type → app → device removal chain. (The app-before-device
+      // and type-before-app pairwise steps are covered above; together they
+      // establish the full ordering.)
+      const { onFilterChange, onAppChange, onSourceChange } = renderBar({
+        value: '',
+        activeFilter: 'code',
+        selectedApp: 'com.apple.Safari',
+        selectedSource: 'remote:macbook',
+      });
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(onFilterChange).toHaveBeenCalledWith('all');
+      expect(onAppChange).not.toHaveBeenCalled();
+      expect(onSourceChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe('window-level keydown isolation', () => {
     // Regression: Enter / ArrowUp / ArrowDown inside an open dropdown must NOT
     // reach the global `window.addEventListener('keydown', …)` handler in
@@ -381,6 +584,33 @@ describe('SearchBar', () => {
         renderBar();
         const input = screen.getByLabelText('Search clips');
         fireEvent.change(input, { target: { value: '@' } });
+        fireEvent.keyDown(input, { key: 'ArrowDown' });
+        fireEvent.keyDown(input, { key: 'ArrowUp' });
+        expect(tracker.seen).toEqual([]);
+      } finally {
+        tracker.cleanup();
+      }
+    });
+
+    it('Enter inside app dropdown does not reach window listeners', () => {
+      const tracker = trackWindowKeydowns(new Set(['Enter']));
+      try {
+        renderBar();
+        const input = screen.getByLabelText('Search clips');
+        fireEvent.change(input, { target: { value: '>' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+        expect(tracker.seen).toEqual([]);
+      } finally {
+        tracker.cleanup();
+      }
+    });
+
+    it('Arrow keys inside app dropdown do not reach window listeners', () => {
+      const tracker = trackWindowKeydowns(new Set(['ArrowDown', 'ArrowUp']));
+      try {
+        renderBar();
+        const input = screen.getByLabelText('Search clips');
+        fireEvent.change(input, { target: { value: '>' } });
         fireEvent.keyDown(input, { key: 'ArrowDown' });
         fireEvent.keyDown(input, { key: 'ArrowUp' });
         expect(tracker.seen).toEqual([]);
@@ -486,6 +716,9 @@ describe('SearchBar', () => {
           deviceOptions={DEFAULT_DEVICES}
           selectedSource={null}
           onSourceChange={vi.fn()}
+          appOptions={DEFAULT_APPS}
+          selectedApp={null}
+          onAppChange={vi.fn()}
         />
       );
       expect(screen.getByTestId('theme-toggle')).toHaveAttribute('aria-label', 'Theme: System');

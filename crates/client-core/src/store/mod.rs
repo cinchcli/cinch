@@ -10,6 +10,7 @@ pub mod retention;
 pub mod schema;
 pub mod search;
 pub mod settings;
+pub mod source_apps;
 pub mod sync_state;
 
 use rusqlite::Connection;
