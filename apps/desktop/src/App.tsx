@@ -23,7 +23,7 @@ import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
 import { SendToast } from './components/SendToast';
 import { AddRelayDialog } from './components/AddRelayDialog';
 import { Rail, type RailPanel } from './components/Rail';
-import { SearchBar, type DeviceOption } from './components/SearchBar';
+import { SearchBar, type DeviceOption, type AppOption } from './components/SearchBar';
 import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipListSkeleton } from './components/ClipListSkeleton';
@@ -114,9 +114,11 @@ function App() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [selectedClip, setSelectedClip] = useState<LocalClip | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [devices, setDevices] = useState<Device[]>([]);
+  const [appOptions, setAppOptions] = useState<AppOption[]>([]);
   const { tagColors, displayNames } = useMachineLabels();
   const [newSourcePrompt, setNewSourcePrompt] = useState<string | null>(null);
   const [pinNoteDialog, setPinNoteDialog] = useState<{ clip: LocalClip } | null>(null);
@@ -184,6 +186,9 @@ function App() {
       if (selectedSource) {
         finalQuery = `from:${selectedSource} ${finalQuery}`.trim();
       }
+      if (selectedApp) {
+        finalQuery = `app:${selectedApp} ${finalQuery}`.trim();
+      }
       if (activeFilter !== 'all') {
         finalQuery = `type:${activeFilter} ${finalQuery}`.trim();
       }
@@ -194,7 +199,7 @@ function App() {
     } finally {
       setClipsLoaded(true);
     }
-  }, [activePanel, selectedSource, debouncedQuery, activeFilter, applyInboxRecency]);
+  }, [activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter, applyInboxRecency]);
 
   const refreshSources = useCallback(async () => {
     try {
@@ -212,6 +217,15 @@ function App() {
     }
   }, []);
 
+  const refreshAppOptions = useCallback(async () => {
+    try {
+      const apps = await unwrap(commands.listSourceApps());
+      setAppOptions(apps.map((a) => ({ id: a.app_id, label: a.app_name, count: a.count })));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   const handleNewSourceResponse = async (source: string, enable: boolean) => {
     await unwrap(commands.setSourceAutoCopy(source, enable));
     setNewSourcePrompt(null);
@@ -223,9 +237,10 @@ function App() {
       refreshClips();
       refreshSources();
       refreshDevices();
+      refreshAppOptions();
     }, 1000);
     return () => clearTimeout(timer);
-  }, [auth.variant, refreshClips, refreshSources, refreshDevices]);
+  }, [auth.variant, refreshClips, refreshSources, refreshDevices, refreshAppOptions]);
 
   useEffect(() => { refreshClips(); }, [refreshClips]);
 
@@ -255,9 +270,9 @@ function App() {
     commands.getWsStatus().then(setStatus).catch(() => {});
     const unsubs = [
       events.wsStatus.listen((e) => setStatus(e.payload)),
-      events.clipReceived.listen(() => { refreshClips(); refreshSources(); }),
-      events.remoteClipReceived.listen(() => { refreshClips(); refreshSources(); }),
-      events.clipDeleted.listen(() => { refreshClips(); refreshSources(); }),
+      events.clipReceived.listen(() => { refreshClips(); refreshSources(); refreshAppOptions(); }),
+      events.remoteClipReceived.listen(() => { refreshClips(); refreshSources(); refreshAppOptions(); }),
+      events.clipDeleted.listen(() => { refreshClips(); refreshSources(); refreshAppOptions(); }),
       events.devicesChanged.listen(() => { refreshDevices(); }),
       events.clipPinned.listen(() => { refreshClips(); }),
       events.newSourceDetected.listen((e) => {
@@ -266,7 +281,7 @@ function App() {
       events.trayOpenSettings.listen(() => openSettings()),
     ];
     return () => { unsubs.forEach((p) => p.then((f) => f())); };
-  }, [refreshClips, refreshSources, refreshDevices]);
+  }, [refreshClips, refreshSources, refreshDevices, refreshAppOptions]);
 
   // OS notification when a clip arrives from another device. The per-source
   // toggle in DevicesPanel (Alerts on/off) gates this — defaults to on.
@@ -510,6 +525,7 @@ function App() {
         setActivePanel(panel);
         setSelectedClip(null);
         setSelectedSource(null);
+        setSelectedApp(null);
         return;
       }
       if (
@@ -527,6 +543,7 @@ function App() {
         setActivePanel(panels[next]);
         setSelectedClip(null);
         setSelectedSource(null);
+        setSelectedApp(null);
         return;
       }
       // Pin/unpin (default ⌘P): keep the unconditional preventDefault so the
@@ -673,6 +690,7 @@ function App() {
           setActivePanel(panel);
           setSelectedClip(null);
           setSelectedSource(null);
+          setSelectedApp(null);
           setActiveFilter('all');
         }}
         onOpenSettings={() => openSettings()}
@@ -693,6 +711,9 @@ function App() {
           deviceOptions={deviceOptions}
           selectedSource={selectedSource}
           onSourceChange={setSelectedSource}
+          appOptions={appOptions}
+          selectedApp={selectedApp}
+          onAppChange={setSelectedApp}
         />
 
         <div style={S.body}>

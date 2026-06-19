@@ -56,6 +56,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::unpin_clip,
             commands::clips::search_clips,
             commands::clips::get_sources,
+            commands::clips::list_source_apps,
             commands::clips::delete_clip,
             commands::clips::send_clip,
             commands::clips::send_current_clipboard,
@@ -259,8 +260,14 @@ pub fn run() {
                     responder.respond(build_media_response(r));
                 });
             } else {
-                // app-icon / unknown: the AppKit icon lookup must stay on the
-                // calling (main) thread, so serve it inline and respond now.
+                // app-icon / unknown: serve inline on the calling (main) thread.
+                // Unlike the cinch://media path (which only reads SQLite and so
+                // is cheap to background), the icon lookup is AppKit: it creates
+                // autoreleased NSWorkspace/NSImage/NSData objects that the main
+                // run loop's autorelease pool reclaims each iteration. A bare
+                // worker thread has no pool and would leak one per icon, so keep
+                // it here — it's cheap now anyway (~1ms; it renders a small
+                // CGImage rather than the full-resolution icon).
                 let r = if let Some(bundle_id) = uri
                     .strip_prefix("cinch://app-icon/")
                     .or_else(|| uri.strip_prefix("cinch://app-icon\\"))

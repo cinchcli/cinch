@@ -10,6 +10,11 @@ use rusqlite::OptionalExtension;
 #[derive(Debug, Default)]
 pub struct ParsedQuery {
     pub from: Option<String>,
+    /// Source-app bundle id from an `app:<bundle_id>` filter. Bundle ids never
+    /// contain whitespace, so they survive the whitespace tokenizer intact —
+    /// the human display name ("Google Chrome") would not, which is why the
+    /// filter keys on the bundle id (mirrors `from:` keying on the source key).
+    pub app: Option<String>,
     pub content_type: Option<String>,
     pub pinned: Option<bool>,
     pub search_term: String,
@@ -22,6 +27,8 @@ pub fn parse_query_string(raw: &str) -> ParsedQuery {
     for part in raw.split_whitespace() {
         if let Some(val) = part.strip_prefix("from:") {
             pq.from = Some(val.to_string());
+        } else if let Some(val) = part.strip_prefix("app:") {
+            pq.app = Some(val.to_string());
         } else if let Some(val) = part.strip_prefix("type:") {
             pq.content_type = Some(val.to_string());
         } else if part == "is:pinned" {
@@ -126,6 +133,15 @@ fn query_clips_with_columns(
                 sql.push_str(" AND source = ?");
                 binds.push(Box::new(from_val));
             }
+        }
+
+        // Source-app filter (`app:<bundle_id>`). Exact match on the stored
+        // bundle id — the same key the icon endpoint (`cinch://app-icon/<id>`)
+        // uses. An empty value (a stray `app:` sigil) is ignored so it never
+        // blanks the list. Independent of the `from:` device include.
+        if let Some(app) = pq.app.filter(|a| !a.is_empty()) {
+            sql.push_str(" AND source_app_id = ?");
+            binds.push(Box::new(app));
         }
 
         // Fleet-read exclude-self predicate (scope:"fleet"). Independent of the
@@ -255,6 +271,65 @@ mod tests {
             sync_state: SyncState::Synced,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn parse_query_string_extracts_app_filter() {
+        // `app:<bundle_id>` is lifted out as a structured filter, not a search
+        // term, and coexists with the existing from:/type: filters.
+        let pq = parse_query_string("app:com.apple.Safari hello world");
+        assert_eq!(pq.app.as_deref(), Some("com.apple.Safari"));
+        assert_eq!(pq.search_term, "hello world");
+
+        let pq2 = parse_query_string("from:laptop app:com.microsoft.VSCode type:url");
+        assert_eq!(pq2.app.as_deref(), Some("com.microsoft.VSCode"));
+        assert_eq!(pq2.from.as_deref(), Some("laptop"));
+        assert_eq!(pq2.content_type.as_deref(), Some("url"));
+        assert_eq!(pq2.search_term, "");
+    }
+
+    fn app_clip(id: &str, bundle_id: Option<&str>, app_name: Option<&str>) -> StoredClip {
+        StoredClip {
+            id: id.into(),
+            source: "s".into(),
+            source_app_id: bundle_id.map(Into::into),
+            source_app: app_name.map(Into::into),
+            content_type: "text".into(),
+            content: Some(b"body".to_vec()),
+            byte_size: 4,
+            created_at: 1,
+            sync_state: SyncState::Synced,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn query_clips_filters_by_app() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        insert_clip(
+            &store,
+            &app_clip("c_safari", Some("com.apple.Safari"), Some("Safari")),
+        )
+        .unwrap();
+        insert_clip(
+            &store,
+            &app_clip("c_code", Some("com.microsoft.VSCode"), Some("Code")),
+        )
+        .unwrap();
+
+        // app:<bundle_id> returns only clips captured from that app.
+        let hits = query_clips(&store, "app:com.apple.Safari", 10, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "c_safari");
+
+        // Combines with a free-text term: app filter AND content match.
+        let combined = query_clips(&store, "app:com.microsoft.VSCode body", 10, None).unwrap();
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].id, "c_code");
+
+        // An empty `app:` value is a no-op, never blanking the list.
+        let all = query_clips(&store, "app:", 10, None).unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[test]

@@ -23,6 +23,7 @@ pub use super::search::{
     parse_query_string, query_clips, query_clips_without_image_content, sanitize_fts_query,
     search_clips, search_clips_without_image_content, ParsedQuery,
 };
+pub use super::source_apps::list_source_apps;
 pub use super::sync_state::{
     enforce_offline_cap, list_pending_clips, mark_local, mark_pending, replace_id_and_mark_synced,
     set_watermark, watermark,
