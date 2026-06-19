@@ -85,7 +85,11 @@ pub(crate) fn serve_app_icon(bundle_id: &str) -> MediaResponse {
 
 #[cfg(target_os = "macos")]
 fn app_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
-    app_icon_png_native(bundle_id).or_else(|| app_icon_png_with_image_crate_fallback(bundle_id))
+    // Native-only. A failed lookup returns None (→ 404; the frontend hides the
+    // icon). There used to be an `image`-crate TIFF fallback here, but it ran the
+    // ~74MB `TIFFRepresentation` on the main thread and then could not even decode
+    // 16-bit HDR app icons — a slow path that almost always failed anyway.
+    app_icon_png_native(bundle_id)
 }
 
 #[cfg(target_os = "macos")]
@@ -237,43 +241,6 @@ unsafe fn nsdata_to_vec(data: *mut objc::runtime::Object) -> Option<Vec<u8>> {
         return None;
     }
     Some(std::slice::from_raw_parts(bytes, len).to_vec())
-}
-
-#[cfg(target_os = "macos")]
-fn app_icon_png_with_image_crate_fallback(bundle_id: &str) -> Option<Vec<u8>> {
-    use objc::runtime::{Class, Object};
-    use objc::{msg_send, sel, sel_impl};
-    use std::ffi::CString;
-    use std::io::Cursor;
-
-    let bundle_id = CString::new(bundle_id).ok()?;
-    let tiff = unsafe {
-        let nsstring_cls = Class::get("NSString")?;
-        let bundle: *mut Object = msg_send![nsstring_cls, stringWithUTF8String: bundle_id.as_ptr()];
-        let path = app_path_for_bundle(bundle)?;
-        let workspace_cls = Class::get("NSWorkspace")?;
-        let workspace: *mut Object = msg_send![workspace_cls, sharedWorkspace];
-        let icon: *mut Object = msg_send![workspace, iconForFile: path];
-        if icon.is_null() {
-            return None;
-        }
-
-        let data: *mut Object = msg_send![icon, TIFFRepresentation];
-        if data.is_null() {
-            return None;
-        }
-        let len: usize = msg_send![data, length];
-        let bytes: *const u8 = msg_send![data, bytes];
-        if len == 0 || bytes.is_null() {
-            return None;
-        }
-        std::slice::from_raw_parts(bytes, len).to_vec()
-    };
-
-    let img = image::load_from_memory_with_format(&tiff, image::ImageFormat::Tiff).ok()?;
-    let mut out = Cursor::new(Vec::new());
-    img.write_to(&mut out, image::ImageFormat::Png).ok()?;
-    Some(out.into_inner())
 }
 
 #[cfg(not(target_os = "macos"))]
