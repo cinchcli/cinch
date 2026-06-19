@@ -56,7 +56,11 @@ function renderBar(overrides: Partial<{
       onAppChange={onAppChange}
     />
   );
-  return { ...result, onChange, onFilterChange, onSourceChange, onAppChange, onSetThemeMode };
+  // The aria-label is stable regardless of the active filter mode, so this is
+  // a safe handle even after a sigil opens a dropdown (which changes the
+  // placeholder).
+  const input = screen.getByLabelText('Search clips') as HTMLInputElement;
+  return { ...result, input, onChange, onFilterChange, onSourceChange, onAppChange, onSetThemeMode };
 }
 
 describe('SearchBar', () => {
@@ -65,17 +69,16 @@ describe('SearchBar', () => {
     expect(screen.getByPlaceholderText(/search clips/i)).toBeInTheDocument();
   });
 
-  describe('filter dropdown', () => {
+  describe('filter dropdown (# trigger)', () => {
     it('opens when # is typed in the input', () => {
-      renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '#' } });
       expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
     });
 
-    it('shows all five filter options when dropdown is open', () => {
-      renderBar();
-      fireEvent.change(screen.getByPlaceholderText(/search clips/i), { target: { value: '#' } });
+    it('shows all five filter options when the query is empty', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '#' } });
       expect(screen.getByTestId('filter-option-all')).toBeInTheDocument();
       expect(screen.getByTestId('filter-option-text')).toBeInTheDocument();
       expect(screen.getByTestId('filter-option-image')).toBeInTheDocument();
@@ -84,45 +87,39 @@ describe('SearchBar', () => {
     });
 
     it('strips # from the value passed to onChange', () => {
-      const { onChange } = renderBar({ value: 'hello' });
-      fireEvent.change(screen.getByPlaceholderText(/search clips/i), { target: { value: 'hello#' } });
+      const { input, onChange } = renderBar({ value: 'hello' });
+      fireEvent.change(input, { target: { value: 'hello#' } });
       expect(onChange).toHaveBeenCalledWith('hello');
     });
 
     it('closes on Escape without calling onFilterChange', () => {
-      const { onFilterChange } = renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
+      const { input, onFilterChange } = renderBar();
       fireEvent.change(input, { target: { value: '#' } });
       fireEvent.keyDown(input, { key: 'Escape' });
       expect(screen.queryByTestId('filter-dropdown')).not.toBeInTheDocument();
       expect(onFilterChange).not.toHaveBeenCalled();
     });
 
-    it('dims non-matching items when a letter is typed after #', () => {
-      renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
-      fireEvent.change(input, { target: { value: '#' } });
-      fireEvent.keyDown(input, { key: 'c' });
-      // 'code' matches 'c', others do not
-      const codeOption = screen.getByTestId('filter-option-code');
-      const textOption = screen.getByTestId('filter-option-text');
-      expect(codeOption).not.toHaveStyle({ opacity: '0.28' });
-      expect(textOption).toHaveStyle({ opacity: '0.28' });
+    it('narrows to matching items (non-matches absent) as the query is typed', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '#c' } });
+      // 'code' matches 'c'; the others are removed from the DOM, not dimmed.
+      expect(screen.getByTestId('filter-option-code')).toBeInTheDocument();
+      expect(screen.getByTestId('filter-option-code')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('filter-option-text')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('filter-option-all')).not.toBeInTheDocument();
     });
 
     it('Enter selects the highlighted filter and closes dropdown', () => {
-      const { onFilterChange } = renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
-      fireEvent.change(input, { target: { value: '#' } });
-      fireEvent.keyDown(input, { key: 'c' });
+      const { input, onFilterChange } = renderBar();
+      fireEvent.change(input, { target: { value: '#c' } });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onFilterChange).toHaveBeenCalledWith('code');
       expect(screen.queryByTestId('filter-dropdown')).not.toBeInTheDocument();
     });
 
     it('ArrowDown moves highlight to the next matching item', () => {
-      renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '#' } });
       // initial highlight is 'all' (CLIP_FILTERS[0]); ArrowDown → 'text'
       fireEvent.keyDown(input, { key: 'ArrowDown' });
@@ -131,16 +128,14 @@ describe('SearchBar', () => {
     });
 
     it('clicking a dropdown item selects it', () => {
-      const { onFilterChange } = renderBar();
-      const input = screen.getByPlaceholderText(/search clips/i);
+      const { input, onFilterChange } = renderBar();
       fireEvent.change(input, { target: { value: '#' } });
       fireEvent.mouseDown(screen.getByTestId('filter-option-image'));
       expect(onFilterChange).toHaveBeenCalledWith('image');
     });
 
     it('selecting "all" calls onFilterChange with "all"', () => {
-      const { onFilterChange } = renderBar({ activeFilter: 'image' });
-      const input = screen.getByLabelText('Search clips');
+      const { input, onFilterChange } = renderBar({ activeFilter: 'image' });
       fireEvent.change(input, { target: { value: '#' } });
       fireEvent.mouseDown(screen.getByTestId('filter-option-all'));
       expect(onFilterChange).toHaveBeenCalledWith('all');
@@ -174,15 +169,11 @@ describe('SearchBar', () => {
     it('dropdown pre-highlights current filter when reopened from chip click', () => {
       renderBar({ activeFilter: 'code' });
       fireEvent.click(screen.getByTestId('filter-chip'));
-      // 'code' option should have the highlighted style applied
-      const codeOption = screen.getByTestId('filter-option-code');
-      // highlighted means it does not have the dim style
-      expect(codeOption).not.toHaveStyle({ opacity: '0.28' });
+      expect(screen.getByTestId('filter-option-code')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('Backspace on empty input with active filter calls onFilterChange("all")', () => {
-      const { onFilterChange } = renderBar({ value: '', activeFilter: 'url' });
-      const input = screen.getByLabelText('Search clips');
+      const { input, onFilterChange } = renderBar({ value: '', activeFilter: 'url' });
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onFilterChange).toHaveBeenCalledWith('all');
     });
@@ -200,15 +191,14 @@ describe('SearchBar', () => {
 
   describe('device dropdown (@ trigger)', () => {
     it('opens when @ is typed in the input', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '@' } });
       expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
     });
 
     it('lists every device with no "all devices" entry', () => {
-      renderBar();
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '@' } });
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '@' } });
       expect(screen.queryByTestId('device-option-all')).not.toBeInTheDocument();
       expect(screen.getByTestId('device-option-remote:macbook')).toBeInTheDocument();
       expect(screen.getByTestId('device-option-remote:iphone')).toBeInTheDocument();
@@ -216,35 +206,29 @@ describe('SearchBar', () => {
     });
 
     it('strips @ from the value passed to onChange', () => {
-      const { onChange } = renderBar({ value: 'hello' });
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: 'hello@' } });
+      const { input, onChange } = renderBar({ value: 'hello' });
+      fireEvent.change(input, { target: { value: 'hello@' } });
       expect(onChange).toHaveBeenCalledWith('hello');
     });
 
-    it('autocomplete narrows by label prefix', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '@' } });
-      fireEvent.keyDown(input, { key: 'i' });
-      const iphone = screen.getByTestId('device-option-remote:iphone');
-      const macbook = screen.getByTestId('device-option-remote:macbook');
-      expect(iphone).not.toHaveStyle({ opacity: '0.28' });
-      expect(macbook).toHaveStyle({ opacity: '0.28' });
+    it('narrows to matching devices by label prefix', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '@i' } });
+      expect(screen.getByTestId('device-option-remote:iphone')).toBeInTheDocument();
+      expect(screen.getByTestId('device-option-remote:iphone')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('device-option-remote:macbook')).not.toBeInTheDocument();
     });
 
     it('Enter selects highlighted device and closes dropdown', () => {
-      const { onSourceChange } = renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '@' } });
-      fireEvent.keyDown(input, { key: 'i' });
+      const { input, onSourceChange } = renderBar();
+      fireEvent.change(input, { target: { value: '@i' } });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onSourceChange).toHaveBeenCalledWith('remote:iphone');
       expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
     });
 
     it('ArrowDown moves highlight to the next device', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '@' } });
       // initial highlight is the first device (MacBook); ArrowDown → iPhone
       fireEvent.keyDown(input, { key: 'ArrowDown' });
@@ -253,38 +237,23 @@ describe('SearchBar', () => {
     });
 
     it('clicking a device option selects it', () => {
-      const { onSourceChange } = renderBar();
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '@' } });
+      const { input, onSourceChange } = renderBar();
+      fireEvent.change(input, { target: { value: '@' } });
       fireEvent.mouseDown(screen.getByTestId('device-option-remote:linux'));
       expect(onSourceChange).toHaveBeenCalledWith('remote:linux');
     });
 
-    // Clearing the chip is handled by ✕ / Backspace-on-empty / direct call
-    // to onSourceChange(null) — covered in the "device chip" suite. The
-    // dropdown itself no longer carries a "clear" entry.
-
     it('Escape closes the device dropdown without calling onSourceChange', () => {
-      const { onSourceChange } = renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input, onSourceChange } = renderBar();
       fireEvent.change(input, { target: { value: '@' } });
       fireEvent.keyDown(input, { key: 'Escape' });
       expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
       expect(onSourceChange).not.toHaveBeenCalled();
     });
 
-    it('opening @ closes the # dropdown (mutually exclusive)', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '#' } });
-      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
-      fireEvent.change(input, { target: { value: '@' } });
-      expect(screen.queryByTestId('filter-dropdown')).not.toBeInTheDocument();
-      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
-    });
-
     it('shows empty-state when there are no devices', () => {
-      renderBar({ deviceOptions: [] });
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '@' } });
+      const { input } = renderBar({ deviceOptions: [] });
+      fireEvent.change(input, { target: { value: '@' } });
       expect(screen.getByTestId('device-option-empty')).toBeInTheDocument();
     });
   });
@@ -315,19 +284,17 @@ describe('SearchBar', () => {
     });
 
     it('Backspace on empty input with active source clears it', () => {
-      const { onSourceChange } = renderBar({ value: '', selectedSource: 'remote:linux' });
-      const input = screen.getByLabelText('Search clips');
+      const { input, onSourceChange } = renderBar({ value: '', selectedSource: 'remote:linux' });
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onSourceChange).toHaveBeenCalledWith(null);
     });
 
     it('Backspace on empty input clears type chip first when both are set', () => {
-      const { onSourceChange, onFilterChange } = renderBar({
+      const { input, onSourceChange, onFilterChange } = renderBar({
         value: '',
         activeFilter: 'code',
         selectedSource: 'remote:macbook',
       });
-      const input = screen.getByLabelText('Search clips');
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onFilterChange).toHaveBeenCalledWith('all');
       expect(onSourceChange).not.toHaveBeenCalled();
@@ -347,50 +314,43 @@ describe('SearchBar', () => {
 
   describe('app dropdown (> trigger)', () => {
     it('opens when > is typed in the input', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '>' } });
       expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
     });
 
     it('lists every app you have copied from', () => {
-      renderBar();
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>' } });
       expect(screen.getByTestId('app-option-com.apple.Safari')).toBeInTheDocument();
       expect(screen.getByTestId('app-option-com.microsoft.VSCode')).toBeInTheDocument();
       expect(screen.getByTestId('app-option-com.apple.Terminal')).toBeInTheDocument();
     });
 
     it('strips > from the value passed to onChange', () => {
-      const { onChange } = renderBar({ value: 'hello' });
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: 'hello>' } });
+      const { input, onChange } = renderBar({ value: 'hello' });
+      fireEvent.change(input, { target: { value: 'hello>' } });
       expect(onChange).toHaveBeenCalledWith('hello');
     });
 
-    it('autocomplete narrows by label prefix', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '>' } });
-      fireEvent.keyDown(input, { key: 't' });
-      const terminal = screen.getByTestId('app-option-com.apple.Terminal');
-      const safari = screen.getByTestId('app-option-com.apple.Safari');
-      expect(terminal).not.toHaveStyle({ opacity: '0.28' });
-      expect(safari).toHaveStyle({ opacity: '0.28' });
+    it('narrows to matching apps by label prefix', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>t' } });
+      expect(screen.getByTestId('app-option-com.apple.Terminal')).toBeInTheDocument();
+      expect(screen.getByTestId('app-option-com.apple.Terminal')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByTestId('app-option-com.apple.Safari')).not.toBeInTheDocument();
     });
 
     it('Enter selects highlighted app and closes dropdown', () => {
-      const { onAppChange } = renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '>' } });
-      fireEvent.keyDown(input, { key: 't' });
+      const { input, onAppChange } = renderBar();
+      fireEvent.change(input, { target: { value: '>t' } });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onAppChange).toHaveBeenCalledWith('com.apple.Terminal');
       expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
     });
 
     it('ArrowDown moves highlight to the next app', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input } = renderBar();
       fireEvent.change(input, { target: { value: '>' } });
       // initial highlight is the first app (Safari); ArrowDown → Code
       fireEvent.keyDown(input, { key: 'ArrowDown' });
@@ -399,54 +359,23 @@ describe('SearchBar', () => {
     });
 
     it('clicking an app option selects it', () => {
-      const { onAppChange } = renderBar();
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      const { input, onAppChange } = renderBar();
+      fireEvent.change(input, { target: { value: '>' } });
       fireEvent.mouseDown(screen.getByTestId('app-option-com.microsoft.VSCode'));
       expect(onAppChange).toHaveBeenCalledWith('com.microsoft.VSCode');
     });
 
     it('Escape closes the app dropdown without calling onAppChange', () => {
-      const { onAppChange } = renderBar();
-      const input = screen.getByLabelText('Search clips');
+      const { input, onAppChange } = renderBar();
       fireEvent.change(input, { target: { value: '>' } });
       fireEvent.keyDown(input, { key: 'Escape' });
       expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
       expect(onAppChange).not.toHaveBeenCalled();
     });
 
-    it('opening > closes the # dropdown (mutually exclusive)', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '#' } });
-      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
-      fireEvent.change(input, { target: { value: '>' } });
-      expect(screen.queryByTestId('filter-dropdown')).not.toBeInTheDocument();
-      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
-    });
-
-    it('opening > closes the @ device dropdown (mutually exclusive)', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '@' } });
-      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
-      fireEvent.change(input, { target: { value: '>' } });
-      expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
-      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
-    });
-
-    it('opening @ closes the > app dropdown (mutually exclusive)', () => {
-      renderBar();
-      const input = screen.getByLabelText('Search clips');
-      fireEvent.change(input, { target: { value: '>' } });
-      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
-      fireEvent.change(input, { target: { value: '@' } });
-      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
-      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
-    });
-
     it('shows empty-state when there are no apps', () => {
-      renderBar({ appOptions: [] });
-      fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '>' } });
+      const { input } = renderBar({ appOptions: [] });
+      fireEvent.change(input, { target: { value: '>' } });
       expect(screen.getByTestId('app-option-empty')).toBeInTheDocument();
     });
   });
@@ -482,24 +411,22 @@ describe('SearchBar', () => {
     });
 
     it('Backspace on empty clears app chip before device chip (no type)', () => {
-      const { onAppChange, onSourceChange } = renderBar({
+      const { input, onAppChange, onSourceChange } = renderBar({
         value: '',
         selectedApp: 'com.apple.Safari',
         selectedSource: 'remote:macbook',
       });
-      const input = screen.getByLabelText('Search clips');
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onAppChange).toHaveBeenCalledWith(null);
       expect(onSourceChange).not.toHaveBeenCalled();
     });
 
     it('Backspace on empty clears type chip before app chip', () => {
-      const { onFilterChange, onAppChange } = renderBar({
+      const { input, onFilterChange, onAppChange } = renderBar({
         value: '',
         activeFilter: 'code',
         selectedApp: 'com.apple.Safari',
       });
-      const input = screen.getByLabelText('Search clips');
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onFilterChange).toHaveBeenCalledWith('all');
       expect(onAppChange).not.toHaveBeenCalled();
@@ -518,20 +445,207 @@ describe('SearchBar', () => {
     });
 
     it('Backspace on empty clears the type chip first when all three are active', () => {
-      // Head of the type → app → device removal chain. (The app-before-device
-      // and type-before-app pairwise steps are covered above; together they
-      // establish the full ordering.)
-      const { onFilterChange, onAppChange, onSourceChange } = renderBar({
+      const { input, onFilterChange, onAppChange, onSourceChange } = renderBar({
         value: '',
         activeFilter: 'code',
         selectedApp: 'com.apple.Safari',
         selectedSource: 'remote:macbook',
       });
-      const input = screen.getByLabelText('Search clips');
       fireEvent.keyDown(input, { key: 'Backspace' });
       expect(onFilterChange).toHaveBeenCalledWith('all');
       expect(onAppChange).not.toHaveBeenCalled();
       expect(onSourceChange).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── New behavior: type-through (the query is visible in the input) ──────────
+  describe('type-through query echo', () => {
+    it('typing > then an app query shows the query in the input', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>arc' } });
+      expect(input).toHaveValue('arc');
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('typing # then a type query shows the query in the input', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '#ima' } });
+      expect(input).toHaveValue('ima');
+      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+    });
+
+    it('typing @ then a device query shows the query in the input', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '@mac' } });
+      expect(input).toHaveValue('mac');
+      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+    });
+
+    it('the live query, not the pre-sigil clip-search text, is shown while in a mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>sa' } });
+      expect(input).toHaveValue('sa');
+    });
+  });
+
+  describe('mode prefix pill', () => {
+    it('is absent when no mode is active', () => {
+      renderBar();
+      expect(screen.queryByTestId('mode-pill')).not.toBeInTheDocument();
+    });
+
+    it('shows the app label when in app mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('mode-pill')).toHaveTextContent('app');
+    });
+
+    it('shows the device label when in device mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '@' } });
+      expect(screen.getByTestId('mode-pill')).toHaveTextContent('device');
+    });
+
+    it('shows the type label when in type mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '#' } });
+      expect(screen.getByTestId('mode-pill')).toHaveTextContent('type');
+    });
+
+    it('renders alongside a committed chip when reopening that filter via sigil', () => {
+      const { input } = renderBar({ selectedApp: 'com.apple.Safari' });
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('app-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('mode-pill')).toBeInTheDocument();
+    });
+  });
+
+  describe('commit clears the query and exits the mode', () => {
+    it('Enter commits the highlighted app, clears the query, and exits', () => {
+      const { input, onAppChange } = renderBar();
+      fireEvent.change(input, { target: { value: '>co' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onAppChange).toHaveBeenCalledWith('com.microsoft.VSCode');
+      expect(input).toHaveValue('');
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('mode-pill')).not.toBeInTheDocument();
+    });
+
+    it('clicking an app option clears the query and exits', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>co' } });
+      fireEvent.mouseDown(screen.getByTestId('app-option-com.microsoft.VSCode'));
+      expect(input).toHaveValue('');
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('exiting a mode', () => {
+    it('Escape exits the mode without committing and clears the query', () => {
+      const { input, onAppChange } = renderBar();
+      fireEvent.change(input, { target: { value: '>arc' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(onAppChange).not.toHaveBeenCalled();
+      expect(input).toHaveValue('');
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('Backspace on an empty query exits the mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>' } });
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('mode-pill')).not.toBeInTheDocument();
+    });
+
+    it('Backspace on a non-empty query edits the query and stays in the mode', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>cod' } });
+      fireEvent.keyDown(input, { key: 'Backspace' });
+      expect(input).toHaveValue('co');
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+  });
+
+  describe('single-mode invariant (no nesting)', () => {
+    it('a sigil typed inside a mode is literal query text, not a mode switch', () => {
+      const { input } = renderBar();
+      // '@' enters device mode; the later '>' is literal query text.
+      fireEvent.change(input, { target: { value: '@de>v' } });
+      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(input).toHaveValue('de>v');
+    });
+
+    it('only one dropdown is ever open at a time', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '#' } });
+      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+      expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('a sigil typed in a SECOND change (already in a mode) stays literal', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '@' } });   // enter device mode
+      fireEvent.change(input, { target: { value: '>' } });   // typed while already in a mode
+      expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+      expect(screen.queryByTestId('app-dropdown')).not.toBeInTheDocument();
+      expect(input).toHaveValue('>');
+    });
+  });
+
+  describe('highlight robustness', () => {
+    it('Enter is a no-op when the query matches no rows', () => {
+      const { input, onAppChange } = renderBar();
+      fireEvent.change(input, { target: { value: '>zzz' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onAppChange).not.toHaveBeenCalled();
+      expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
+    });
+
+    it('resyncs the highlight to the top match when options change mid-mode', () => {
+      const onAppChange = vi.fn();
+      const base = {
+        value: '', onChange: vi.fn(), onClear: vi.fn(),
+        themeMode: 'dark' as const, onSetThemeMode: vi.fn(), onMouseDown: vi.fn(),
+        activeFilter: 'all' as const, onFilterChange: vi.fn(),
+        deviceOptions: DEFAULT_DEVICES, selectedSource: null, onSourceChange: vi.fn(),
+        selectedApp: null, onAppChange,
+      };
+      const ref = createRef<HTMLInputElement>();
+      const { rerender } = render(<SearchBar ref={ref} {...base} appOptions={DEFAULT_APPS} />);
+      const input = screen.getByLabelText('Search clips');
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('app-option-com.apple.Safari')).toHaveAttribute('aria-selected', 'true');
+      // The parent drops the highlighted app (Safari) while the dropdown is open.
+      rerender(
+        <SearchBar ref={ref} {...base} appOptions={[
+          { id: 'com.apple.Terminal',   label: 'Terminal', count: 9 },
+          { id: 'com.microsoft.VSCode', label: 'Code',     count: 17 },
+        ]} />
+      );
+      expect(screen.queryByTestId('app-option-com.apple.Safari')).not.toBeInTheDocument();
+      // The highlight does not vanish — it resyncs to the new top match.
+      expect(screen.getByTestId('app-option-com.apple.Terminal')).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  describe('clear button visibility', () => {
+    it('hides the clear button while a filter mode is open', () => {
+      const { input } = renderBar({ value: 'hello' });
+      expect(screen.getByLabelText('Clear search')).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: 'hello>' } }); // pre-sigil text kept; mode opens
+      expect(screen.queryByLabelText('Clear search')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('aria roles', () => {
+    it('the dropdown is a listbox of options', () => {
+      const { input } = renderBar();
+      fireEvent.change(input, { target: { value: '>' } });
+      expect(screen.getByTestId('app-dropdown')).toHaveAttribute('role', 'listbox');
+      expect(screen.getByTestId('app-option-com.apple.Safari')).toHaveAttribute('role', 'option');
     });
   });
 
@@ -555,8 +669,7 @@ describe('SearchBar', () => {
     it('Enter inside device dropdown does not reach window listeners', () => {
       const tracker = trackWindowKeydowns(new Set(['Enter']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.change(input, { target: { value: '@' } });
         fireEvent.keyDown(input, { key: 'Enter' });
         expect(tracker.seen).toEqual([]);
@@ -568,8 +681,7 @@ describe('SearchBar', () => {
     it('Enter inside filter dropdown does not reach window listeners', () => {
       const tracker = trackWindowKeydowns(new Set(['Enter']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.change(input, { target: { value: '#' } });
         fireEvent.keyDown(input, { key: 'Enter' });
         expect(tracker.seen).toEqual([]);
@@ -581,8 +693,7 @@ describe('SearchBar', () => {
     it('Arrow keys inside device dropdown do not reach window listeners', () => {
       const tracker = trackWindowKeydowns(new Set(['ArrowDown', 'ArrowUp']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.change(input, { target: { value: '@' } });
         fireEvent.keyDown(input, { key: 'ArrowDown' });
         fireEvent.keyDown(input, { key: 'ArrowUp' });
@@ -595,8 +706,7 @@ describe('SearchBar', () => {
     it('Enter inside app dropdown does not reach window listeners', () => {
       const tracker = trackWindowKeydowns(new Set(['Enter']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.change(input, { target: { value: '>' } });
         fireEvent.keyDown(input, { key: 'Enter' });
         expect(tracker.seen).toEqual([]);
@@ -608,8 +718,7 @@ describe('SearchBar', () => {
     it('Arrow keys inside app dropdown do not reach window listeners', () => {
       const tracker = trackWindowKeydowns(new Set(['ArrowDown', 'ArrowUp']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.change(input, { target: { value: '>' } });
         fireEvent.keyDown(input, { key: 'ArrowDown' });
         fireEvent.keyDown(input, { key: 'ArrowUp' });
@@ -620,14 +729,12 @@ describe('SearchBar', () => {
     });
 
     it('Enter outside any dropdown still reaches window listeners', () => {
-      // Sanity check: the isolation is scoped to open dropdowns. With both
-      // dropdowns closed, Enter should bubble normally — App.tsx relies on
-      // this path to copy the selected clip when the user hits Enter in the
-      // search field.
+      // Sanity check: the isolation is scoped to open dropdowns. With no mode
+      // active, Enter should bubble normally — App.tsx relies on this path to
+      // copy the selected clip when the user hits Enter in the search field.
       const tracker = trackWindowKeydowns(new Set(['Enter']));
       try {
-        renderBar();
-        const input = screen.getByLabelText('Search clips');
+        const { input } = renderBar();
         fireEvent.keyDown(input, { key: 'Enter' });
         expect(tracker.seen).toEqual(['Enter']);
       } finally {

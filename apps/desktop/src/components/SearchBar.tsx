@@ -61,6 +61,28 @@ const THEME_ICON: Record<ThemeMode, (size: number) => ReactNode> = {
   system: (s) => <IconMonitor size={s} />,
 };
 
+// The three sigil-triggered filters share one "mode" state machine. Typing a
+// sigil enters a mode; the text after it is the live query (echoed in the
+// input); Enter/click commits the highlighted row; Escape / Backspace-on-empty
+// exits. Only one mode is ever active, so two dropdowns can never be open at
+// once (this is structural, not enforced by hand).
+type Mode = 'type' | 'device' | 'app';
+
+// First sigil wins on entry; ordered so we can scan for the earliest one.
+const SIGIL_MODE: ReadonlyArray<readonly [string, Mode]> = [
+  ['#', 'type'],
+  ['@', 'device'],
+  ['>', 'app'],
+];
+
+const MODE_SIGIL: Record<Mode, string> = { type: '#', device: '@', app: '>' };
+const MODE_PILL: Record<Mode, string> = { type: 'type', device: 'device', app: 'app' };
+const MODE_PLACEHOLDER: Record<Mode, string> = {
+  type:   'filter by type…',
+  device: 'filter by device…',
+  app:    'filter by app…',
+};
+
 export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
   ({
     value, onChange, onClear, themeMode, onSetThemeMode, onMouseDown,
@@ -89,121 +111,108 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
       };
     }, [themeMenuOpen]);
 
-    const [dropdownOpen, setDropdownOpen] = useState(false);
-    const [dropdownQuery, setDropdownQuery] = useState('');
-    const [highlightedFilter, setHighlightedFilter] = useState<ClipFilter>('all');
-
-    const [deviceDropdownOpen, setDeviceDropdownOpen] = useState(false);
-    const [deviceDropdownQuery, setDeviceDropdownQuery] = useState('');
-    const [highlightedDevice, setHighlightedDevice] = useState<string | null>(null);
-
-    const [appDropdownOpen, setAppDropdownOpen] = useState(false);
-    const [appDropdownQuery, setAppDropdownQuery] = useState('');
-    const [highlightedApp, setHighlightedApp] = useState<string | null>(null);
+    // The unified filter-mode state. `highlightId` holds whichever id type the
+    // active mode uses (ClipFilter / device source / app bundle id) — all
+    // strings, so one field covers all three.
+    const [mode, setMode] = useState<Mode | null>(null);
+    const [query, setQuery] = useState('');
+    const [highlightId, setHighlightId] = useState<string | null>(null);
 
     const selectedDevice = deviceOptions.find((d) => d.source === selectedSource) ?? null;
     const selectedAppOption = appOptions.find((a) => a.id === selectedApp) ?? null;
 
-    const matchingFilters = CLIP_FILTERS.filter(
-      f => dropdownQuery === '' || f.startsWith(dropdownQuery)
-    );
+    // The ordered list of option ids that match `q` in mode `m`, by label
+    // prefix (case-insensitive). Used both to seed the highlight on entry /
+    // query change and to drive the rendered dropdown.
+    const matchingIdsFor = useCallback((m: Mode, q: string): string[] => {
+      const lower = q.toLowerCase();
+      if (m === 'type') return CLIP_FILTERS.filter((f) => lower === '' || f.startsWith(lower));
+      if (m === 'device') {
+        return deviceOptions
+          .filter((d) => lower === '' || d.label.toLowerCase().startsWith(lower))
+          .map((d) => d.source);
+      }
+      return appOptions
+        .filter((a) => lower === '' || a.label.toLowerCase().startsWith(lower))
+        .map((a) => a.id);
+    }, [deviceOptions, appOptions]);
 
-    const matchingDevices = deviceOptions.filter(
-      d => deviceDropdownQuery === '' || d.label.toLowerCase().startsWith(deviceDropdownQuery)
-    );
+    const enterMode = useCallback((m: Mode, initialQuery: string, preHighlight?: string | null) => {
+      setMode(m);
+      setQuery(initialQuery);
+      const ids = matchingIdsFor(m, initialQuery);
+      setHighlightId(preHighlight ?? ids[0] ?? null);
+    }, [matchingIdsFor]);
 
-    const matchingApps = appOptions.filter(
-      a => appDropdownQuery === '' || a.label.toLowerCase().startsWith(appDropdownQuery)
-    );
-
-    const openDropdown = useCallback((preHighlight: ClipFilter = 'all') => {
-      setDeviceDropdownOpen(false);
-      setDeviceDropdownQuery('');
-      setAppDropdownOpen(false);
-      setAppDropdownQuery('');
-      setDropdownOpen(true);
-      setDropdownQuery('');
-      setHighlightedFilter(preHighlight);
+    const exitMode = useCallback(() => {
+      setMode(null);
+      setQuery('');
+      setHighlightId(null);
     }, []);
 
-    const closeDropdown = useCallback(() => {
-      setDropdownOpen(false);
-      setDropdownQuery('');
-    }, []);
+    const commitId = useCallback((id: string) => {
+      if (mode === 'type') onFilterChange(id as ClipFilter);
+      else if (mode === 'device') onSourceChange(id);
+      else if (mode === 'app') onAppChange(id);
+    }, [mode, onFilterChange, onSourceChange, onAppChange]);
 
-    const openDeviceDropdown = useCallback((preHighlight: string | null) => {
-      setDropdownOpen(false);
-      setDropdownQuery('');
-      setAppDropdownOpen(false);
-      setAppDropdownQuery('');
-      setDeviceDropdownOpen(true);
-      setDeviceDropdownQuery('');
-      setHighlightedDevice(preHighlight ?? deviceOptions[0]?.source ?? null);
-    }, [deviceOptions]);
+    // Rows for the currently-open dropdown (empty when no mode is active).
+    const q = query.toLowerCase();
+    const matchingFilters = mode === 'type'
+      ? CLIP_FILTERS.filter((f) => q === '' || f.startsWith(q))
+      : [];
+    const matchingDevices = mode === 'device'
+      ? deviceOptions.filter((d) => q === '' || d.label.toLowerCase().startsWith(q))
+      : [];
+    const matchingApps = mode === 'app'
+      ? appOptions.filter((a) => q === '' || a.label.toLowerCase().startsWith(q))
+      : [];
+    const matchingIds: string[] =
+      mode === 'type'   ? matchingFilters
+      : mode === 'device' ? matchingDevices.map((d) => d.source)
+      : mode === 'app'    ? matchingApps.map((a) => a.id)
+      : [];
 
-    const closeDeviceDropdown = useCallback(() => {
-      setDeviceDropdownOpen(false);
-      setDeviceDropdownQuery('');
-    }, []);
-
-    const openAppDropdown = useCallback((preHighlight: string | null) => {
-      setDropdownOpen(false);
-      setDropdownQuery('');
-      setDeviceDropdownOpen(false);
-      setDeviceDropdownQuery('');
-      setAppDropdownOpen(true);
-      setAppDropdownQuery('');
-      setHighlightedApp(preHighlight ?? appOptions[0]?.id ?? null);
-    }, [appOptions]);
-
-    const closeAppDropdown = useCallback(() => {
-      setAppDropdownOpen(false);
-      setAppDropdownQuery('');
-    }, []);
-
-    const selectFilter = useCallback((f: ClipFilter) => {
-      onFilterChange(f);
-      closeDropdown();
-    }, [onFilterChange, closeDropdown]);
-
-    const selectDevice = useCallback((source: string | null) => {
-      onSourceChange(source);
-      closeDeviceDropdown();
-    }, [onSourceChange, closeDeviceDropdown]);
-
-    const selectApp = useCallback((app: string | null) => {
-      onAppChange(app);
-      closeAppDropdown();
-    }, [onAppChange, closeAppDropdown]);
+    // `highlightId` holds the user's sticky intent, but the options can change
+    // under it (a clip arriving updates counts / re-sorts the list, or a device
+    // drops off). Coalesce to a row that actually exists in the current list so
+    // the highlight never points at a vanished row — it always "tracks the top
+    // match". Used for rendering, keyboard nav, and commit.
+    const effectiveHighlightId =
+      highlightId !== null && matchingIds.includes(highlightId)
+        ? highlightId
+        : matchingIds[0] ?? null;
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
-      // `#` → type, `@` → device, `>` → app. Whichever sigil appears first in
-      // the typed value wins; everything from it onward is stripped and the
-      // matching dropdown opens (mirrors the original # behavior).
-      const sigils: Array<[string, () => void]> = [
-        ['#', () => openDropdown(CLIP_FILTERS[0])],
-        ['@', () => openDeviceDropdown(deviceOptions[0]?.source ?? null)],
-        ['>', () => openAppDropdown(appOptions[0]?.id ?? null)],
-      ];
+      // Inside a mode the whole input IS the query — sigils are literal text,
+      // so you can't nest modes.
+      if (mode !== null) {
+        setQuery(raw);
+        setHighlightId(matchingIdsFor(mode, raw)[0] ?? null);
+        return;
+      }
+      // Not in a mode: whichever sigil appears first opens its mode. Text
+      // before the sigil stays as the clip-search value; text after it becomes
+      // the initial filter query.
       let firstIdx = -1;
-      let firstOpen: (() => void) | null = null;
-      for (const [ch, open] of sigils) {
+      let firstMode: Mode | null = null;
+      for (const [ch, m] of SIGIL_MODE) {
         const idx = raw.indexOf(ch);
         if (idx !== -1 && (firstIdx === -1 || idx < firstIdx)) {
           firstIdx = idx;
-          firstOpen = open;
+          firstMode = m;
         }
       }
-      if (firstOpen) {
-        firstOpen();
+      if (firstMode !== null) {
+        enterMode(firstMode, raw.slice(firstIdx + 1));
         onChange(raw.slice(0, firstIdx));
         return;
       }
       onChange(raw);
     };
 
-    // Keys consumed by an open dropdown must be hidden from the window-level
+    // Keys handled by an open dropdown must be hidden from the window-level
     // keydown listener in App.tsx (Enter copies the selected clip and hides
     // the window, ArrowUp/Down moves clip selection). React's preventDefault
     // doesn't block native bubbling, so we stop the native event explicitly.
@@ -213,188 +222,71 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      // Backspace on empty input removes the closest chip, right-to-left in
-      // render order: type, then app, then device.
-      if (
-        e.key === 'Backspace' &&
-        !dropdownOpen &&
-        !deviceDropdownOpen &&
-        !appDropdownOpen &&
-        value === ''
-      ) {
-        if (activeFilter !== 'all') {
-          onFilterChange('all');
-          return;
+      if (mode === null) {
+        // Backspace on empty input removes the closest chip, right-to-left in
+        // render order: type, then app, then device.
+        if (e.key === 'Backspace' && value === '') {
+          if (activeFilter !== 'all') { onFilterChange('all'); return; }
+          if (selectedApp !== null) { onAppChange(null); return; }
+          if (selectedSource !== null) { onSourceChange(null); return; }
         }
-        if (selectedApp !== null) {
-          onAppChange(null);
-          return;
-        }
-        if (selectedSource !== null) {
-          onSourceChange(null);
-          return;
-        }
+        // Everything else bubbles — App.tsx relies on Enter / Arrows here.
+        return;
       }
 
-      if (dropdownOpen) {
-        handleFilterDropdownKey(e);
-        return;
-      }
-      if (deviceDropdownOpen) {
-        handleDeviceDropdownKey(e);
-        return;
-      }
-      if (appDropdownOpen) {
-        handleAppDropdownKey(e);
-        return;
-      }
-    };
-
-    const handleFilterDropdownKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      const idx = matchingFilters.indexOf(highlightedFilter);
-      const safeIdx = idx === -1 ? 0 : idx;
+      // In a filter mode: navigation keys are handled (and isolated) here;
+      // character keys fall through to the input so the query stays visible.
+      const curIdx = effectiveHighlightId === null ? -1 : matchingIds.indexOf(effectiveHighlightId);
+      const safeIdx = curIdx === -1 ? 0 : curIdx;
 
       if (e.key === 'ArrowDown') {
         consume(e);
-        if (matchingFilters.length === 0) return;
-        setHighlightedFilter(matchingFilters[(safeIdx + 1) % matchingFilters.length]);
+        if (matchingIds.length > 0) setHighlightId(matchingIds[(safeIdx + 1) % matchingIds.length]);
         return;
       }
       if (e.key === 'ArrowUp') {
         consume(e);
-        if (matchingFilters.length === 0) return;
-        setHighlightedFilter(matchingFilters[(safeIdx - 1 + matchingFilters.length) % matchingFilters.length]);
+        if (matchingIds.length > 0) {
+          setHighlightId(matchingIds[(safeIdx - 1 + matchingIds.length) % matchingIds.length]);
+        }
         return;
       }
       if (e.key === 'Enter') {
         consume(e);
-        selectFilter(highlightedFilter);
+        if (effectiveHighlightId !== null) {
+          commitId(effectiveHighlightId);
+          exitMode();
+        }
         return;
       }
       if (e.key === 'Escape') {
         consume(e);
-        closeDropdown();
+        exitMode();
         return;
       }
       if (e.key === 'Backspace') {
+        // Edit the query here (rather than letting the input mutate natively)
+        // so the behavior is deterministic and Backspace never reaches the
+        // window-level handler. An empty query exits the mode.
         consume(e);
-        if (dropdownQuery.length > 0) {
-          const q = dropdownQuery.slice(0, -1);
-          setDropdownQuery(q);
-          const first = CLIP_FILTERS.find(f => q === '' || f.startsWith(q)) ?? highlightedFilter;
-          setHighlightedFilter(first);
+        if (query === '') {
+          exitMode();
         } else {
-          closeDropdown();
+          const next = query.slice(0, -1);
+          setQuery(next);
+          setHighlightId(matchingIdsFor(mode, next)[0] ?? null);
         }
         return;
       }
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        consume(e);
-        const q = dropdownQuery + e.key.toLowerCase();
-        setDropdownQuery(q);
-        const first = CLIP_FILTERS.find(f => f.startsWith(q)) ?? highlightedFilter;
-        setHighlightedFilter(first);
-      }
-    };
-
-    const handleDeviceDropdownKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      const currentIdx = matchingDevices.findIndex((d) => d.source === highlightedDevice);
-      const safeIdx = currentIdx === -1 ? 0 : currentIdx;
-
-      if (e.key === 'ArrowDown') {
-        consume(e);
-        if (matchingDevices.length === 0) return;
-        setHighlightedDevice(matchingDevices[(safeIdx + 1) % matchingDevices.length].source);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        consume(e);
-        if (matchingDevices.length === 0) return;
-        setHighlightedDevice(matchingDevices[(safeIdx - 1 + matchingDevices.length) % matchingDevices.length].source);
-        return;
-      }
-      if (e.key === 'Enter') {
-        consume(e);
-        if (highlightedDevice) selectDevice(highlightedDevice);
-        return;
-      }
-      if (e.key === 'Escape') {
-        consume(e);
-        closeDeviceDropdown();
-        return;
-      }
-      if (e.key === 'Backspace') {
-        consume(e);
-        if (deviceDropdownQuery.length > 0) {
-          const q = deviceDropdownQuery.slice(0, -1);
-          setDeviceDropdownQuery(q);
-          const first = deviceOptions.find(d => q === '' || d.label.toLowerCase().startsWith(q));
-          if (first) setHighlightedDevice(first.source);
-        } else {
-          closeDeviceDropdown();
-        }
-        return;
-      }
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        consume(e);
-        const q = deviceDropdownQuery + e.key.toLowerCase();
-        setDeviceDropdownQuery(q);
-        const first = deviceOptions.find(d => d.label.toLowerCase().startsWith(q));
-        if (first) setHighlightedDevice(first.source);
-      }
-    };
-
-    const handleAppDropdownKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      const currentIdx = matchingApps.findIndex((a) => a.id === highlightedApp);
-      const safeIdx = currentIdx === -1 ? 0 : currentIdx;
-
-      if (e.key === 'ArrowDown') {
-        consume(e);
-        if (matchingApps.length === 0) return;
-        setHighlightedApp(matchingApps[(safeIdx + 1) % matchingApps.length].id);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        consume(e);
-        if (matchingApps.length === 0) return;
-        setHighlightedApp(matchingApps[(safeIdx - 1 + matchingApps.length) % matchingApps.length].id);
-        return;
-      }
-      if (e.key === 'Enter') {
-        consume(e);
-        if (highlightedApp) selectApp(highlightedApp);
-        return;
-      }
-      if (e.key === 'Escape') {
-        consume(e);
-        closeAppDropdown();
-        return;
-      }
-      if (e.key === 'Backspace') {
-        consume(e);
-        if (appDropdownQuery.length > 0) {
-          const q = appDropdownQuery.slice(0, -1);
-          setAppDropdownQuery(q);
-          const first = appOptions.find(a => q === '' || a.label.toLowerCase().startsWith(q));
-          if (first) setHighlightedApp(first.id);
-        } else {
-          closeAppDropdown();
-        }
-        return;
-      }
-      if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        consume(e);
-        const q = appDropdownQuery + e.key.toLowerCase();
-        setAppDropdownQuery(q);
-        const first = appOptions.find(a => a.label.toLowerCase().startsWith(q));
-        if (first) setHighlightedApp(first.id);
-      }
+      // Printable characters and the rest fall through to the input.
     };
 
     const placeholder =
-      activeFilter !== 'all' || selectedSource !== null || selectedApp !== null
-        ? ''
-        : 'Search clips…  # type, @ device, > app';
+      mode !== null
+        ? MODE_PLACEHOLDER[mode]
+        : activeFilter !== 'all' || selectedSource !== null || selectedApp !== null
+          ? ''
+          : 'Search clips…  # type, @ device, > app';
 
     return (
       <div style={S.bar} onMouseDown={onMouseDown} data-testid="search-bar">
@@ -404,7 +296,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             <span
               style={{ ...S.chip, background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' }}
               data-testid="device-chip"
-              onClick={() => openDeviceDropdown(selectedDevice.source)}
+              onClick={() => enterMode('device', '', selectedDevice.source)}
             >
               <span style={{ ...S.chipDot, background: 'var(--accent)' }} />
               {selectedDevice.label}
@@ -422,7 +314,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
             <span
               style={{ ...S.chip, background: 'var(--accent-subtle)', color: 'var(--accent)', border: '1px solid transparent' }}
               data-testid="app-chip"
-              onClick={() => openAppDropdown(selectedAppOption.id)}
+              onClick={() => enterMode('app', '', selectedAppOption.id)}
             >
               <img
                 src={`cinch://app-icon/${encodeURIComponent(selectedAppOption.id)}`}
@@ -446,7 +338,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           <span
             style={{ ...S.chip, ...S[`chip_${activeFilter}`] }}
             data-testid="filter-chip"
-            onClick={() => openDropdown(activeFilter)}
+            onClick={() => enterMode('type', '', activeFilter)}
           >
             <span style={{ ...S.chipDot, ...S[`dot_${activeFilter}`] }} />
             {activeFilter}
@@ -460,10 +352,17 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           </span>
         )}
 
+        {mode !== null && (
+          <span style={S.modePill} data-testid="mode-pill">
+            <span style={S.modePillSigil}>{MODE_SIGIL[mode]}</span>
+            {MODE_PILL[mode]}
+          </span>
+        )}
+
         <input
           ref={ref}
           type="text"
-          value={value}
+          value={mode !== null ? query : value}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
@@ -473,7 +372,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           style={S.input}
         />
 
-        {value && (
+        {mode === null && value && (
           <button type="button" onClick={onClear} aria-label="Clear search" className="icon-btn" style={S.iconBtn}>
             <IconX size={12} />
           </button>
@@ -519,95 +418,82 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
           )}
         </div>
 
-        {dropdownOpen && (
-          <div style={S.dropdown} data-testid="filter-dropdown">
-            {CLIP_FILTERS.map((f) => {
-              const matches = dropdownQuery === '' || f.startsWith(dropdownQuery);
-              return (
-                <div
-                  key={f}
-                  style={{
-                    ...S.dropItem,
-                    ...(highlightedFilter === f ? S.dropItemHL : {}),
-                    ...(!matches ? S.dropItemDim : {}),
-                  }}
-                  aria-selected={highlightedFilter === f}
-                  data-testid={`filter-option-${f}`}
-                  onMouseDown={(e) => { e.preventDefault(); selectFilter(f); }}
-                >
-                  <span style={{ ...S.dropDot, ...S[`dot_${f}`] }} />
-                  {f}
-                  <span style={S.dropHint}>{FILTER_HINTS[f]}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {deviceDropdownOpen && (
-          <div style={S.dropdown} data-testid="device-dropdown">
-            {/* No "all devices" entry — the chip's ✕ and Backspace-on-empty
-                already handle "clear filter", and listing it inside the
-                dropdown when no chip is set is just noise. */}
-            {deviceOptions.map((d) => {
-              const matches = deviceDropdownQuery === '' || d.label.toLowerCase().startsWith(deviceDropdownQuery);
-              return (
-                <div
-                  key={d.source}
-                  style={{
-                    ...S.dropItem,
-                    ...(highlightedDevice === d.source ? S.dropItemHL : {}),
-                    ...(!matches ? S.dropItemDim : {}),
-                  }}
-                  aria-selected={highlightedDevice === d.source}
-                  data-testid={`device-option-${d.source}`}
-                  onMouseDown={(e) => { e.preventDefault(); selectDevice(d.source); }}
-                >
-                  <span style={{ ...S.dropDot, background: C.t3 }} />
-                  {d.label}
-                  <span style={S.dropHint}>{d.count} clip{d.count === 1 ? '' : 's'}</span>
-                </div>
-              );
-            })}
-            {deviceOptions.length === 0 && (
-              <div style={{ ...S.dropItem, opacity: 0.55 }} data-testid="device-option-empty">
-                no devices yet
+        {mode === 'type' && (
+          <div style={S.dropdown} role="listbox" data-testid="filter-dropdown">
+            {matchingFilters.map((f) => (
+              <div
+                key={f}
+                role="option"
+                style={{ ...S.dropItem, ...(effectiveHighlightId === f ? S.dropItemHL : {}) }}
+                aria-selected={effectiveHighlightId === f}
+                data-testid={`filter-option-${f}`}
+                onMouseDown={(e) => { e.preventDefault(); commitId(f); exitMode(); }}
+              >
+                <span style={{ ...S.dropDot, ...S[`dot_${f}`] }} />
+                {f}
+                <span style={S.dropHint}>{FILTER_HINTS[f]}</span>
+              </div>
+            ))}
+            {matchingFilters.length === 0 && (
+              <div style={{ ...S.dropItem, opacity: 0.55 }} role="status" data-testid="filter-option-empty">
+                no matches
               </div>
             )}
           </div>
         )}
 
-        {appDropdownOpen && (
-          <div style={S.dropdown} data-testid="app-dropdown">
-            {appOptions.map((a) => {
-              const matches = appDropdownQuery === '' || a.label.toLowerCase().startsWith(appDropdownQuery);
-              return (
-                <div
-                  key={a.id}
-                  style={{
-                    ...S.dropItem,
-                    ...(highlightedApp === a.id ? S.dropItemHL : {}),
-                    ...(!matches ? S.dropItemDim : {}),
-                  }}
-                  aria-selected={highlightedApp === a.id}
-                  data-testid={`app-option-${a.id}`}
-                  onMouseDown={(e) => { e.preventDefault(); selectApp(a.id); }}
-                >
-                  <img
-                    src={`cinch://app-icon/${encodeURIComponent(a.id)}`}
-                    alt=""
-                    aria-hidden="true"
-                    style={S.appIcon}
-                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                  />
-                  {a.label}
-                  <span style={S.dropHint}>{a.count} clip{a.count === 1 ? '' : 's'}</span>
-                </div>
-              );
-            })}
-            {appOptions.length === 0 && (
-              <div style={{ ...S.dropItem, opacity: 0.55 }} data-testid="app-option-empty">
-                no apps yet
+        {mode === 'device' && (
+          <div style={S.dropdown} role="listbox" data-testid="device-dropdown">
+            {/* No "all devices" entry — the chip's ✕ and Backspace-on-empty
+                already handle "clear filter", and listing it inside the
+                dropdown when no chip is set is just noise. */}
+            {matchingDevices.map((d) => (
+              <div
+                key={d.source}
+                role="option"
+                style={{ ...S.dropItem, ...(effectiveHighlightId === d.source ? S.dropItemHL : {}) }}
+                aria-selected={effectiveHighlightId === d.source}
+                data-testid={`device-option-${d.source}`}
+                onMouseDown={(e) => { e.preventDefault(); commitId(d.source); exitMode(); }}
+              >
+                <span style={{ ...S.dropDot, background: C.t3 }} />
+                {d.label}
+                <span style={S.dropHint}>{d.count} clip{d.count === 1 ? '' : 's'}</span>
+              </div>
+            ))}
+            {matchingDevices.length === 0 && (
+              <div style={{ ...S.dropItem, opacity: 0.55 }} role="status" data-testid="device-option-empty">
+                {deviceOptions.length === 0 ? 'no devices yet' : 'no matches'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {mode === 'app' && (
+          <div style={S.dropdown} role="listbox" data-testid="app-dropdown">
+            {matchingApps.map((a) => (
+              <div
+                key={a.id}
+                role="option"
+                style={{ ...S.dropItem, ...(effectiveHighlightId === a.id ? S.dropItemHL : {}) }}
+                aria-selected={effectiveHighlightId === a.id}
+                data-testid={`app-option-${a.id}`}
+                onMouseDown={(e) => { e.preventDefault(); commitId(a.id); exitMode(); }}
+              >
+                <img
+                  src={`cinch://app-icon/${encodeURIComponent(a.id)}`}
+                  alt=""
+                  aria-hidden="true"
+                  style={S.appIcon}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+                {a.label}
+                <span style={S.dropHint}>{a.count} clip{a.count === 1 ? '' : 's'}</span>
+              </div>
+            ))}
+            {matchingApps.length === 0 && (
+              <div style={{ ...S.dropItem, opacity: 0.55 }} role="status" data-testid="app-option-empty">
+                {appOptions.length === 0 ? 'no apps yet' : 'no matches'}
               </div>
             )}
           </div>
@@ -698,6 +584,27 @@ const S: Record<string, CSSProperties> = {
     marginLeft: 2,
     cursor: 'pointer',
   },
+  // The mode prefix pill is transient (no ✕) and intentionally muted/bordered
+  // so it reads differently from the accent-filled committed chips.
+  modePill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '2px 8px',
+    borderRadius: 20,
+    fontSize: 10,
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: '0.03em',
+    flexShrink: 0,
+    background: C.card2,
+    color: C.t2,
+    border: `1px solid ${C.border}`,
+    userSelect: 'none',
+  },
+  modePillSigil: {
+    color: C.accent,
+    fontWeight: 600,
+  },
   dropdown: {
     position: 'absolute',
     top: '100%',
@@ -727,9 +634,6 @@ const S: Record<string, CSSProperties> = {
   dropItemHL: {
     background: C.selected,
     color: C.t1,
-  },
-  dropItemDim: {
-    opacity: 0.28,
   },
   dropHint: {
     marginLeft: 'auto',
