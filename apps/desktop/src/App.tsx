@@ -394,9 +394,14 @@ function App() {
   const handleEdit = useCallback(async (clip: LocalClip, newContent: string) => {
     try {
       const newClip = await unwrap(commands.editClip(clip.id, newContent));
-      setEditDialog(null);
+      // Refresh the list and select the new clip BEFORE closing the modal.
+      // The modal-close focus restoration (see the effect above) targets
+      // `selectedClip`'s row, so the selection must already point at the edited
+      // clip — and that row must already be in the list — or focus (and the
+      // keyboard copy/send context) lands on the stale original clip.
       await refreshClips();
       setSelectedClip(newClip);
+      setEditDialog(null);
       showToast('Edited & copied', 'copy');
     } catch (e) {
       // editClip can fail after persisting the new clip (e.g. clipboard write).

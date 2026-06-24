@@ -242,6 +242,67 @@ describe('App', () => {
         });
     });
 
+    it('copies the edited clip (not the original) when Enter is pressed right after editing', async () => {
+        const original: LocalClip = {
+            id: 'orig', user_id: 'u1', content: 'ORIGINAL', content_type: 'text',
+            source: 'local', source_app_id: null, source_app: null, source_url: null,
+            label: '', byte_size: 8, media_path: null, created_at: 1_777_614_500,
+            synced: true, is_pinned: false, pin_note: null, received_at: 1_777_614_500,
+        };
+        const edited: LocalClip = {
+            ...original, id: 'edit', content: 'EDITED', byte_size: 6,
+            created_at: 1_777_614_999, received_at: 1_777_614_999,
+        };
+        let editDone = false;
+        const copyContents: string[] = [];
+        vi.mocked(invoke).mockImplementation((cmd, args?: Record<string, unknown>) => {
+            // Post-edit refresh is delayed to mimic real Rust IPC latency: the
+            // modal closes (editDialog=null) BEFORE selectedClip is updated to the
+            // edited clip, which is the window the focus-restoration races in.
+            if (cmd === 'list_clips') {
+                if (!editDone) return Promise.resolve([original]);
+                return new Promise((r) => setTimeout(() => r([edited, original]), 30));
+            }
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') return Promise.resolve([]);
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            if (cmd === 'edit_clip') { editDone = true; return Promise.resolve(edited); }
+            if (cmd === 'copy_clip_to_clipboard') { copyContents.push(String(args?.content)); return Promise.resolve(); }
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        // Select the original clip, then open the edit modal via its Edit button.
+        fireEvent.click(await screen.findByRole('button', { name: /ORIGINAL/i }));
+        fireEvent.click(screen.getByRole('button', { name: /^Edit/i }));
+
+        // Save & Copy (the mocked edit_clip returns the edited clip regardless of
+        // the textarea contents — we are testing the copy target, not the edit).
+        fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+        // The edited clip appears at the top and becomes the selection/preview.
+        const editedRow = await screen.findByRole('button', { name: /EDITED/i });
+        await waitFor(() => expect(editedRow).toHaveAttribute('aria-selected', 'true'));
+
+        // After the edit modal closes, keyboard focus must land on the EDITED
+        // clip's row — not the original. The bug: handleEdit closed the modal
+        // before selectedClip was updated, so the focus-restoration effect
+        // (App.tsx) targeted the stale (original) row, leaving the keyboard
+        // context on the pre-edit clip.
+        const active = document.activeElement as HTMLElement | null;
+        const activeId = active?.getAttribute?.('data-id');
+        expect(activeId).toBe('edit');
+
+        // And pressing Enter copies the edited clip's content.
+        fireEvent.keyDown(active ?? window, { key: 'Enter' });
+        await waitFor(() => expect(copyContents.length).toBeGreaterThan(0));
+        expect(copyContents.at(-1)).toBe('EDITED');
+    });
+
     it('copies an image clip via copy_image_to_clipboard (no media_path) instead of copy_clip_to_clipboard', async () => {
         const clip: LocalClip = {
             id: 'cimg',

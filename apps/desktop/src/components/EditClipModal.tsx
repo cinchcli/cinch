@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useId, type CSSProperties } from 'react';
+import { useEffect, useRef, useId, type CSSProperties } from 'react';
 import type { LocalClip } from '../bindings';
 import { C } from '../design';
 
@@ -44,12 +44,26 @@ const styles: Record<string, CSSProperties> = {
 };
 
 export function EditClipModal({ clip, onSave, onCancel }: EditClipModalProps) {
-  const [text, setText] = useState(clip.content);
+  // Uncontrolled textarea: the edited text lives in the DOM, read via `textRef`
+  // on save — NOT in React state. A controlled `value`/`onChange` textarea
+  // breaks IME (e.g. Korean Hangul) composition in WKWebView: every keystroke
+  // re-renders and reassigns the DOM `.value`, which WebKit treats as canceling
+  // the in-flight composition, so composed input never lands in state. The clip
+  // then "saves" the original text and copies the original. Reading the live DOM
+  // value sidesteps that entirely. (Mirrors the IME-aware handling in App.tsx.)
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const titleId = useId();
 
+  const save = () => onSave(textRef.current?.value ?? '');
+
   useEffect(() => {
-    const raf = requestAnimationFrame(() => textRef.current?.focus());
+    const raf = requestAnimationFrame(() => {
+      const el = textRef.current;
+      if (!el) return;
+      el.focus();
+      // Place the caret at the end so editing appends rather than overwriting.
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
     return () => cancelAnimationFrame(raf);
   }, []);
 
@@ -74,19 +88,22 @@ export function EditClipModal({ clip, onSave, onCancel }: EditClipModalProps) {
         <textarea
           ref={textRef}
           style={styles.textarea}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
+          defaultValue={clip.content}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              // Ignore ⌘↵ while an IME composition is in flight — the first
+              // Enter commits the composition; a second ⌘↵ then saves. Without
+              // this, saving mid-composition drops the last syllable.
+              if (e.nativeEvent.isComposing) return;
               e.preventDefault();
-              onSave(text);
+              save();
             }
           }}
           aria-label="Clip content"
         />
         <div style={styles.actions}>
           <button type="button" style={styles.secondaryBtn} onClick={onCancel}>Cancel</button>
-          <button type="button" style={styles.primaryBtn} onClick={() => onSave(text)}>
+          <button type="button" style={styles.primaryBtn} onClick={save}>
             Save &amp; Copy
           </button>
         </div>
