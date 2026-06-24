@@ -39,4 +39,30 @@ describe('EditClipModal', () => {
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', metaKey: true });
     expect(onSave).toHaveBeenCalledWith('x');
   });
+
+  // Regression: the textarea is uncontrolled and onSave reads the live DOM
+  // value via the ref, not React state. A controlled value/onChange textarea
+  // breaks Korean (IME) composition in WKWebView, so edits never reached the
+  // save call and the original text got copied. See EditClipModal.tsx.
+  it('saves the current textarea value read from the DOM, not stale state', () => {
+    const onSave = vi.fn();
+    render(<EditClipModal clip={clip} onSave={onSave} onCancel={vi.fn()} />);
+    const textbox = screen.getByRole('textbox') as HTMLTextAreaElement;
+    // Simulate the IME landing composed text directly in the DOM.
+    textbox.value = '편집한 내용';
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith('편집한 내용');
+  });
+
+  it('does not save on Cmd+Enter while an IME composition is in flight', () => {
+    const onSave = vi.fn();
+    render(<EditClipModal clip={clip} onSave={onSave} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '한글' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), {
+      key: 'Enter',
+      metaKey: true,
+      isComposing: true,
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });
