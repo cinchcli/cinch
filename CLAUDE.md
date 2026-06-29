@@ -15,9 +15,9 @@ The `main/` worktree is the human's reference checkout — agents must not modif
 
 ```bash
 make build           # cargo build --workspace + pnpm build (desktop)
-make test            # cargo test --workspace + pnpm test + go test ./go/...
-make lint            # cargo fmt --check + clippy + buf lint + go vet
-make generate        # buf generate + tauri-specta bindings
+make test            # cargo test --workspace + pnpm test
+make lint            # cargo fmt --check + clippy + buf lint
+make generate        # tauri-specta bindings (prost Rust types regenerate on cargo build)
 make dev-desktop     # pnpm tauri dev
 make verify-versions # check version parity across all components
 ```
@@ -35,7 +35,7 @@ Or run `./scripts/check-version-parity.sh <expected-version>` to verify.
 
 ## Wire schema
 
-`crates/client-core/proto/cinch/v1/*.proto` is the single source of truth. Rust types generated via `prost-build` in `crates/client-core/build.rs`. Go bindings generated via `buf generate` into `go/cinch/v1/` and vendored into the relay repo.
+`crates/client-core/proto/cinch/v1/*.proto` is the single source of truth. Rust types generated via `prost-build` in `crates/client-core/build.rs`. The relay generates its own Go bindings locally from the vendored `.proto` (synced via `proto-sync-relay.yml`); this monorepo no longer hosts or generates Go bindings. The `option go_package` lines in the `.proto` are kept solely as the rewrite source for the relay's sync script.
 
 `testdata/wire-vectors.json` is the cross-language compatibility gate. Round-tripped from Rust and Go; relay maintains a byte-equal copy as `relay/internal/wire_test/testdata/wire-vectors.json`.
 

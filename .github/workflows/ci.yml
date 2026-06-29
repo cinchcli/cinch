@@ -33,16 +33,6 @@ jobs:
           cargo build -p cinch-desktop --no-default-features
           cargo build -p cinch-desktop --features builtin-cli --no-default-features
 
-  go:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-      - run: go vet ./go/...
-      - run: go test ./go/...
-
   buf:
     runs-on: ubuntu-latest
     steps:

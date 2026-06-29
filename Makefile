@@ -11,7 +11,6 @@ build:
 test:
 	cargo test --workspace
 	cd apps/desktop && pnpm test
-	go test ./go/...
 
 fmt:
 	cargo fmt --all
@@ -22,11 +21,8 @@ lint:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets || echo "clippy reported warnings (non-blocking; pre-existing tech debt)"
 	PATH=$(GOBIN):$$PATH buf lint
-	go vet ./go/...
 
 generate:
-	PATH=$(GOBIN):$$PATH buf generate
-	go mod tidy
 	cargo test -p cinch-desktop export_bindings -- --ignored
 
 typecheck:
