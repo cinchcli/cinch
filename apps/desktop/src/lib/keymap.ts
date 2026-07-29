@@ -6,11 +6,12 @@
 //
 // Accelerator strings use the same vocabulary the Settings capture UI and the
 // OS-global shortcuts already use, e.g. "CmdOrCtrl+E", "CmdOrCtrl+Enter",
-// "Enter". "CmdOrCtrl" matches either Cmd (macOS) or Ctrl (Windows/Linux).
+// "Enter". "CmdOrCtrl" matches either Cmd (macOS) or Ctrl (Windows/Linux);
+// "Command"/"Cmd" matches Cmd only, and "Control"/"Ctrl" matches Ctrl only.
 
 import { physicalKey } from "./keyboard";
 
-export type ActionId = "edit" | "copy" | "pin" | "send";
+export type ActionId = "edit" | "copy" | "pin" | "send" | "save";
 
 /** Structural twin of the specta-generated `ActionShortcuts` in `bindings.ts`. */
 export interface ActionShortcuts {
@@ -18,6 +19,17 @@ export interface ActionShortcuts {
   copy: string;
   pin: string;
   send: string;
+  save: string;
+}
+
+function platformDefaultSave(): string {
+  // navigator.platform is widely supported in Tauri webviews; userAgentData is
+  // the modern alternative but falls back to platform for jsdom/legacy cases.
+  const platform =
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+    navigator.platform ??
+    "";
+  return platform.toLowerCase().includes("mac") ? "Command+K" : "CmdOrCtrl+Shift+K";
 }
 
 export const DEFAULT_ACTION_SHORTCUTS: ActionShortcuts = {
@@ -25,6 +37,7 @@ export const DEFAULT_ACTION_SHORTCUTS: ActionShortcuts = {
   copy: "Enter",
   pin: "CmdOrCtrl+P",
   send: "CmdOrCtrl+Enter",
+  save: platformDefaultSave(),
 };
 
 /** Display order + labels for the Settings "Clip actions" rows. */
@@ -33,6 +46,7 @@ export const ACTION_META: { id: ActionId; label: string }[] = [
   { id: "copy", label: "Copy clip" },
   { id: "pin", label: "Pin / unpin" },
   { id: "send", label: "Send selected" },
+  { id: "save", label: "Save image" },
 ];
 
 /**
@@ -44,18 +58,19 @@ export function formatShortcutDisplay(shortcut: string): string {
   return shortcut
     .replace(/CommandOrControl/g, "⌘")
     .replace(/CmdOrCtrl/g, "⌘")
+    .replace(/Command/g, "⌘")
+    .replace(/Cmd/g, "⌘")
     .replace(/Shift/g, "⇧")
     .replace(/Alt/g, "⌥")
     .replace(/Control/g, "⌃")
+    .replace(/Ctrl/g, "⌃")
     .replace(/\+/g, "")
     .replace(/Enter/g, "↵");
 }
 
+const CMD_ONLY_NAMES = new Set(["cmd", "command"]);
+const CTRL_ONLY_NAMES = new Set(["ctrl", "control"]);
 const PRIMARY_NAMES = new Set([
-  "cmd",
-  "command",
-  "ctrl",
-  "control",
   "meta",
   "super",
   "cmdorctrl",
@@ -67,6 +82,10 @@ const ALT_NAMES = new Set(["alt", "option"]);
 export interface ParsedAccel {
   /** Cmd-or-Ctrl required. */
   primary: boolean;
+  /** macOS Command key only. */
+  cmdOnly: boolean;
+  /** Control key only. */
+  ctrlOnly: boolean;
   shift: boolean;
   alt: boolean;
   /** Key token normalized to `physicalKey` form. */
@@ -83,17 +102,21 @@ function normalizeKeyToken(token: string): string {
 export function parseAccelerator(accel: string): ParsedAccel {
   const parts = accel.split("+").filter((p) => p.length > 0);
   let primary = false;
+  let cmdOnly = false;
+  let ctrlOnly = false;
   let shift = false;
   let alt = false;
   let key = "";
   for (const p of parts) {
     const lower = p.toLowerCase();
     if (PRIMARY_NAMES.has(lower)) primary = true;
+    else if (CMD_ONLY_NAMES.has(lower)) cmdOnly = true;
+    else if (CTRL_ONLY_NAMES.has(lower)) ctrlOnly = true;
     else if (SHIFT_NAMES.has(lower)) shift = true;
     else if (ALT_NAMES.has(lower)) alt = true;
     else key = normalizeKeyToken(p);
   }
-  return { primary, shift, alt, key };
+  return { primary, cmdOnly, ctrlOnly, shift, alt, key };
 }
 
 // Exact-modifier match. A modifier not named in the accelerator must be UP, so
@@ -108,8 +131,12 @@ export function matchesAccelerator(
 ): boolean {
   const a = parseAccelerator(accel);
   if (!a.key) return false;
+  if (a.cmdOnly && !e.metaKey) return false;
+  if (a.ctrlOnly && !e.ctrlKey) return false;
   const primaryDown = e.metaKey || e.ctrlKey;
-  if (a.primary !== primaryDown) return false;
+  if (a.primary && !primaryDown) return false;
+  // Bare keys (no modifier required) must not fire while a primary modifier is held.
+  if (!a.cmdOnly && !a.ctrlOnly && !a.primary && primaryDown) return false;
   if (a.shift !== e.shiftKey) return false;
   if (a.alt !== e.altKey) return false;
   return physicalKey(e) === a.key;
@@ -130,12 +157,18 @@ function hitsReservedHandler(a: ParsedAccel): boolean {
 
   // Bare-key handlers that fire only WITHOUT a primary modifier (`/` focus
   // search, Tab/Shift+Tab panel switch). Their guards ignore Shift/Alt.
-  if (!a.primary && (a.key === "/" || a.key === "Tab")) return true;
+  if (!a.primary && !a.cmdOnly && !a.ctrlOnly && (a.key === "/" || a.key === "Tab")) return true;
 
   // primary+key handlers — `(meta||ctrl) && key` — that ignore Shift/Alt:
-  // ⌘C copy alias, ⌘F search, ⌘, settings, ⌘1/2/3 panels, and the Ctrl-based
-  // navigation (J/K) and source-filter cycle (H/L).
-  if (a.primary && ["C", "F", ",", "1", "2", "3", "J", "K", "H", "L"].includes(a.key)) {
+  // ⌘C copy alias, ⌘F search, ⌘, settings, ⌘1/2/3 panels.
+  if (a.primary && ["C", "F", ",", "1", "2", "3"].includes(a.key)) {
+    return true;
+  }
+
+  // Ctrl-based navigation (J/K) and source-filter cycle (H/L). These are
+  // triggered by `e.ctrlKey`, so any accelerator that fires while Ctrl is held
+  // (Ctrl+K or CmdOrCtrl+K) collides. Command+K (cmd-only) does not.
+  if ((a.ctrlOnly || a.primary) && ["J", "K", "H", "L"].includes(a.key)) {
     return true;
   }
 
@@ -148,6 +181,8 @@ function hitsReservedHandler(a: ParsedAccel): boolean {
 function canonicalAccel(accel: string): string {
   const a = parseAccelerator(accel);
   const parts: string[] = [];
+  if (a.cmdOnly) parts.push("cmd");
+  if (a.ctrlOnly) parts.push("ctrl");
   if (a.primary) parts.push("primary");
   if (a.shift) parts.push("shift");
   if (a.alt) parts.push("alt");
@@ -169,7 +204,7 @@ export function findConflict(
     return { ok: false, conflictWith: "reserved" };
   }
   const target = canonicalAccel(accel);
-  for (const id of ["edit", "copy", "pin", "send"] as ActionId[]) {
+  for (const id of ["edit", "copy", "pin", "send", "save"] as ActionId[]) {
     if (id === actionId) continue;
     if (canonicalAccel(all[id]) === target) {
       return { ok: false, conflictWith: id };

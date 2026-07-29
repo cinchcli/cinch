@@ -250,8 +250,13 @@ with a bare-`cinch` fallback.
 4. **Stable command names:** `cinch agent-hook claude-session-end` and
    `cinch agent-hook codex-exit` are baked into config files, so they are
    permanent strings.
-5. **Hook binary path:** bare `cinch` (PATH-resolved); absolute-path hardening
-   deferred.
+5. **Hook binary path:** bake the **absolute path** of the installing binary
+   into the hook/wrapper (shell-quoted), falling back to bare `cinch` only when
+   the path is unknown. Combined with the desktop entrypoint dispatching to the
+   CLI on `argv[1] == "agent-hook"`, this makes the hook immune to PATH ordering
+   and a stale/wrong `cinch` resolving first. *(Originally deferred to bare
+   `cinch`; promoted after a real session-end silently no-op'd because a stale
+   installed app shadowed the PATH `cinch` — see Post-review hardening.)*
 
 ## 7. Rejected alternatives
 
@@ -323,4 +328,30 @@ documented limitations.
   filter. The sub-second mtime fix above makes the *selection* deterministic;
   the residual sub-1-second window is inherent to a portable shell start stamp
   and is the basis for the LOW rating.
+
+## 10. Post-dogfood: real session-end did nothing
+
+Manual simulation (piping the SessionEnd JSON to the command) worked, but a
+real Claude session-end copied nothing. Root cause: the hook ran bare `cinch`,
+which on a dev machine resolves via PATH to a **stale installed app**
+(`/opt/homebrew/bin/cinch` → `/Applications/Cinch.app`, built before this
+feature) that has no `agent-hook` subcommand → silent no-op. The `reason`
+filter was fine (`prompt_input_exit` is handled).
+
+Fix (promotes decision §6.5):
+
+- **Bake the absolute binary path.** `claude_hook_command` / `codex_bin_token`
+  embed the installing binary's `current_exe()` path (shell-quoted), so the
+  hook is PATH-independent. Falls back to bare `cinch` when the path is unknown.
+- **App argv dispatch.** `main.rs::should_dispatch_cli` routes to the CLI when
+  `argv[1] == "agent-hook"`, so the desktop can bake its own `Cinch` binary path
+  (basename would otherwise launch the GUI).
+- **In-place migration.** `claude_settings_with_hook` updates an existing
+  marked hook's command, and `rc_with_codex_block` replaces a block whose `bin`
+  differs — so re-enabling migrates a previously-installed bare command to the
+  baked path without duplicating.
+
+Production was always correct (the cask symlink resolves to the current app);
+this hardening fixes dev dogfooding and protects users whose PATH `cinch` is
+stale or shadowed during an upgrade.
 ```

@@ -86,6 +86,7 @@ describe('ClipDetail', () => {
           copy: 'CmdOrCtrl+C',
           pin: 'Alt+P',
           send: 'CmdOrCtrl+Enter',
+          save: 'Command+K',
         }}
       />,
     );
@@ -164,6 +165,27 @@ describe('ClipDetail', () => {
       />,
     );
     expect(screen.getByRole('button', { name: /^save/i })).toBeInTheDocument();
+  });
+
+  it('shows the configured save shortcut hint on the Save button for image clips', () => {
+    const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
+    render(
+      <ClipDetail
+        clip={imageClip}
+        onCopy={noOp}
+        onPin={noOp}
+        onDelete={noOp}
+        onSaveImage={noOp}
+        actionShortcuts={{
+          edit: 'CmdOrCtrl+E',
+          copy: 'Enter',
+          pin: 'CmdOrCtrl+P',
+          send: 'CmdOrCtrl+Enter',
+          save: 'Command+K',
+        }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /^save… ⌘K$/i })).toBeInTheDocument();
   });
 
   it('calls onSaveImage when Save clicked', () => {
