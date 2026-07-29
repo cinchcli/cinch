@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tauri::State;
+use tauri_plugin_autostart::AutoLaunchManager;
 
 use crate::protocol::{ConfigInfo, MultiConfigHandle};
 use crate::sync_status::WsStatus;
@@ -101,4 +102,24 @@ pub fn focus_previous_app(
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Autostart (Launch at Login) — no store dependency
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_autostart(manager: State<'_, AutoLaunchManager>) -> Result<bool, String> {
+    manager.is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_autostart(enabled: bool, manager: State<'_, AutoLaunchManager>) -> Result<(), String> {
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())
+    } else {
+        manager.disable().map_err(|e| e.to_string())
+    }
 }
