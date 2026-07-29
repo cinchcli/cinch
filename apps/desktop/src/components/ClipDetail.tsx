@@ -139,7 +139,7 @@ export function ClipDetail({
               className="btn-ghost"
               style={S.btnGhost}
             >
-              Save…
+              Save… <span style={S.kbdHint}>{formatShortcutDisplay(actionShortcuts.save)}</span>
             </button>
           )}
           <button

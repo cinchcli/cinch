@@ -106,6 +106,7 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
 
   const [windowPreset, setWindowPreset] = useState<WindowPreset>(resolveWindowPreset);
   const [notifyOnRemoteLogin, setNotifyOnRemoteLogin] = useNotifyOnRemoteLogin();
+  const [autostart, setAutostart] = useState<boolean>(false);
 
   async function applyWindowPreset(preset: WindowPreset) {
     const { width, height } = WINDOW_PRESETS[preset];
@@ -182,6 +183,22 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
         setState({ kind: "error", message: String(e) })
       );
   }, []);
+
+  // Load autostart state on mount.
+  useEffect(() => {
+    unwrap(commands.getAutostart())
+      .then((enabled) => setAutostart(enabled))
+      .catch(() => {/* use default */});
+  }, []);
+
+  async function handleAutostartChange(enabled: boolean) {
+    try {
+      await unwrap(commands.setAutostart(enabled));
+      setAutostart(enabled);
+    } catch {
+      setAutostart(!enabled); // revert on error
+    }
+  }
 
   // Esc closes the pane — but only when no ConfirmDialog is open.
   useEffect(() => {
@@ -945,6 +962,32 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
                     {notifyOnRemoteLogin && <IconCheck size={11} />}
                   </span>
                   <span>Show macOS notification when a remote login is pending approval</span>
+                </label>
+              </div>
+
+              <hr style={S.divider} />
+
+              <div style={S.fieldGroup}>
+                <div style={S.fieldHeading}>Launch at login</div>
+                <div style={S.fieldDescription}>Automatically start cinch when you log in to your Mac.</div>
+                <label style={S.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={autostart}
+                    onChange={(e) => void handleAutostartChange(e.target.checked)}
+                    aria-label="Launch cinch at login"
+                    style={S.srOnlyInput}
+                  />
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      ...S.checkBox,
+                      ...(autostart ? S.checkBoxOn : null),
+                    }}
+                  >
+                    {autostart && <IconCheck size={11} />}
+                  </span>
+                  <span>Launch at login</span>
                 </label>
               </div>
             </>

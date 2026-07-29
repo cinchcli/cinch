@@ -74,6 +74,7 @@ describe("SettingsPane", () => {
           copy: "Enter",
           pin: "CmdOrCtrl+P",
           send: "CmdOrCtrl+Enter",
+          save: "Command+K",
         });
       }
       if (cmd === "set_action_shortcuts") {
@@ -216,6 +217,7 @@ describe("SettingsPane", () => {
         copy: "Enter",
         pin: "CmdOrCtrl+P",
         send: "CmdOrCtrl+Enter",
+        save: "Command+K",
       };
       await waitFor(() => {
         expect(invoke).toHaveBeenCalledWith("set_action_shortcuts", { shortcuts: expected });
@@ -264,6 +266,7 @@ describe("SettingsPane", () => {
         copy: "Enter",
         pin: "CmdOrCtrl+P",
         send: "CmdOrCtrl+Enter",
+        save: "Command+K",
       });
     });
   });

@@ -89,6 +89,8 @@ export const commands = {
 	resetActionShortcuts: () => typedError<ActionShortcuts, string>(__TAURI_INVOKE("reset_action_shortcuts")),
 	getAgentResumeConfig: () => typedError<AgentResumeConfig, string>(__TAURI_INVOKE("get_agent_resume_config")),
 	setAgentResumeEnabled: (agent: Agent, enabled: boolean) => typedError<AgentResumeResult, string>(__TAURI_INVOKE("set_agent_resume_enabled", { agent, enabled })),
+	getAutostart: () => typedError<boolean, string>(__TAURI_INVOKE("get_autostart")),
+	setAutostart: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_autostart", { enabled })),
 	// Returns the current AuthState. Used by AuthProvider's initial fetch in React.
 	getAuthState: () => __TAURI_INVOKE<AuthState>("get_auth_state"),
 	/**
@@ -237,7 +239,7 @@ export const events = {
 
 /* Types */
 /**
- *  The four user-customizable in-app clip-action shortcuts. Persisted as one
+ *  The five user-customizable in-app clip-action shortcuts. Persisted as one
  *  JSON blob under the `action_shortcuts` settings key.
  * 
  *  Fields are required on the wire (specta emits non-optional TS strings); a
@@ -250,6 +252,7 @@ export type ActionShortcuts = {
 	copy: string,
 	pin: string,
 	send: string,
+	save: string,
 };
 
 // A supported coding agent.

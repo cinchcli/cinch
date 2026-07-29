@@ -17,13 +17,19 @@ use client_core::store::settings;
 
 // Edit moves off the bare "E" key to "CmdOrCtrl+E" so a single keystroke no
 // longer opens the editor by accident. Copy keeps the natural bare Enter; Pin
-// and Send keep their established modifier combos.
+// and Send keep their established modifier combos. Save defaults to Cmd+K on
+// macOS (Command key only, so it does not collide with Ctrl+K navigation) and
+// Ctrl+Shift+K elsewhere.
 const DEFAULT_EDIT: &str = "CmdOrCtrl+E";
 const DEFAULT_COPY: &str = "Enter";
 const DEFAULT_PIN: &str = "CmdOrCtrl+P";
 const DEFAULT_SEND: &str = "CmdOrCtrl+Enter";
+#[cfg(target_os = "macos")]
+const DEFAULT_SAVE: &str = "Command+K";
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_SAVE: &str = "CmdOrCtrl+Shift+K";
 
-/// The four user-customizable in-app clip-action shortcuts. Persisted as one
+/// The five user-customizable in-app clip-action shortcuts. Persisted as one
 /// JSON blob under the `action_shortcuts` settings key.
 ///
 /// Fields are required on the wire (specta emits non-optional TS strings); a
@@ -36,6 +42,7 @@ pub struct ActionShortcuts {
     pub copy: String,
     pub pin: String,
     pub send: String,
+    pub save: String,
 }
 
 impl Default for ActionShortcuts {
@@ -45,6 +52,7 @@ impl Default for ActionShortcuts {
             copy: DEFAULT_COPY.to_string(),
             pin: DEFAULT_PIN.to_string(),
             send: DEFAULT_SEND.to_string(),
+            save: DEFAULT_SAVE.to_string(),
         }
     }
 }
@@ -58,6 +66,7 @@ struct PartialActionShortcuts {
     copy: Option<String>,
     pin: Option<String>,
     send: Option<String>,
+    save: Option<String>,
 }
 
 impl PartialActionShortcuts {
@@ -69,6 +78,7 @@ impl PartialActionShortcuts {
             copy: self.copy.unwrap_or(d.copy),
             pin: self.pin.unwrap_or(d.pin),
             send: self.send.unwrap_or(d.send),
+            save: self.save.unwrap_or(d.save),
         }
     }
 }
@@ -115,6 +125,7 @@ fn set_action_shortcuts_inner(
         &shortcuts.copy,
         &shortcuts.pin,
         &shortcuts.send,
+        &shortcuts.save,
     ] {
         validate_action_shortcut(s)?;
     }
@@ -177,6 +188,7 @@ mod tests {
             copy: "Enter".into(),
             pin: "CmdOrCtrl+P".into(),
             send: "CmdOrCtrl+Enter".into(),
+            save: "Command+K".into(),
         };
         set_action_shortcuts_inner(&store, &custom).unwrap();
         assert_eq!(get_action_shortcuts_inner(&store).unwrap(), custom);
@@ -195,6 +207,7 @@ mod tests {
         let got = get_action_shortcuts_inner(&store).unwrap();
         assert_eq!(got.edit, "CmdOrCtrl+K");
         assert_eq!(got.send, DEFAULT_SEND);
+        assert_eq!(got.save, DEFAULT_SAVE);
     }
 
     #[test]
@@ -213,6 +226,11 @@ mod tests {
     fn validate_rejects_modifier_only() {
         let err = validate_action_shortcut("CmdOrCtrl+Shift").unwrap_err();
         assert!(err.contains("regular key"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_default_save() {
+        assert!(validate_action_shortcut(DEFAULT_SAVE).is_ok());
     }
 
     #[test]

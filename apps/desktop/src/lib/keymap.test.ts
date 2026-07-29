@@ -27,6 +27,8 @@ describe("parseAccelerator", () => {
   it("parses modifiers and an uppercased letter key", () => {
     expect(parseAccelerator("CmdOrCtrl+Shift+E")).toEqual({
       primary: true,
+      cmdOnly: false,
+      ctrlOnly: false,
       shift: true,
       alt: false,
       key: "E",
@@ -36,9 +38,30 @@ describe("parseAccelerator", () => {
   it("parses a bare named key", () => {
     expect(parseAccelerator("Enter")).toEqual({
       primary: false,
+      cmdOnly: false,
+      ctrlOnly: false,
       shift: false,
       alt: false,
       key: "Enter",
+    });
+  });
+
+  it("parses Command+K as cmd-only and Ctrl+K as ctrl-only", () => {
+    expect(parseAccelerator("Command+K")).toEqual({
+      primary: false,
+      cmdOnly: true,
+      ctrlOnly: false,
+      shift: false,
+      alt: false,
+      key: "K",
+    });
+    expect(parseAccelerator("Ctrl+K")).toEqual({
+      primary: false,
+      cmdOnly: false,
+      ctrlOnly: true,
+      shift: false,
+      alt: false,
+      key: "K",
     });
   });
 });
@@ -48,6 +71,24 @@ describe("matchesAccelerator", () => {
     expect(
       matchesAccelerator(ev({ code: "KeyE", key: "e", metaKey: true }), "CmdOrCtrl+E"),
     ).toBe(true);
+  });
+
+  it("matches Command+K on Cmd but not on Ctrl", () => {
+    expect(
+      matchesAccelerator(ev({ code: "KeyK", key: "k", metaKey: true }), "Command+K"),
+    ).toBe(true);
+    expect(
+      matchesAccelerator(ev({ code: "KeyK", key: "k", ctrlKey: true }), "Command+K"),
+    ).toBe(false);
+  });
+
+  it("matches Ctrl+K on Ctrl but not on Cmd", () => {
+    expect(
+      matchesAccelerator(ev({ code: "KeyK", key: "k", ctrlKey: true }), "Ctrl+K"),
+    ).toBe(true);
+    expect(
+      matchesAccelerator(ev({ code: "KeyK", key: "k", metaKey: true }), "Ctrl+K"),
+    ).toBe(false);
   });
 
   it("does not match Cmd+Shift+E against Cmd+E (exact modifiers)", () => {
@@ -99,15 +140,36 @@ describe("findConflict", () => {
     });
   });
 
-  it("flags a duplicate within the four actions", () => {
+  it("passes the default Command+K save binding", () => {
+    expect(findConflict("save", "Command+K", DEFAULT_ACTION_SHORTCUTS)).toEqual({
+      ok: true,
+    });
+  });
+
+  it("flags a duplicate within the five actions", () => {
     // copy's default is bare Enter; rebinding edit to Enter collides with it.
     const r = findConflict("edit", "Enter", DEFAULT_ACTION_SHORTCUTS);
     expect(r).toEqual({ ok: false, conflictWith: "copy" });
   });
 
+  it("flags save rebinding to an existing action's chord", () => {
+    const r = findConflict("save", "CmdOrCtrl+E", DEFAULT_ACTION_SHORTCUTS);
+    expect(r).toEqual({ ok: false, conflictWith: "edit" });
+  });
+
   it("flags a reserved collision (Cmd+C copy alias)", () => {
     const r = findConflict("edit", "CmdOrCtrl+C", DEFAULT_ACTION_SHORTCUTS);
     expect(r).toEqual({ ok: false, conflictWith: "reserved" });
+  });
+
+  it("reserves Ctrl+K (navigation up) but not Command+K", () => {
+    expect(findConflict("edit", "Ctrl+K", DEFAULT_ACTION_SHORTCUTS)).toEqual({
+      ok: false,
+      conflictWith: "reserved",
+    });
+    expect(findConflict("edit", "Command+K", DEFAULT_ACTION_SHORTCUTS)).toEqual({
+      ok: true,
+    });
   });
 
   it("treats Cmd and Ctrl as the same primary chord", () => {
@@ -130,7 +192,7 @@ describe("findConflict", () => {
     // The fixed ⌘F/⌘C/⌘,/⌘1-3 and Ctrl+J/K/H/L handlers check (meta||ctrl)+key
     // and ignore Shift, so a Shift+ variant still fires them at runtime and
     // must be blocked even though matchesAccelerator() is exact-modifier.
-    for (const accel of ["CmdOrCtrl+Shift+F", "CmdOrCtrl+Shift+C", "Ctrl+Shift+J"]) {
+    for (const accel of ["CmdOrCtrl+Shift+F", "CmdOrCtrl+Shift+C", "Ctrl+Shift+J", "CmdOrCtrl+Shift+K"]) {
       expect(findConflict("edit", accel, DEFAULT_ACTION_SHORTCUTS)).toEqual({
         ok: false,
         conflictWith: "reserved",

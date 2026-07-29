@@ -51,6 +51,15 @@ describe('App', () => {
                 return Promise.resolve([]);
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            if (cmd === 'get_action_shortcuts') {
+                return Promise.resolve({
+                    edit: 'CmdOrCtrl+E',
+                    copy: 'Enter',
+                    pin: 'CmdOrCtrl+P',
+                    send: 'CmdOrCtrl+Enter',
+                    save: 'Command+K',
+                });
+            }
             return Promise.resolve();
         });
     });
@@ -428,6 +437,15 @@ describe('App', () => {
             }
             if (cmd === 'get_ws_status') return Promise.resolve('connected');
             if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
+            if (cmd === 'get_action_shortcuts') {
+                return Promise.resolve({
+                    edit: 'CmdOrCtrl+E',
+                    copy: 'Enter',
+                    pin: 'CmdOrCtrl+P',
+                    send: 'CmdOrCtrl+Enter',
+                    save: 'Command+K',
+                });
+            }
             return Promise.resolve();
         });
         const state: AuthState = {
@@ -447,6 +465,113 @@ describe('App', () => {
 
         await waitFor(() => {
             expect(invoke).toHaveBeenCalledWith('save_image_to_file', { clipId: 'cimg' });
+        });
+    });
+
+    it('saves an image clip to file when Command+K is pressed', async () => {
+        const imageClip: LocalClip = {
+            id: 'cimg',
+            user_id: 'u1',
+            content: '',
+            content_type: 'image',
+            source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
+            label: 'screenshot.png',
+            byte_size: 245760,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([imageClip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
+                return Promise.resolve([]);
+            }
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            if (cmd === 'save_image_to_file') return Promise.resolve('/tmp/cinch-20260523-153045.png');
+            if (cmd === 'get_action_shortcuts') {
+                return Promise.resolve({
+                    edit: 'CmdOrCtrl+E',
+                    copy: 'Enter',
+                    pin: 'CmdOrCtrl+P',
+                    send: 'CmdOrCtrl+Enter',
+                    save: 'Command+K',
+                });
+            }
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        const row = await screen.findByRole('button', { name: /Image \(240\.0 KB\)/i });
+        fireEvent.click(row);
+
+        fireEvent.keyDown(window, { code: 'KeyK', key: 'k', metaKey: true });
+
+        await waitFor(() => {
+            expect(invoke).toHaveBeenCalledWith('save_image_to_file', { clipId: 'cimg' });
+        });
+    });
+
+    it('does not save a text clip when Command+K is pressed', async () => {
+        const textClip: LocalClip = {
+            id: 'c1',
+            user_id: 'u1',
+            content: 'clip text',
+            content_type: 'text',
+            source: 'local',
+            source_app_id: null,
+            source_app: null,
+            source_url: null,
+            label: '',
+            byte_size: 9,
+            media_path: null,
+            created_at: 1_777_614_529,
+            synced: true,
+            is_pinned: false,
+            pin_note: null,
+            received_at: 1_777_614_529,
+        };
+        vi.mocked(invoke).mockImplementation((cmd) => {
+            if (cmd === 'list_clips') return Promise.resolve([textClip]);
+            if (cmd === 'list_pinned_clips' || cmd === 'get_sources' || cmd === 'list_devices' || cmd === 'list_source_apps') {
+                return Promise.resolve([]);
+            }
+            if (cmd === 'get_ws_status') return Promise.resolve('connected');
+            if (cmd === 'get_action_shortcuts') {
+                return Promise.resolve({
+                    edit: 'CmdOrCtrl+E',
+                    copy: 'Enter',
+                    pin: 'CmdOrCtrl+P',
+                    send: 'CmdOrCtrl+Enter',
+                    save: 'Command+K',
+                });
+            }
+            return Promise.resolve();
+        });
+        const state: AuthState = {
+            variant: 'Authenticated',
+            payload: { user_id: 'u1', device_id: 'd1', hostname: 'h', relay_url: 'http://localhost:8080', active_relay_id: 'r1', machine_id: 'm1' },
+        };
+        vi.mocked(useAuthState).mockReturnValue(state);
+        render(<App />);
+
+        const row = await screen.findByRole('button', { name: /clip text/i });
+        fireEvent.click(row);
+
+        fireEvent.keyDown(window, { code: 'KeyK', key: 'k', metaKey: true });
+
+        await waitFor(() => {
+            expect(invoke).not.toHaveBeenCalledWith('save_image_to_file', expect.anything());
         });
     });
 

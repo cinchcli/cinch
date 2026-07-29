@@ -581,6 +581,13 @@ function App() {
         if (selectedClip) setDeleteDialog({ clip: selectedClip });
         return;
       }
+      // Save image (default ⌘K on macOS, Ctrl+Shift+K elsewhere): only for
+      // image clips, never while typing in a field.
+      if (matchesAccelerator(e, actionShortcuts.save) && !isTextEntry && selectedClip && selectedClip.content_type === 'image') {
+        e.preventDefault();
+        void handleSaveImage(selectedClip);
+        return;
+      }
       if (selectedClip) {
         // Send (default ⌘↵) is checked before Copy (default ↵). Exact-modifier
         // matching already keeps them mutually exclusive, but the else-if
@@ -624,7 +631,7 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, actionShortcuts]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, handleSaveImage, showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, actionShortcuts]);
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -1053,6 +1060,7 @@ function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; acti
         { keys: ['⌘C'], label: 'Copy selected clip' },
         { keys: [formatShortcutDisplay(actionShortcuts.pin)], label: 'Pin / unpin selected clip' },
         { keys: [formatShortcutDisplay(actionShortcuts.edit)], label: 'Edit selected clip' },
+        { keys: [formatShortcutDisplay(actionShortcuts.save)], label: 'Save selected image' },
         { keys: [formatShortcutDisplay(actionShortcuts.send)], label: 'Send / broadcast selected clip' },
         { keys: ['⌘⌫'], label: 'Delete selected clip' },
       ],
