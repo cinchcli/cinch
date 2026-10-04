@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and the 
 
 ### Added
 
+- **Nix flake** — `nix profile install github:cinchcli/cinch` builds the CLI
+  (plus the `ci` alias and shell completions) from source on macOS and Linux.
+  NixOS / nix-darwin / home-manager configs can use the flake's
+  `packages.<system>.default` or `overlays.default` (`pkgs.cinch`).
 - Add `cinch mcp`: a read-only MCP stdio server exposing local clipboard
   history (`search_clipboard`, `list_recent_clipboard`, `get_clipboard_item`)
   to AI tools like Claude Code and Cursor.

@@ -19,18 +19,24 @@ The relay server lives in a separate repository: [cinchcli/relay](https://github
 
 **macOS — Desktop + CLI** (recommended):
 ```bash
-brew install --cask cinchcli/tap/cinch
+brew install --cask cinchcli/tap/cinchcli
 ```
 
 **macOS — CLI only** (headless servers, CI):
 ```bash
-brew install cinchcli/tap/cinch
+brew install cinchcli/tap/cinchcli
 ```
 
 **Linux — curl installer**:
 ```bash
 curl -fsSL https://cinchcli.com/install.sh | sh
 ```
+
+**Nix / NixOS — CLI built from source** (Apple Silicon macOS and Linux):
+```bash
+nix profile install github:cinchcli/cinch
+```
+Try it without installing: `nix run github:cinchcli/cinch -- --help`. On NixOS, nix-darwin, or home-manager, add `github:cinchcli/cinch` as a flake input and install `inputs.cinch.packages.${system}.default`, or apply `inputs.cinch.overlays.default` and use `pkgs.cinch`. Upgrade with `nix flake update cinch` (flake input) or `nix profile upgrade cinch`, not `cinch update`.
 
 > **Short alias:** `ci` is installed as a shorthand for `cinch` — every command works under both names (`ci pull`, `ci send`, …).
 
