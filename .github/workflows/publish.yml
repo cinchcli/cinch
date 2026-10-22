@@ -291,7 +291,7 @@ jobs:
           ./scripts/bump-versions.sh "${{ needs.prepare.outputs.version }}"
           git config user.name 'cinch-release[bot]'
           git config user.email 'cinch-release@users.noreply.github.com'
-          git add crates apps
+          git add Cargo.lock crates apps
           git commit -m "release: ${{ needs.prepare.outputs.channel }}/${{ needs.prepare.outputs.version }}" || echo "no changes"
           git push origin HEAD:main
       - name: Tag release
