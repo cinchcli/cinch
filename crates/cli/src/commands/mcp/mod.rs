@@ -1,9 +1,8 @@
 //! `cinch mcp` — read-only Model Context Protocol server over the local
-//! clipboard store. Runs on a quiet path (no auth, no network, no telemetry,
-//! no async runtime) so the stdio JSON-RPC stream is never corrupted.
+//! clipboard store. Runs without a background runtime or update checks so
+//! the stdio JSON-RPC stream is never corrupted.
 
 mod mapping;
-pub mod metrics;
 mod protocol;
 mod query;
 

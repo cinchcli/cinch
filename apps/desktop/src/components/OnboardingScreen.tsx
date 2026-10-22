@@ -9,19 +9,18 @@ const DEFAULT_RELAY_URL = 'https://api.cinchcli.com';
 interface OnboardingScreenProps {
   /// Host shown on the "Hosted on …" line. Defaults to the hosted relay.
   relayHost?: string;
+  connecting?: boolean;
   /// Opens Settings → "What the relay can see" (the honest trust disclosure).
   onShowSettings: () => void;
   /// Window-drag passthrough so the frameless window can be moved by its chrome.
   onMouseDown?: (e: React.MouseEvent) => void;
 }
 
-// First-run / signed-out surface (Surface 3, "Signal Path" direction). The
-// brand slogan is the hero; a restrained hairline motif makes the AI-era
-// positioning (copy → encrypted relay → agent/MCP) visible. The primary CTA
-// opens the real sign-in dialog. Ports the verified mockup at
-// apps/desktop/preview/redesign-mockups/onboarding-signal-path.html.
+// Optional relay setup, opened from Devices. Local history remains available
+// in Inbox while the relay is unconfigured or authentication is pending.
 export function OnboardingScreen({
   relayHost = DEFAULT_RELAY_HOST,
+  connecting = false,
   onShowSettings,
   onMouseDown,
 }: OnboardingScreenProps) {
@@ -40,27 +39,27 @@ export function OnboardingScreen({
 
       <div style={S.body}>
         <div style={S.lead}>
-          <div style={S.kicker}>Welcome</div>
+          <div style={S.kicker}>Optional connection</div>
           <h1 style={S.h1}>
-            The clipboard
+            Connect another
             <br />
-            for the AI-era.
+            device.
           </h1>
           <p style={S.sub}>
-            Copy on one machine, paste on the next — and let your agents reach
-            the same clips over MCP. Every clip is end-to-end encrypted on this
-            Mac before it leaves; the relay only ever stores ciphertext.
+            Your local clipboard works without an account. Connect a relay when
+            you want to send selected clips to another device. Sent clips are
+            encrypted on this Mac before they leave.
           </p>
 
           <div style={S.actions}>
-            <button type="button" className="onb-signin" style={S.signin} onClick={() => setSignIn('default')}>
+            <button type="button" className="onb-signin" style={S.signin} disabled={connecting} onClick={() => setSignIn('default')}>
               Sign in <span style={S.signinArrow}>→</span>
             </button>
           </div>
 
           <div style={S.server}>
             Hosted on {relayHost} ·
-            <button type="button" className="onb-link" style={S.serverLink} onClick={() => setSignIn('custom')}>
+            <button type="button" className="onb-link" style={S.serverLink} disabled={connecting} onClick={() => setSignIn('custom')}>
               Use your own server
             </button>
           </div>
@@ -115,12 +114,14 @@ const S: Record<string, CSSProperties> = {
   root: {
     background: C.bg,
     color: C.t1,
-    height: '100vh',
+    height: '100%',
+    width: '100%',
+    overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
     position: 'relative',
     borderRadius: 'var(--radius-xl)',
-    overflow: 'hidden',
+    minHeight: 0,
     border: `1px solid ${C.border}`,
     fontFamily: 'var(--font-body)',
   },
@@ -154,8 +155,8 @@ const S: Record<string, CSSProperties> = {
     minHeight: 0,
     display: 'flex',
     alignItems: 'center',
-    gap: 48,
-    padding: '0 64px',
+    gap: 24,
+    padding: '20px 32px',
   },
   lead: {
     flex: 1.3,
@@ -173,7 +174,7 @@ const S: Record<string, CSSProperties> = {
   h1: {
     fontFamily: 'var(--font-body)',
     fontWeight: 300,
-    fontSize: 40,
+    fontSize: 34,
     lineHeight: 1.12,
     letterSpacing: '-0.02em',
     color: C.t1,

@@ -206,7 +206,7 @@ jobs:
             --password "$APPLE_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --output-format json >/dev/null; then
-            echo "::error::Notarization credentials invalid — check APPLE_ID, APPLE_PASSWORD (must be app-specific), APPLE_TEAM_ID"
+            echo "::error::Apple notarization check failed — inspect the notarytool error above"
             exit 1
           fi
           echo "Notarization credentials verified"
@@ -222,8 +222,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          CINCH_TELEMETRY_KEY: ${{ secrets.CINCH_TELEMETRY_KEY }}
-          CINCH_TELEMETRY_URL: ${{ secrets.CINCH_TELEMETRY_URL }}
         run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:

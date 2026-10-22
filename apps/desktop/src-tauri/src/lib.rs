@@ -13,7 +13,6 @@ pub mod protocol;
 mod retention;
 mod startup;
 mod sync_status;
-pub mod telemetry;
 mod tray;
 pub mod update_check;
 mod validate;
@@ -143,8 +142,6 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    telemetry::init();
-
     // Load MultiConfig from ~/.cinch/config.json (migrates legacy single-Config format)
     let multi_config = protocol::MultiConfig::load();
     let config = multi_config.to_active_config();
@@ -154,14 +151,7 @@ pub fn run() {
         info!("config not found, starting in setup mode");
     }
     let is_configured = config.is_configured();
-    if is_configured && !config.user_id.is_empty() {
-        telemetry::identify(&config.user_id);
-    }
-    telemetry::capture(
-        telemetry::Event::new("desktop.app.opened").with("is_configured", is_configured),
-    );
     let active_relay_id_seed = multi_config.active_relay_id.clone().unwrap_or_default();
-
     let ws_relay_url = config.relay_url.clone();
     let ws_token = config.token.clone();
     let config_for_auth_seed = config.clone();
@@ -360,15 +350,13 @@ pub fn run() {
                         );
                         let _ = crate::events::RemoteClipReceived(payload).emit(&app_for_consumer);
 
-                        // Sync image clips into the local OS pasteboard so the
-                        // user can paste into any app without clicking Copy in
-                        // the in-app history UI. Text/code/url stay manual so
-                        // browsing history does not stomp the local clipboard.
+                        // Per-source opt-in is checked before writing the pasteboard.
                         crate::clipboard::auto_paste::paste_incoming_image(
                             &clipboard_for_paste,
                             &store_for_paste,
                             &clip.clip_id,
                             &clip.content_type,
+                            &clip.source,
                         );
                     }
                 });
@@ -568,22 +556,14 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_app, event| match event {
+        .run(|_app, event| {
             // Keep the app alive when macOS fires an implicit ExitRequested
             // (e.g., the last window closed) — the "close to tray" path.
-            tauri::RunEvent::ExitRequested {
+            if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
-            } => {
+            } = event
+            {
                 api.prevent_exit();
             }
-            // Explicit quit (tray "Quit Cinch" / Cmd+Q, code = Some): best-effort
-            // flush of any buffered telemetry before the process exits. Bounded so
-            // quit is never delayed more than briefly; all errors are swallowed.
-            tauri::RunEvent::ExitRequested { code: Some(_), .. } => {
-                tauri::async_runtime::block_on(telemetry::shutdown_flush(
-                    std::time::Duration::from_millis(800),
-                ));
-            }
-            _ => {}
         });
 }

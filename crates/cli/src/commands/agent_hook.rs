@@ -10,7 +10,7 @@
 //!   The desktop Settings toggle drives the same `client_core::agent_resume`
 //!   functions; this is the CLI-only equivalent.
 //!
-//! The whole group runs **synchronously** (no tokio, telemetry, or
+//! The whole group runs **synchronously** (no tokio or
 //! update-check — see `lib.rs`'s early dispatch) so the per-session-end hook
 //! stays fast and never trips Claude's hook timeout.
 

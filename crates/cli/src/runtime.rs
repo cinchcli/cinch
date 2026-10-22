@@ -197,15 +197,15 @@ pub async fn opportunistic_backfill(ctx: &Ctx) {
 mod tests {
     use super::*;
 
-    // Env-var mutation must be serialized; these tests share process env.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Share the auth tests' lock: config reads must not overlap HOME mutation.
+    use crate::commands::auth::test_helpers::HOME_LOCK;
 
     #[test]
     fn both_flags_short_circuit_skips_disk_and_strips_slash() {
         // When --token AND --relay are both passed, the resolver returns
         // without touching ~/.cinch/config.json; verify the early-return path
         // AND that the relay URL's trailing slash is stripped.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.blocking_lock();
         std::env::remove_var("CINCH_TOKEN");
         std::env::remove_var("CINCH_RELAY_URL");
         let cfg = resolve_overlay_config(Some("tok-xyz"), Some("https://relay.example/"))
@@ -222,7 +222,7 @@ mod tests {
         // env vars override on top. Pair --relay with the short-circuit-avoiding
         // single-flag path by leaving --token None, so env CINCH_TOKEN supplies
         // the token. This mirrors the old push::resolve_config env precedence.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.blocking_lock();
         std::env::set_var("CINCH_TOKEN", "env-token");
         std::env::set_var("CINCH_RELAY_URL", "https://env-relay.example/");
         // Pass an explicit relay flag too; env should win over the flag.
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn empty_token_from_all_sources_errors() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = HOME_LOCK.blocking_lock();
         std::env::set_var("CINCH_TOKEN", "");
         std::env::remove_var("CINCH_RELAY_URL");
         // No flags, empty env token, and (in CI) no disk token → error.

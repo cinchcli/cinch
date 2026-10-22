@@ -19,7 +19,6 @@ mod key_state;
 #[cfg(target_os = "macos")]
 mod macos_pasteboard;
 mod runtime;
-mod telemetry;
 mod update;
 mod update_check;
 
@@ -61,7 +60,7 @@ enum Cmd {
     Fleet(commands::fleet::Args),
     /// Manage authentication.
     Auth(commands::auth::Args),
-    /// Account-level commands: plan tier + telemetry preference.
+    /// Show your account plan and usage limits.
     Account(commands::account::Args),
     /// Administer this relay (self-host operators only).
     Admin(commands::admin::Args),
@@ -251,47 +250,8 @@ complete -c {bin} -n '__fish_seen_subcommand_from pull' -l from -f \
   -a '({bin} fleet list --names 2>/dev/null)'
 "#;
 
-fn command_name(cmd: &Cmd) -> &'static str {
-    match cmd {
-        Cmd::Copy(_) => "copy",
-        Cmd::Paste(_) => "paste",
-        Cmd::Send(_) => "send",
-        Cmd::Push(_) => "push",
-        Cmd::Pull(_) => "pull",
-        Cmd::Edit(_) => "edit",
-        Cmd::Ai(_) => "ai",
-        Cmd::History(_) => "history",
-        Cmd::Clip(_) => "clip",
-        Cmd::Session(_) => "session",
-        Cmd::Pin(_) => "pin",
-        Cmd::Unpin(_) => "unpin",
-        Cmd::Fleet(_) => "fleet",
-        Cmd::Device(_) => "device",
-        Cmd::Auth(_) => "auth",
-        Cmd::Account(_) => "account",
-        Cmd::Admin(_) => "admin",
-        Cmd::Completion { .. } => "completion",
-        Cmd::Update(_) => "update",
-        Cmd::SelfUpdate(_) => "self-update",
-        Cmd::Mcp(_) => "mcp",
-        Cmd::Use(_) => "use",
-        Cmd::AgentHook(_) => "agent-hook",
-    }
-}
-
 fn is_ai_cmd(cmd: &Cmd) -> bool {
     matches!(cmd, Cmd::Ai(_))
-}
-
-/// Returns true when the invocation is `cinch account telemetry ...`. Used to
-/// suppress telemetry initialization for the meta-command that inspects /
-/// toggles telemetry itself — otherwise running `cinch account telemetry
-/// status` would create the distinct_id file as a side effect.
-fn is_telemetry_cmd(cmd: &Cmd) -> bool {
-    matches!(
-        cmd,
-        Cmd::Account(args) if matches!(args.cmd, commands::account::Cmd::Telemetry(_))
-    )
 }
 
 fn print_first_run_welcome() {
@@ -329,7 +289,7 @@ pub fn run() -> i32 {
     }
 
     // Quiet path: MCP is a read-only stdio server. It must run before
-    // telemetry/update-check/session-flush and without the tokio runtime,
+    // update-check/session-flush and without the tokio runtime,
     // or stray stdout/stderr would corrupt the JSON-RPC stream.
     if matches!(cli.cmd, Cmd::Mcp(_)) {
         let Cmd::Mcp(args) = cli.cmd else {
@@ -346,7 +306,7 @@ pub fn run() -> i32 {
 
     // Agent-hook is fully synchronous (clipboard + store + filesystem only) and
     // fires on every agent session end, so — like MCP — it skips the tokio
-    // runtime, telemetry, and the update notifier. That keeps the per-exit hook
+    // runtime and the update notifier. That keeps the per-exit hook
     // fast (Claude's SessionEnd hook has a tight default timeout) and free of
     // background side effects.
     if matches!(cli.cmd, Cmd::AgentHook(_)) {
@@ -362,27 +322,9 @@ pub fn run() -> i32 {
         };
     }
 
-    // Skip telemetry init for the `cinch account telemetry` meta-command so
-    // that inspecting/toggling state does not itself create the distinct_id
-    // file or print the first-run notice.
-    //
-    // Also keep `cinch ai` free of background network side effects. AI commands
-    // have their own explicit provider boundary; `--no-send` must not trigger
-    // telemetry, update checks, relay backfills, or any other network call.
+    // AI commands have an explicit provider boundary. --no-send must not
+    // trigger update checks or relay backfills.
     let ai_cmd = is_ai_cmd(&cli.cmd);
-    let instrument = !is_telemetry_cmd(&cli.cmd) && !ai_cmd;
-    if instrument {
-        telemetry::init();
-    }
-    let cmd_label = command_name(&cli.cmd);
-    let started_at = std::time::Instant::now();
-    if instrument {
-        telemetry::capture(telemetry::Event::new("cli.command.invoked").with("command", cmd_label));
-        // Drain any MCP session counter files (§7 item 2): the quiet MCP path
-        // can't emit telemetry itself, so the next ordinary CLI invocation
-        // emits `mcp.session.completed` for it. Best-effort; never blocks.
-        commands::mcp::metrics::drain_and_emit();
-    }
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -431,21 +373,6 @@ pub fn run() -> i32 {
                 update::notifier::maybe_notify(),
             )
             .await;
-        }
-        if instrument {
-            let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (success, exit_code) = match &cmd_result {
-                Ok(_) => (true, 0_i32),
-                Err(err) => (false, err.code),
-            };
-            telemetry::capture(
-                telemetry::Event::new("cli.command.completed")
-                    .with("command", cmd_label)
-                    .with("success", success)
-                    .with("duration_ms", duration_ms)
-                    .with("exit_code", exit_code),
-            );
-            telemetry::flush(std::time::Duration::from_secs(2)).await;
         }
         cmd_result
     });

@@ -7,7 +7,7 @@ use crate::store::models::StoredClip;
 /// True when the clip's plaintext is binary (an image, or anything routed
 /// through `media_path`). Must match `ws::decrypt_clip_content`'s predicate
 /// for re-encoding plaintext to base64, so the two stay in sync.
-fn is_binary(c: &Clip) -> bool {
+pub fn is_binary(c: &Clip) -> bool {
     c.media_path.as_deref().filter(|p| !p.is_empty()).is_some()
         || c.content_type.starts_with("image")
 }

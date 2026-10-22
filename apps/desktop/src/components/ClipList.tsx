@@ -11,7 +11,7 @@ interface ClipListProps {
   selected: LocalClip | null;
   onSelect: (clip: LocalClip) => void;
   onCopy: (clip: LocalClip) => void;
-  onSend: (clip: LocalClip) => void;
+  onSend?: (clip: LocalClip) => void;
   query: string;
   deviceNicknames: Record<string, string>;
   tagColors?: MachineTagColorMap;
@@ -30,9 +30,9 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
             {!query && (
               <>
                 <div style={S.emptySub}>
-                  Copy something on any of your machines — it shows up here.
+                  Copy text or an image in another app to save it on this device.
                 </div>
-                <code style={S.emptyHint}>echo "hello" | cinch push</code>
+                <span style={S.emptyHint}>No account or relay required.</span>
               </>
             )}
           </div>
@@ -57,7 +57,7 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
                 selected={selected?.id === clip.id}
                 onClick={() => onSelect(clip)}
                 onDoubleClick={() => onCopy(clip)}
-                onSend={() => onSend(clip)}
+                onSend={onSend ? () => onSend(clip) : undefined}
                 nickname={deviceNicknames[clip.source]}
                 colorSlot={tagColors[clip.source]}
               />
@@ -76,7 +76,7 @@ interface ClipRowProps {
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
-  onSend: () => void;
+  onSend?: () => void;
   nickname?: string;
   colorSlot?: MachineTagColorMap[string];
 }
@@ -133,7 +133,7 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, col
         )}
       </span>
       <span data-testid="clip-preview" style={{ ...S.preview, ...(isBlank ? S.previewBlank : {}) }}>{preview}</span>
-      <span style={S.sendGroup}>
+      {onSend && <span style={S.sendGroup}>
         <button
           aria-label="Send clip"
           className="clip-row-send"
@@ -145,7 +145,7 @@ function ClipRow({ clip, selected, onClick, onDoubleClick, onSend, nickname, col
         >
           Send
         </button>
-      </span>
+      </span>}
     </div>
   );
 }

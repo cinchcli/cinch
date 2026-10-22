@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -13,6 +15,22 @@ use crate::protocol::MultiConfigHandle;
 use crate::LocalPusherHandle;
 use crate::SharedStore;
 use client_core::store::queries;
+
+// Metadata synchronization is best-effort; local edits must not inherit the
+// REST client's 30-second timeout or its retry delays.
+async fn sync_relay_metadata(
+    id: &str,
+    operation: impl Future<Output = Result<(), client_core::http::HttpError>>,
+) {
+    match tokio::time::timeout(Duration::from_secs(1), operation).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => log::warn!("relay metadata update failed for {}: {}", id, e),
+        Err(_) => log::warn!(
+            "relay metadata update timed out for {}; local edit retained",
+            id
+        ),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Pinning commands — delegated to client_core::store::queries
@@ -41,9 +59,7 @@ pub async fn pin_clip(
     if let Ok((relay_url, token)) = resolve_active_creds(&mc) {
         match client_core::http::RestClient::new(relay_url, token, crate::build_client_info()) {
             Ok(client) => {
-                if let Err(e) = client.set_clip_pin(&id, true, note.as_deref()).await {
-                    log::warn!("relay set_clip_pin failed for {}: {}", id, e);
-                }
+                sync_relay_metadata(&id, client.set_clip_pin(&id, true, note.as_deref())).await;
             }
             Err(e) => {
                 log::warn!("could not build REST client for pin_clip {}: {}", id, e);
@@ -65,9 +81,7 @@ pub async fn unpin_clip(
     if let Ok((relay_url, token)) = resolve_active_creds(&mc) {
         match client_core::http::RestClient::new(relay_url, token, crate::build_client_info()) {
             Ok(client) => {
-                if let Err(e) = client.set_clip_pin(&id, false, None).await {
-                    log::warn!("relay unpin_clip failed for {}: {}", id, e);
-                }
+                sync_relay_metadata(&id, client.set_clip_pin(&id, false, None)).await;
             }
             Err(e) => {
                 log::warn!("could not build REST client for unpin_clip {}: {}", id, e);
@@ -140,21 +154,19 @@ pub async fn delete_clip(
     mc: State<'_, MultiConfigHandle>,
     id: String,
 ) -> Result<(), String> {
-    // Best-effort relay deletion: propagate to other devices via clip_deleted broadcast.
-    // If the relay is unreachable, log and continue — relay TTL will eventually expire the clip.
+    queries::delete_clip(&store, &id).map_err(|e| e.to_string())?;
+    // Relay deletion is best-effort. An unreachable relay retains its copy until TTL expiry.
     if let Ok((relay_url, token)) = resolve_active_creds(&mc) {
         match client_core::http::RestClient::new(relay_url, token, crate::build_client_info()) {
             Ok(client) => {
-                if let Err(e) = client.delete_clip(&id).await {
-                    log::warn!("relay delete_clip failed for {}: {}", id, e);
-                }
+                sync_relay_metadata(&id, client.delete_clip(&id)).await;
             }
             Err(e) => {
                 log::warn!("could not build REST client for delete_clip {}: {}", id, e);
             }
         }
     }
-    queries::delete_clip(&store, &id).map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -449,6 +461,66 @@ mod helper_tests {
         );
         // 8-digit date, dash, 6-digit time
         assert_eq!(name.len(), "cinch-YYYYMMDD-HHMMSS.png".len());
+    }
+}
+
+#[cfg(test)]
+mod relay_metadata_tests {
+    use super::*;
+    use client_core::http::RestClient;
+    use client_core::version::ClientInfo;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn stalled_relay_does_not_hold_metadata_edits_for_the_http_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(10)))
+            .expect(3)
+            .mount(&server)
+            .await;
+        let client = RestClient::new(server.uri(), "test-token", ClientInfo::for_test()).unwrap();
+
+        for pinned in [true, false] {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                sync_relay_metadata("clip-1", client.set_clip_pin("clip-1", pinned, None)),
+            )
+            .await
+            .expect("local pin operation waited for the stalled relay");
+        }
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            sync_relay_metadata("clip-1", client.delete_clip("clip-1")),
+        )
+        .await
+        .expect("local delete operation waited for the stalled relay");
+    }
+
+    #[tokio::test]
+    async fn available_relay_still_receives_metadata_updates() {
+        let server = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200))
+            .expect(3)
+            .mount(&server)
+            .await;
+        let client = RestClient::new(server.uri(), "test-token", ClientInfo::for_test()).unwrap();
+
+        sync_relay_metadata("clip-1", client.set_clip_pin("clip-1", true, Some("keep"))).await;
+        sync_relay_metadata("clip-1", client.set_clip_pin("clip-1", false, None)).await;
+        sync_relay_metadata("clip-1", client.delete_clip("clip-1")).await;
+
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests[0].body_json::<serde_json::Value>().unwrap()["is_pinned"],
+            true
+        );
+        assert_eq!(
+            requests[1].body_json::<serde_json::Value>().unwrap()["is_pinned"],
+            false
+        );
+        assert_eq!(requests[2].method, "DELETE");
     }
 }
 

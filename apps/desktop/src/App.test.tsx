@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import App from './App';
-import { useAuthState, type AuthState } from './lib/state/auth';
+import { useAuthState, retryAuth, type AuthState } from './lib/state/auth';
 import type { LocalClip } from './bindings';
 
 // Mock the auth module: AuthProvider becomes a pass-through; useAuthState is type-safely mocked.
@@ -64,30 +64,33 @@ describe('App', () => {
         });
     });
 
-    it('renders the onboarding screen on LocalOnly variant', async () => {
-        const state: AuthState = { variant: 'LocalOnly' };
-        vi.mocked(useAuthState).mockReturnValue(state);
+    it('opens local history without a relay or a sign-in dialog', async () => {
+        vi.mocked(useAuthState).mockReturnValue({ variant: 'LocalOnly' });
         render(<App />);
 
-        await waitFor(() => {
-            expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
-        });
-        // The sign-in dialog is not forced open — it appears only on "Sign in".
+        expect(await screen.findByTestId('dashboard-root')).toBeInTheDocument();
+        expect(await screen.findByTestId('getting-started-card')).toBeInTheDocument();
+        expect(screen.getByLabelText('Search clips')).toBeInTheDocument();
+        expect(screen.queryByTestId('onboarding-root')).not.toBeInTheDocument();
         expect(screen.queryByText(/Connect to relay/i)).not.toBeInTheDocument();
+        expect(invoke).toHaveBeenCalledWith('get_sources');
+        expect(invoke).toHaveBeenCalledWith('list_source_apps');
+        expect(invoke).not.toHaveBeenCalledWith('list_devices');
+        expect(invoke).not.toHaveBeenCalledWith('list_auth_providers', expect.anything());
     });
 
-    it('opens the sign-in dialog when "Sign in" is clicked on onboarding', async () => {
-        const state: AuthState = { variant: 'LocalOnly' };
-        vi.mocked(useAuthState).mockReturnValue(state);
+    it('opens relay setup only when requested, and can return to local history', async () => {
+        vi.mocked(useAuthState).mockReturnValue({ variant: 'LocalOnly' });
         render(<App />);
 
-        await waitFor(() => {
-            expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
-        });
+        fireEvent.click(await screen.findByRole('button', { name: 'Connect a relay' }));
+        expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
+        expect(screen.getByText('Optional connection')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
-        await waitFor(() => {
-            expect(screen.getByText(/Connect to relay/i)).toBeInTheDocument();
-        });
+        expect(await screen.findByText(/Connect to relay/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Inbox' }));
+        expect(await screen.findByTestId('getting-started-card')).toBeInTheDocument();
     });
 
     it('does NOT render AddRelayDialog on Authenticated variant', async () => {
@@ -104,7 +107,7 @@ describe('App', () => {
         expect(screen.queryByText(/Connect to relay/i)).not.toBeInTheDocument();
     });
 
-    it('renders AuthLoadingScreen on Authenticating variant', async () => {
+    it('keeps local history available during relay authentication', async () => {
         const state: AuthState = {
             variant: 'Authenticating',
             payload: { progress: { kind: 'SigningIn' } },
@@ -114,10 +117,12 @@ describe('App', () => {
         
         await waitFor(() => {
             expect(screen.getByText(/signing in/i)).toBeInTheDocument();
+            expect(screen.getByTestId('dashboard-root')).toBeInTheDocument();
+            expect(screen.getByLabelText('Search clips')).toBeInTheDocument();
         });
     });
 
-    it('renders AuthErrorScreen on ErrorRecoverable variant', async () => {
+    it('keeps local history available when the relay is unreachable', async () => {
         const state: AuthState = {
             variant: 'ErrorRecoverable',
             payload: { reason: { kind: 'RelayUnreachable' }, retry_after_ms: 5000 },
@@ -129,6 +134,124 @@ describe('App', () => {
             expect(screen.getByText(/relay unreachable/i)).toBeInTheDocument();
         });
         expect(screen.getByRole('button', { name: /retry now/i })).toBeInTheDocument();
+        expect(screen.getByTestId('dashboard-root')).toBeInTheDocument();
+        expect(screen.getByLabelText('Search clips')).toBeInTheDocument();
+    });
+
+    it.each<AuthState>([
+        { variant: 'LocalOnly' },
+        { variant: 'ErrorRecoverable', payload: { reason: { kind: 'NetworkDown' }, retry_after_ms: null } },
+    ])('searches, copies and pins local clips in $variant', async (state) => {
+        vi.mocked(useAuthState).mockReturnValue(state);
+        let clip: LocalClip = {
+            id: 'offline-1', user_id: '', content: 'offline note', content_type: 'text',
+            source: 'local', source_app_id: 'com.apple.TextEdit', source_app: 'TextEdit',
+            source_url: null, label: '', byte_size: 12, media_path: null,
+            created_at: 1_777_614_529, received_at: 1_777_614_529,
+            synced: false, sync_state: 'local', is_pinned: false, pin_note: null,
+        };
+        const baseInvoke = vi.mocked(invoke).getMockImplementation()!;
+        vi.mocked(invoke).mockImplementation((cmd, args) => {
+            if (cmd === 'list_clips') return Promise.resolve([{ ...clip }]);
+            if (cmd === 'list_pinned_clips') return Promise.resolve(clip.is_pinned ? [{ ...clip }] : []);
+            if (cmd === 'pin_clip') {
+                clip = { ...clip, is_pinned: true };
+                return Promise.resolve();
+            }
+            return baseInvoke(cmd, args);
+        });
+        render(<App />);
+        const search = await screen.findByLabelText('Search clips');
+        fireEvent.change(search, { target: { value: 'offline' } });
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('list_clips', { query: 'offline', limit: 500 }));
+        fireEvent.click(await screen.findByRole('button', { name: 'offline note' }));
+        expect(screen.queryByRole('button', { name: 'Send clip' })).not.toBeInTheDocument();
+        fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
+        expect(invoke).not.toHaveBeenCalledWith('send_clip', expect.anything());
+        fireEvent.keyDown(window, { key: 'Enter' });
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('copy_clip_to_clipboard', { content: 'offline note' }));
+
+        fireEvent.click(await screen.findByRole('button', { name: 'offline note' }));
+        fireEvent.click(screen.getByRole('button', { name: /^Pin\s/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('pin_clip', { id: 'offline-1', note: null }));
+        fireEvent.click(screen.getByRole('button', { name: 'Pinned' }));
+        expect(await screen.findByText('offline note')).toBeInTheDocument();
+        expect(invoke).not.toHaveBeenCalledWith('list_devices');
+    });
+
+    it('keeps selection and shows no success notification when local copy fails', async () => {
+        vi.mocked(useAuthState).mockReturnValue({ variant: 'LocalOnly' });
+        const clip: LocalClip = {
+            id: 'failed-copy', user_id: '', content: 'keep this selection', content_type: 'text',
+            source: 'local', source_app_id: null, source_app: null, source_url: null,
+            label: '', byte_size: 19, media_path: null, created_at: 1_777_614_529,
+            received_at: 1_777_614_529, synced: false, sync_state: 'local',
+            is_pinned: false, pin_note: null,
+        };
+        const baseInvoke = vi.mocked(invoke).getMockImplementation()!;
+        vi.mocked(invoke).mockImplementation((cmd, args) => {
+            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'copy_clip_to_clipboard') return Promise.reject('clipboard unavailable');
+            return baseInvoke(cmd, args);
+        });
+        render(<App />);
+        const row = await screen.findByRole('button', { name: clip.content });
+        fireEvent.click(row);
+        fireEvent.keyDown(window, { key: 'Enter' });
+        expect(await screen.findByText('Copy failed. Try again.')).toBeInTheDocument();
+        expect(row).toHaveAttribute('aria-selected', 'true');
+        expect(invoke).not.toHaveBeenCalledWith('show_copy_toast', expect.anything());
+        expect(invoke).not.toHaveBeenCalledWith('focus_previous_app');
+    });
+
+    it('reports local pin failures and closes the dialog without claiming success', async () => {
+        vi.mocked(useAuthState).mockReturnValue({
+            variant: 'ErrorRecoverable',
+            payload: { reason: { kind: 'RelayUnreachable' }, retry_after_ms: null },
+        });
+        const clip: LocalClip = {
+            id: 'pin-failure', user_id: '', content: 'pin this note', content_type: 'text',
+            source: 'local', source_app_id: null, source_app: null, source_url: null,
+            label: '', byte_size: 13, media_path: null, created_at: 1_777_614_529,
+            received_at: 1_777_614_529, synced: false, sync_state: 'local',
+            is_pinned: false, pin_note: null,
+        };
+        const baseInvoke = vi.mocked(invoke).getMockImplementation()!;
+        vi.mocked(invoke).mockImplementation((cmd, args) => {
+            if (cmd === 'list_clips') return Promise.resolve([clip]);
+            if (cmd === 'pin_clip') return Promise.reject('database unavailable');
+            return baseInvoke(cmd, args);
+        });
+        render(<App />);
+        fireEvent.click(await screen.findByRole('button', { name: clip.content }));
+        fireEvent.click(screen.getByRole('button', { name: /^Pin\s/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
+        expect(await screen.findByText('Pin failed. Try again.')).toBeInTheDocument();
+        expect(screen.queryByText('Pin clip')).not.toBeInTheDocument();
+        expect(screen.queryByText('Pinned locally')).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Search clips')).toBeInTheDocument();
+    });
+
+    it('keeps the retry action usable after a failed relay retry', async () => {
+        vi.mocked(useAuthState).mockReturnValue({
+            variant: 'ErrorRecoverable',
+            payload: { reason: { kind: 'RelayUnreachable' }, retry_after_ms: null },
+        });
+        vi.mocked(retryAuth).mockRejectedValueOnce(new Error('offline'));
+        render(<App />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Retry now' }));
+        expect(await screen.findByText('Retry failed. Local history is available.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Retry now' })).toBeEnabled();
+        expect(screen.getByLabelText('Search clips')).toBeInTheDocument();
+    });
+
+    it('shows search misses instead of onboarding in local mode', async () => {
+        vi.mocked(useAuthState).mockReturnValue({ variant: 'LocalOnly' });
+        render(<App />);
+        fireEvent.change(await screen.findByLabelText('Search clips'), { target: { value: 'missing' } });
+        expect(await screen.findByText('No results for "missing"')).toBeInTheDocument();
+        expect(screen.queryByTestId('getting-started-card')).not.toBeInTheDocument();
     });
 
     it('focuses search when / is pressed outside text input', async () => {
