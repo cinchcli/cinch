@@ -8,13 +8,15 @@
 use std::io::{IsTerminal, Write};
 use std::time::{Duration, Instant};
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use client_core::auth::load_config;
 use client_core::config::Config;
 use client_core::credstore;
 use client_core::crypto;
 use client_core::http::RestClient;
 use client_core::protocol::Clip;
-use client_core::rest::ContentType;
+use client_core::sync::map::is_binary;
 use client_core::transport::{StreamTransport, WsStreamTransport};
 use client_core::ws::{DecryptFailReason, WsConfig, WsEvent, WsStatus};
 
@@ -113,99 +115,69 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
         crate::runtime::opportunistic_backfill(&ctx).await;
     }
 
-    if let Some(clip_id) = args.id.as_deref() {
-        let mut clip = client.get_clip_by_id(clip_id).await.map_err(|e| {
-            ExitError::new(
-                RELAY_ERROR,
-                format!("Fetch clip {} failed: {}", clip_id, e),
-                "",
-            )
-        })?;
-        clip = decrypt_clip(&cfg, clip)?;
-
-        // Image clip: emit raw bytes when --raw is set; otherwise mirror the existing image path.
-        let is_image = matches!(content_type(&clip.content_type), Some(ContentType::Image));
-        if is_image {
-            let bytes = client.get_clip_media(clip_id).await.map_err(|e| {
-                ExitError::new(
-                    RELAY_ERROR,
-                    format!("Fetch clip media {} failed: {}", clip_id, e),
-                    "",
-                )
-            })?;
-            if args.raw {
-                use std::io::Write;
-                std::io::stdout().write_all(&bytes).map_err(|e| {
-                    ExitError::new(GENERIC_ERROR, format!("write image bytes: {}", e), "")
-                })?;
-                return Ok(());
-            }
-            return write_image(&clip, bytes, false, clip_id);
-        }
-
-        // Text clip.
-        print!("{}", clip.content);
-        let _ = std::io::stdout().flush();
-        if !args.raw && args.copy && !clip.content.is_empty() {
-            copy_text_to_clipboard(&clip.content);
-        }
-        return Ok(());
-    }
-
-    if args.exclude_self {
-        let self_key = client_core::machine::self_source_key();
-        let mut clip = client
-            .get_latest_clip_excluding(&self_key)
-            .await
-            .map_err(|e| {
-                ExitError::new(
-                    RELAY_ERROR,
-                    format!("Fetch latest (excluding self) failed: {}", e),
-                    "",
-                )
-            })?;
-        clip = decrypt_clip(&cfg, clip)?;
-
-        let is_image = matches!(content_type(&clip.content_type), Some(ContentType::Image));
-        if is_image {
-            let bytes = client.get_clip_media(&clip.clip_id).await.map_err(|e| {
-                ExitError::new(
-                    RELAY_ERROR,
-                    format!("Fetch clip media {} failed: {}", clip.clip_id, e),
-                    "",
-                )
-            })?;
-            if args.raw {
-                use std::io::Write;
-                std::io::stdout().write_all(&bytes).map_err(|e| {
-                    ExitError::new(GENERIC_ERROR, format!("write image bytes: {}", e), "")
-                })?;
-                return Ok(());
-            }
-            return write_image(&clip, bytes, false, "any (excluding self)");
-        }
-
-        print!("{}", clip.content);
-        let _ = std::io::stdout().flush();
-        if !args.raw && args.copy && !clip.content.is_empty() {
-            copy_text_to_clipboard(&clip.content);
-        }
-        return Ok(());
-    }
-
     if args.watch {
         let from_filter = match args.from.as_deref() {
             Some(name) => Some(resolve_source(&client, name).await),
             None => None,
         };
-        return watch_stream(&cfg, &client, from_filter, args.text_only, args.copy).await;
+        return watch_stream(
+            &cfg,
+            &client,
+            from_filter,
+            args.text_only,
+            args.copy && !args.raw,
+        )
+        .await;
     }
 
-    if let Some(from) = args.from {
-        pull_from_source(&client, &cfg, &from, args.text_only, args.copy).await
+    let (clip, from) = if let Some(id) = args.id.as_deref() {
+        (client.get_clip_by_id(id).await?, id.to_string())
+    } else if args.exclude_self {
+        let source = client_core::machine::self_source_key();
+        (
+            client.get_latest_clip_excluding(&source).await?,
+            "any (excluding self)".into(),
+        )
+    } else if let Some(from) = args.from.as_deref() {
+        let source = resolve_source(&client, from).await;
+        (client.get_latest_clip(&source).await?, from.to_string())
     } else {
-        pull_latest_any(&client, &cfg, args.text_only, args.copy).await
+        (client.get_latest_clip_any().await?, "any".into())
+    };
+
+    let is_image = is_binary(&clip);
+    if args.text_only && is_image {
+        return Err(ExitError::new(
+            GENERIC_ERROR,
+            "Latest clip is an image.",
+            "Drop --text-only to pull it, or select a text clip.",
+        ));
     }
+    let key = client_core::auth_session::require_encryption_key(&cfg.user_id)
+        .map_err(crate::key_state::classify_key_error)?;
+    let bytes = read_clip_bytes(&client, &clip, &key).await?;
+    if is_image {
+        if args.raw {
+            std::io::stdout().write_all(&bytes).map_err(|e| {
+                ExitError::new(GENERIC_ERROR, format!("write image bytes: {}", e), "")
+            })?;
+            return Ok(());
+        }
+        return write_image(&clip, bytes, args.copy, &from);
+    }
+    let text = String::from_utf8(bytes).map_err(|e| {
+        ExitError::new(
+            GENERIC_ERROR,
+            format!("Decrypted content is not valid UTF-8: {}", e),
+            "",
+        )
+    })?;
+    print!("{}", text);
+    let _ = std::io::stdout().flush();
+    if args.copy && !args.raw && !text.is_empty() {
+        copy_text_to_clipboard(&text);
+    }
+    Ok(())
 }
 
 async fn watch_stream(
@@ -245,7 +217,7 @@ async fn watch_stream(
                         continue;
                     }
                 }
-                let is_image = matches!(content_type(&clip.content_type), Some(ContentType::Image));
+                let is_image = is_binary(&clip);
                 if text_only && is_image {
                     continue;
                 }
@@ -351,110 +323,43 @@ async fn watch_stream(
     Ok(())
 }
 
-async fn pull_latest_any(
+async fn read_clip_bytes(
     client: &RestClient,
-    cfg: &Config,
-    text_only: bool,
-    copy: bool,
-) -> Result<(), ExitError> {
-    let mut clip = client
-        .get_latest_clip_any()
-        .await
-        .map_err(|e| ExitError::new(RELAY_ERROR, format!("Fetch latest clip failed: {}", e), ""))?;
-    if clip.encrypted {
-        clip = decrypt_clip(cfg, clip)?;
-    }
-
-    let is_image = matches!(content_type(&clip.content_type), Some(ContentType::Image));
-
-    if text_only && is_image {
-        return Err(ExitError::new(
-            GENERIC_ERROR,
-            "Latest clip is an image.",
-            "Drop --text-only to pull it, or use --from <device>.",
-        ));
-    }
-
-    if is_image {
-        let bytes = if clip
+    clip: &Clip,
+    key: &[u8; 32],
+) -> Result<Vec<u8>, ExitError> {
+    let bytes = if clip.content.is_empty()
+        && clip
             .media_path
             .as_deref()
-            .filter(|s| !s.is_empty())
-            .is_some()
-        {
-            client.get_clip_media(&clip.clip_id).await.map_err(|e| {
-                ExitError::new(
-                    RELAY_ERROR,
-                    format!("Fetch clip media {} failed: {}", clip.clip_id, e),
-                    "",
-                )
-            })?
-        } else {
-            clip.content.clone().into_bytes()
-        };
-        return write_image(&clip, bytes, copy, "any");
+            .is_some_and(|path| !path.is_empty())
+    {
+        client.get_clip_media(&clip.clip_id).await?
+    } else {
+        clip.content.as_bytes().to_vec()
+    };
+    if !clip.encrypted {
+        if is_binary(clip) && !clip.content.is_empty() {
+            return STANDARD.decode(&bytes).map_err(|e| {
+                ExitError::new(GENERIC_ERROR, format!("Invalid image encoding: {}", e), "")
+            });
+        }
+        return Ok(bytes);
     }
-
-    print!("{}", clip.content);
-    if copy && !clip.content.is_empty() {
-        copy_text_to_clipboard(&clip.content);
-    }
-    let _ = std::io::stdout().flush();
-    Ok(())
-}
-
-async fn pull_from_source(
-    client: &RestClient,
-    cfg: &Config,
-    from: &str,
-    text_only: bool,
-    copy: bool,
-) -> Result<(), ExitError> {
-    let source = resolve_source(client, from).await;
-    let mut clip = client.get_latest_clip(&source).await?;
-
-    if clip.encrypted {
-        clip = decrypt_clip(cfg, clip)?;
-    }
-
-    let is_image = matches!(content_type(&clip.content_type), Some(ContentType::Image));
-
-    if text_only && is_image {
-        return Err(ExitError::new(
+    let ciphertext = std::str::from_utf8(&bytes).map_err(|e| {
+        ExitError::new(
             GENERIC_ERROR,
-            "Latest clip is an image.",
-            "Use --from without --text-only to pull it.",
-        ));
-    }
-
-    // Image clips when ENCRYPTED have plaintext bytes already in clip.content
-    // (decrypt_clip wrote them there via from_utf8_lossy fallback). For
-    // unencrypted image clips, fetch via /clips/{id}/media.
-    if is_image {
-        let bytes = if clip
-            .media_path
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .is_some()
-        {
-            client.get_clip_media(&clip.clip_id).await?
-        } else {
-            // Encrypted image content was decoded into clip.content as raw
-            // bytes — but JSON cannot carry binary cleanly, so the encrypted
-            // path stored content as raw plaintext and we recover it as
-            // bytes from the underlying String.
-            clip.content.clone().into_bytes()
-        };
-        return write_image(&clip, bytes, copy, from);
-    }
-
-    // Text clip.
-    print!("{}", clip.content);
-    if copy && !clip.content.is_empty() {
-        copy_text_to_clipboard(&clip.content);
-    }
-    let _ = std::io::stdout().flush();
-    Ok(())
+            format!("Invalid encrypted clip encoding: {}", e),
+            "",
+        )
+    })?;
+    crypto::decrypt(key, ciphertext).map_err(|e| {
+        ExitError::new(
+            ENCRYPTION_PENDING,
+            format!("Decryption failed: {}", e),
+            "Encryption key is out of sync with the sender. Try: cinch auth retry-key",
+        )
+    })
 }
 
 async fn resolve_source(client: &RestClient, from: &str) -> String {
@@ -462,56 +367,6 @@ async fn resolve_source(client: &RestClient, from: &str) -> String {
         return format!("remote:{}", from);
     };
     crate::commands::shared::match_device_source(&devices, from)
-}
-
-fn decrypt_clip(cfg: &Config, mut clip: Clip) -> Result<Clip, ExitError> {
-    let key = credstore::read_encryption_key(&cfg.user_id).ok_or_else(|| {
-        // No key on disk: distinguish "pending ECDH" from "not signed in"
-        // by consulting cfg.key_pending. Surfacing PendingExchange points
-        // the user at `cinch auth retry-key` instead of a destructive
-        // `cinch auth login`.
-        let err = if cfg.key_pending {
-            client_core::auth_session::RequireKeyError::PendingExchange
-        } else {
-            client_core::auth_session::RequireKeyError::Missing
-        };
-        crate::key_state::classify_key_error(err)
-    })?;
-    let plaintext = crypto::decrypt(&key, &clip.content).map_err(|e| {
-        // We have a key, but it can't decrypt this clip — the key is most
-        // likely a stale one persisted before the device joined a paired
-        // session. Point users at retry-key rather than login so they
-        // don't wipe their working credentials.
-        ExitError::new(
-            ENCRYPTION_PENDING,
-            format!("Decryption failed: {}", e),
-            "Encryption key is out of sync with the sender. Try: cinch auth retry-key",
-        )
-    })?;
-    if matches!(content_type(&clip.content_type), Some(ContentType::Image)) {
-        // Stash raw image bytes back into the String. Callers in the image
-        // branch reach for `clip.content.into_bytes()` and recover them.
-        clip.content = unsafe { String::from_utf8_unchecked(plaintext) };
-    } else {
-        clip.content = String::from_utf8(plaintext).map_err(|e| {
-            ExitError::new(
-                GENERIC_ERROR,
-                format!("Decrypted content is not valid UTF-8: {}", e),
-                "",
-            )
-        })?;
-    }
-    Ok(clip)
-}
-
-fn content_type(s: &str) -> Option<ContentType> {
-    match s {
-        "text" => Some(ContentType::Text),
-        "url" => Some(ContentType::Url),
-        "code" => Some(ContentType::Code),
-        "image" => Some(ContentType::Image),
-        _ => None,
-    }
 }
 
 fn write_image(clip: &Clip, bytes: Vec<u8>, copy: bool, from: &str) -> Result<(), ExitError> {
@@ -618,23 +473,94 @@ mod tests {
         assert_eq!(harness.args.from.as_deref(), Some("desktop"));
     }
 
-    #[test]
-    fn content_type_maps_canonical_strings() {
-        assert!(matches!(content_type("text"), Some(ContentType::Text)));
-        assert!(matches!(content_type("url"), Some(ContentType::Url)));
-        assert!(matches!(content_type("code"), Some(ContentType::Code)));
-        assert!(matches!(content_type("image"), Some(ContentType::Image)));
-    }
+    #[tokio::test]
+    async fn image_bytes_survive_inline_and_media_routing() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let client =
+            RestClient::new(server.uri(), "test-token", crate::client_info::for_cli()).unwrap();
+        let key = [7u8; 32];
+        let image = b"\x89PNG\r\n\x1a\n\xff";
+        let ciphertext = crypto::encrypt(&key, image).unwrap();
+        Mock::given(method("GET"))
+            .and(path("/clips/routed/media"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ciphertext.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/clips/plain/media"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(image.to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
 
-    #[test]
-    fn content_type_rejects_unknown_strings() {
-        // Mime styles and case variants must not slip through — wire is strict.
-        assert!(content_type("").is_none());
-        assert!(content_type("Text").is_none());
-        assert!(content_type("TEXT").is_none());
-        assert!(content_type("text/plain").is_none());
-        assert!(content_type("image/png").is_none());
-        assert!(content_type("json").is_none());
+        let inline = Clip {
+            clip_id: "inline".into(),
+            content_type: "image".into(),
+            content: ciphertext.clone(),
+            encrypted: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            read_clip_bytes(&client, &inline, &key).await.unwrap(),
+            image
+        );
+        let routed = Clip {
+            clip_id: "routed".into(),
+            content: String::new(),
+            media_path: Some("media/routed.enc".into()),
+            ..inline.clone()
+        };
+        assert_eq!(
+            read_clip_bytes(&client, &routed, &key).await.unwrap(),
+            image
+        );
+        let plain = Clip {
+            clip_id: "plain".into(),
+            encrypted: false,
+            ..routed.clone()
+        };
+        assert_eq!(read_clip_bytes(&client, &plain, &key).await.unwrap(), image);
+        let plain_inline = Clip {
+            content: STANDARD.encode(image),
+            encrypted: false,
+            ..inline.clone()
+        };
+        assert_eq!(
+            read_clip_bytes(&client, &plain_inline, &key).await.unwrap(),
+            image
+        );
+        let legacy = Clip {
+            content_type: "image/png".into(),
+            ..plain_inline
+        };
+        assert!(is_binary(&legacy));
+        assert_eq!(
+            read_clip_bytes(&client, &legacy, &key).await.unwrap(),
+            image
+        );
+        let legacy_encrypted = Clip {
+            content_type: "image/png".into(),
+            ..inline.clone()
+        };
+        assert_eq!(
+            read_clip_bytes(&client, &legacy_encrypted, &key)
+                .await
+                .unwrap(),
+            image
+        );
+        let text = Clip {
+            content: "plain text".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            read_clip_bytes(&client, &text, &key).await.unwrap(),
+            b"plain text"
+        );
+        assert!(read_clip_bytes(&client, &inline, &[9u8; 32]).await.is_err());
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[test]
