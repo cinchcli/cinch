@@ -15,6 +15,20 @@ The relay server lives in a separate repository: [cinchcli/relay](https://github
 - **Remote clipboard / self-hostable relay** — move clips between terminal and desktop through a hosted or self-hosted relay; the relay stores ciphertext only.
 - **MCP + transforms for AI workflows** — expose local clipboard history to AI tools, transform/redact text, or explicitly prepare terminal errors with `cinch ai fix`.
 
+## Desktop without a relay
+
+Open the desktop app and copy text or an image in another app. Local history,
+search, copy, and pinning work without an account or relay. Relay authentication
+and connection errors do not replace the local workspace.
+
+Use **Devices** to connect a relay when you want to send clips to another machine.
+New desktop captures stay local until you choose **Send**. Local mode does not
+require a network connection; release/update checks can still use the network.
+
+Pinning, unpinning, and deleting save locally first and wait at most one second
+for a relay metadata update. Relay updates are best-effort and are not queued
+for retry; a local success does not confirm a change on other devices.
+
 ## Install
 
 **macOS — Desktop + CLI** (recommended):

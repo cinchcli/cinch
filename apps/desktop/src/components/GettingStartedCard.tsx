@@ -1,163 +1,40 @@
-import { useState } from 'react';
 import { C } from '../design';
-
-const STORAGE_KEY = 'cinchGettingStartedDismissed';
-const SNIPPET = 'echo "hello cinch" | cinch push';
-const SSH_SNIPPET = 'cinch pair user@host';
-const CASK_INSTALL = 'brew install --cask cinchcli/tap/cinchcli';
+import { dialogStyles } from './dialogPrimitives';
 
 interface GettingStartedCardProps {
-  onCopySnippet: (text: string) => void;
+  onConnectRelay: () => void;
 }
 
-export function GettingStartedCard({ onCopySnippet }: GettingStartedCardProps) {
-  const [dismissed, setDismissed] = useState<boolean>(
-    () => localStorage.getItem(STORAGE_KEY) === '1',
-  );
-
-  if (dismissed) return null;
-
-  const handleDismiss = () => {
-    localStorage.setItem(STORAGE_KEY, '1');
-    setDismissed(true);
-  };
-
+export function GettingStartedCard({ onConnectRelay }: GettingStartedCardProps) {
   return (
-    <div
+    <section
       data-testid="getting-started-card"
+      aria-label="Getting started"
       style={{
         flex: 1,
+        overflowY: 'auto',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '32px 16px',
+        padding: 32,
       }}
     >
-      <div
-        style={{
-          maxWidth: 360,
-          background: C.card2,
-          border: `1px solid ${C.border}`,
-          borderRadius: 8,
-          padding: 20,
-          position: 'relative',
-        }}
-      >
-        <button
-          onClick={handleDismiss}
-          aria-label="Dismiss"
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 10,
-            background: 'transparent',
-            border: 'none',
-            color: C.t3,
-            cursor: 'pointer',
-            fontSize: 11,
-            padding: '2px 6px',
-          }}
-        >
-          Dismiss
+      <div style={{ maxWidth: 420 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 500, color: C.t1, margin: '0 0 16px' }}>
+          Your clipboard, on this device.
+        </h2>
+        <p style={{ fontSize: 14, color: C.t2, lineHeight: 1.7 }}>
+          Copy text or an image in another app. It appears here so you can search,
+          copy it again, or pin it for later.
+        </p>
+        <p style={{ fontSize: 12, color: C.t3, lineHeight: 1.7, marginBottom: 24 }}>
+          No account, relay, or internet connection is required for local history.
+          Clips are sent to a relay only when you choose Send.
+        </p>
+        <button type="button" style={dialogStyles.btnGhost} onClick={onConnectRelay}>
+          Connect a relay (optional)
         </button>
-
-        <div
-          style={{
-            fontSize: 16,
-            fontWeight: 600,
-            color: C.t1,
-            letterSpacing: '-0.012em',
-            marginBottom: 12,
-          }}
-        >
-          You're signed in. Now send your first clip.
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>Try it now:</div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              background: C.bg,
-              border: `1px solid ${C.border}`,
-              borderRadius: 4,
-              padding: '8px 10px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
-              color: C.t1,
-            }}
-          >
-            <code style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {SNIPPET}
-            </code>
-            <button
-              onClick={() => onCopySnippet(SNIPPET)}
-              aria-label="Copy"
-              style={{
-                background: 'transparent',
-                border: `1px solid ${C.border}`,
-                borderRadius: 3,
-                color: C.t2,
-                cursor: 'pointer',
-                fontSize: 11,
-                padding: '2px 8px',
-              }}
-            >
-              Copy
-            </button>
-          </div>
-        </div>
-
-        <div style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
-          <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>Add another device:</div>
-
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: C.t3, marginBottom: 4 }}>Server (SSH):</div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: C.bg,
-                border: `1px solid ${C.border}`,
-                borderRadius: 4,
-                padding: '8px 10px',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 12,
-                color: C.t1,
-              }}
-            >
-              <code style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {SSH_SNIPPET}
-              </code>
-              <button
-                onClick={() => onCopySnippet(SSH_SNIPPET)}
-                aria-label="Copy"
-                style={{
-                  background: 'transparent',
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 3,
-                  color: C.t2,
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  padding: '2px 8px',
-                }}
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontSize: 11, color: C.t3, marginBottom: 4 }}>Another Mac:</div>
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: C.t1 }}>
-              {CASK_INSTALL}
-            </code>
-          </div>
-        </div>
       </div>
-    </div>
+    </section>
   );
 }

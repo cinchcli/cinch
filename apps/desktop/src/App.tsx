@@ -85,7 +85,7 @@ function App() {
   // effect immediately: when disabled the effect returns early (no listener
   // is registered), and the cleanup from the previous run unsubscribes.
   useEffect(() => {
-    if (!notifyOnRemoteLogin) return;
+    if (!notifyOnRemoteLogin || auth.variant !== 'Authenticated') return;
     let cancelled = false;
     let unsub: (() => void) | null = null;
     (async () => {
@@ -104,7 +104,7 @@ function App() {
       });
     })();
     return () => { cancelled = true; unsub?.(); };
-  }, [notifyOnRemoteLogin]);
+  }, [notifyOnRemoteLogin, auth.variant]);
 
   const [_status, setStatus] = useState('connecting');
   const [clips, setClips] = useState<LocalClip[]>([]);
@@ -210,12 +210,13 @@ function App() {
   }, []);
 
   const refreshDevices = useCallback(async () => {
+    if (auth.variant !== 'Authenticated') return;
     try {
       setDevices(await unwrap(commands.listDevices()));
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [auth.variant]);
 
   const refreshAppOptions = useCallback(async () => {
     try {
@@ -232,7 +233,10 @@ function App() {
   };
 
   useEffect(() => {
-    if (auth.variant !== 'Authenticated') return;
+    if (auth.variant !== 'Authenticated') {
+      setDevices([]);
+      return;
+    }
     const timer = setTimeout(() => {
       refreshClips();
       refreshSources();
@@ -243,6 +247,10 @@ function App() {
   }, [auth.variant, refreshClips, refreshSources, refreshDevices, refreshAppOptions]);
 
   useEffect(() => { refreshClips(); }, [refreshClips]);
+  useEffect(() => {
+    void refreshSources();
+    void refreshAppOptions();
+  }, [refreshSources, refreshAppOptions]);
 
   // Scroll selected clip into view when navigating with keyboard
   useEffect(() => {
@@ -365,22 +373,28 @@ function App() {
     setSelectedClip(null);
     void refreshClips();
     void commands.focusPreviousApp();
-  }, [refreshClips, showToast]);
+  }, [bumpClipRecency, refreshClips, showToast]);
 
-  const copyClip = useCallback((clip: LocalClip) => {
-    if (clip.content_type === 'image') {
-      void unwrap(commands.copyImageToClipboard(clip.id))
-        .catch((e) => console.error('copy image failed:', e));
-      finishCopy(clip, 'Copied image to clipboard');
-    } else {
-      void unwrap(commands.copyClipToClipboard(clip.content))
-        .catch((e) => console.error('copy clip failed:', e));
-      finishCopy(clip, 'Copied text to clipboard');
+  const copyClip = useCallback(async (clip: LocalClip) => {
+    try {
+      if (clip.content_type === 'image') {
+        await unwrap(commands.copyImageToClipboard(clip.id));
+        finishCopy(clip, 'Copied image to clipboard');
+      } else {
+        await unwrap(commands.copyClipToClipboard(clip.content));
+        finishCopy(clip, 'Copied text to clipboard');
+      }
+    } catch {
+      showToast('Copy failed. Try again.', 'error');
     }
-  }, [finishCopy]);
+  }, [finishCopy, showToast]);
 
   // Broadcasts the clip to all of the user's devices.
   const sendClip = useCallback(async (clip: LocalClip) => {
+    if (auth.variant !== 'Authenticated') {
+      showToast('Connect a relay to send clips. Local copy is always available.', 'error');
+      return;
+    }
     try {
       await unwrap(commands.sendClip(clip.id));
       refreshClips();
@@ -389,7 +403,7 @@ function App() {
       console.error('sendClip failed', e);
       showToast(e instanceof Error ? e.message : 'Send failed', 'error');
     }
-  }, [refreshClips, showToast]);
+  }, [auth.variant, refreshClips, showToast]);
 
   const handleEdit = useCallback(async (clip: LocalClip, newContent: string) => {
     try {
@@ -413,24 +427,37 @@ function App() {
   }, [refreshClips, showToast]);
 
   const handleDelete = async (id: string) => {
-    await unwrap(commands.deleteClip(id));
-    if (selectedClip?.id === id) setSelectedClip(null);
-    refreshClips();
-    refreshSources();
-    showToast('Deleted', 'trash');
+    try {
+      await unwrap(commands.deleteClip(id));
+      if (selectedClip?.id === id) setSelectedClip(null);
+      refreshClips();
+      refreshSources();
+      showToast('Deleted locally', 'trash');
+    } catch {
+      showToast('Delete failed. Try again.', 'error');
+    }
   };
 
   const handlePin = async (clip: LocalClip, note: string | null) => {
-    await unwrap(commands.pinClip(clip.id, note));
-    setPinNoteDialog(null);
-    refreshClips();
-    showToast('Pinned', 'copy');
+    try {
+      await unwrap(commands.pinClip(clip.id, note));
+      refreshClips();
+      showToast('Pinned locally', 'copy');
+    } catch {
+      showToast('Pin failed. Try again.', 'error');
+    } finally {
+      setPinNoteDialog(null);
+    }
   };
 
   const handleUnpin = async (clip: LocalClip) => {
-    await unwrap(commands.unpinClip(clip.id));
-    refreshClips();
-    showToast('Unpinned', 'trash');
+    try {
+      await unwrap(commands.unpinClip(clip.id));
+      refreshClips();
+      showToast('Unpinned locally', 'trash');
+    } catch {
+      showToast('Unpin failed. Try again.', 'error');
+    }
   };
 
   const totalClips = sources.reduce((sum, s) => sum + s.clip_count, 0);
@@ -660,40 +687,6 @@ function App() {
     );
   }
 
-  if (auth.variant === 'LocalOnly') {
-    return (
-      <>
-        <OnboardingScreen
-          onShowSettings={() => openSettings('privacy')}
-          onMouseDown={handleWindowDrag}
-        />
-        {handoffRelay !== null && (
-          <AddRelayDialog
-            onClose={() => setHandoffRelay(null)}
-            initialRelayUrl={handoffRelay}
-            fromCli
-          />
-        )}
-        <AdoptedAuthToast />
-        <OfflineQueueDroppedToast />
-        <ClipDecryptFailedToast />
-        <SendToast />
-      </>
-    );
-  }
-  if (auth.variant === 'Authenticating') {
-    return <AuthLoadingScreen progress={auth.payload.progress} />;
-  }
-  if (auth.variant === 'ErrorRecoverable') {
-    return (
-      <AuthErrorScreen
-        reason={auth.payload.reason}
-        retryAfterMs={auth.payload.retry_after_ms}
-      />
-    );
-  }
-  // auth.variant === 'Authenticated' — render dashboard.
-
   return (
     <main data-testid="dashboard-root" style={S.main}>
       <Rail
@@ -709,6 +702,16 @@ function App() {
       />
 
       <div style={S.mainCol}>
+        {auth.variant === 'LocalOnly' && (
+          <div style={S.connectionNotice}>
+            <span>Local clipboard. No account or relay required.</span>
+            <button style={dialogStyles.btnGhost} onClick={() => { setSelectedClip(null); setActivePanel('devices'); }}>
+              Connect a relay
+            </button>
+          </div>
+        )}
+        {auth.variant === 'Authenticating' && <AuthLoadingNotice progress={auth.payload.progress} />}
+        {auth.variant === 'ErrorRecoverable' && <AuthErrorNotice reason={auth.payload.reason} />}
         <UpdateBanner currentVersion={currentDesktopVersion} latest={latestVersions} />
         <SearchBar
           ref={searchRef}
@@ -729,7 +732,12 @@ function App() {
         />
 
         <div style={S.body}>
-        {activePanel === 'devices' ? (
+        {activePanel === 'devices' && auth.variant !== 'Authenticated' ? (
+          <OnboardingScreen
+            onShowSettings={() => openSettings('privacy')}
+            connecting={auth.variant === 'Authenticating'}
+          />
+        ) : activePanel === 'devices' ? (
           <DevicesPanel
             currentDeviceID={currentDeviceID}
             currentMachineId={currentMachineId}
@@ -754,13 +762,8 @@ function App() {
           />
         ) : !clipsLoaded ? (
           <ClipListSkeleton />
-        ) : clips.length === 0 && devices.length <= 1 ? (
-          <GettingStartedCard
-            onCopySnippet={(text) => {
-              void unwrap(commands.copyClipToClipboard(text));
-              showToast('Copied to clipboard', 'copy');
-            }}
-          />
+        ) : clips.length === 0 && !debouncedQuery && !selectedSource && !selectedApp && activeFilter === 'all' ? (
+          <GettingStartedCard onConnectRelay={() => { setSelectedClip(null); setActivePanel('devices'); }} />
         ) : (
           <>
             <ClipList
@@ -769,7 +772,7 @@ function App() {
               selected={selectedClip}
               onSelect={setSelectedClip}
               onCopy={copyClip}
-              onSend={sendClip}
+              onSend={auth.variant === 'Authenticated' ? sendClip : undefined}
               query={debouncedQuery}
               deviceNicknames={nicknameBySource}
               tagColors={tagColors}
@@ -849,16 +852,11 @@ function App() {
   );
 }
 
-// ─── Auth transition screens (plumbing only per D-14 — no visual redesign) ────
-
-function AuthLoadingScreen({ progress }: { progress: AuthProgress }) {
+// Relay transitions never replace the local clipboard workspace.
+function AuthLoadingNotice({ progress }: { progress: AuthProgress }) {
   const [timedOut, setTimedOut] = useState(false);
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
   useEffect(() => {
-    const timer = setTimeout(() => setTimedOut(true), 5 * 60 * 1000); // 5 minutes
+    const timer = setTimeout(() => setTimedOut(true), 5 * 60 * 1000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -870,117 +868,21 @@ function AuthLoadingScreen({ progress }: { progress: AuthProgress }) {
         ? 'Pairing device...'
         : 'Rotating token...';
 
-  const subtext = timedOut
-    ? 'Try again when ready.'
-    : 'Complete sign-in in your browser.';
-
-  const buttonLabel = timedOut ? 'Back to local mode' : 'Stop sign-in';
-
-  const handleCancel = async () => {
-    try {
-      await signOut();
-    } catch (e) {
-      console.error('cancel auth failed:', e);
-    }
-  };
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        gap: 24,
-        color: C.t1,
-        background: C.bg,
-        fontFamily: 'inherit',
-      }}
-    >
-      {/* Spinner or static dot */}
-      {prefersReducedMotion ? (
-        <span
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: '50%',
-            backgroundColor: C.t1,
-          }}
-        />
-      ) : (
-        <span
-          style={{
-            width: 20,
-            height: 20,
-            border: '2px solid transparent',
-            borderTopColor: C.t1,
-            borderRightColor: C.t1,
-            borderBottomColor: C.t1,
-            borderRadius: '50%',
-            animation: 'spin 800ms linear infinite',
-            boxSizing: 'border-box',
-          }}
-        />
-      )}
-
-      {/* Heading */}
-      <span
-        style={{
-          fontSize: 22,
-          fontWeight: 600,
-          letterSpacing: '-0.018em',
-          color: C.t1,
-        }}
-      >
-        {heading}
-      </span>
-
-      {/* Subtext */}
-      <span
-        style={{
-          fontFamily: 'var(--font-body)',
-          fontSize: 14,
-          fontWeight: 500,
-          color: C.t2,
-          marginTop: -16,
-        }}
-      >
-        {subtext}
-      </span>
-
-      {/* Cancel button — ghost style */}
-      <button
-        onClick={handleCancel}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          fontFamily: 'var(--font-body)',
-          fontSize: 14,
-          fontWeight: 500,
-          color: C.t3,
-          padding: '6px 14px',
-          borderRadius: 4,
-          transition: 'color 150ms ease',
-        }}
-        onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.color = 'var(--text-primary)'; }}
-        onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.color = 'var(--text-faint)'; }}
-      >
-        {buttonLabel}
+    <div style={S.connectionNotice} role="status">
+      <span>{heading} Local history is available.</span>
+      <button style={dialogStyles.btnGhost} onClick={() => {
+        void signOut().catch((e) => console.error('cancel auth failed:', e));
+      }}>
+        {timedOut ? 'Back to local mode' : 'Stop sign-in'}
       </button>
     </div>
   );
 }
 
-function AuthErrorScreen({
-  reason,
-  retryAfterMs,
-}: {
-  reason: AuthErrorReason;
-  retryAfterMs: number | null;
-}) {
+function AuthErrorNotice({ reason }: { reason: AuthErrorReason }) {
   const [retrying, setRetrying] = useState(false);
+  const [retryFailed, setRetryFailed] = useState(false);
   const label =
     reason.kind === 'RelayUnreachable'
       ? 'Relay unreachable'
@@ -989,34 +891,24 @@ function AuthErrorScreen({
         : reason.kind === 'NetworkDown'
           ? 'No network connection'
           : 'Invalid pair token';
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        gap: 16,
-        color: C.t1,
-        background: C.bg,
-        fontFamily: 'inherit',
-      }}
-    >
-      <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.018em', color: C.t1 }}>{label}</span>
-      {retryAfterMs !== null && (
-        <span style={{ color: C.t3, fontSize: 14 }}>
-          Auto-retry in {Math.round(retryAfterMs / 1000)}s
-        </span>
-      )}
+    <div style={S.connectionNotice} role="status">
+      <span>{retryFailed ? 'Retry failed.' : `${label}.`} Local history is available.</span>
       <button
+        style={dialogStyles.btnGhost}
+        disabled={retrying}
         onClick={async () => {
           setRetrying(true);
-          await retryAuth();
-          setRetrying(false);
+          setRetryFailed(false);
+          try {
+            await retryAuth();
+          } catch {
+            setRetryFailed(true);
+          } finally {
+            setRetrying(false);
+          }
         }}
-        disabled={retrying}
-        style={dialogStyles.btnPrimary}
       >
         Retry now
       </button>
@@ -1248,6 +1140,18 @@ function NewSourceDialog({
 // ─── Styles ────────────────────────────────────────────────
 
 const S: Record<string, React.CSSProperties> = {
+  connectionNotice: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '6px 16px',
+    flexShrink: 0,
+    borderBottom: `1px solid ${C.border}`,
+    color: C.t2,
+    background: C.card2,
+    fontSize: 12,
+  },
   main: {
     background: C.bg,
     color: C.t1,
