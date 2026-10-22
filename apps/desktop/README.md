@@ -88,7 +88,7 @@ Clips are stored locally in `~/.cinch/store.db` (SQLite + FTS5). On first launch
 
 ## Telemetry
 
-Cinch does not collect or transmit product usage telemetry. Local diagnostic logs and release update checks remain enabled. Clipboard content is sent to the configured relay only through explicit send actions.
+Cinch does not collect or transmit product usage telemetry. Local diagnostic logs and release update checks remain enabled. Clipboard content is sent to the configured relay only through explicit send actions. Incoming clips are saved to history without changing the clipboard by default. Existing per-source auto-copy opt-ins still apply to images; other clips require Copy.
 
 When upgrading from a telemetry-enabled build, quit all older Cinch processes and update both the desktop and any standalone CLI. The new binaries ignore existing telemetry files; they do not change an older binary's consent state. Before replacing an older CLI, run `cinch account telemetry off` if you opted in. To remove retained tracking data after quitting the old processes, delete only `~/.cinch/telemetry_opt_in`, `~/.cinch/telemetry_id`, `~/.cinch/telemetry_hint_shown`, and `~/.cinch/mcp-metrics/`. Keep `~/.cinch/store.db` and credentials.
 

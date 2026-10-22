@@ -350,15 +350,13 @@ pub fn run() {
                         );
                         let _ = crate::events::RemoteClipReceived(payload).emit(&app_for_consumer);
 
-                        // Sync image clips into the local OS pasteboard so the
-                        // user can paste into any app without clicking Copy in
-                        // the in-app history UI. Text/code/url stay manual so
-                        // browsing history does not stomp the local clipboard.
+                        // Per-source opt-in is checked before writing the pasteboard.
                         crate::clipboard::auto_paste::paste_incoming_image(
                             &clipboard_for_paste,
                             &store_for_paste,
                             &clip.clip_id,
                             &clip.content_type,
+                            &clip.source,
                         );
                     }
                 });

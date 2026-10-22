@@ -1,9 +1,7 @@
-//! Sync incoming remote clips into the local OS pasteboard so paste works
-//! immediately in any app. Currently scoped to images — text/code/url remain
-//! manual Copy-button only, so the user can browse history without losing
-//! whatever text they just put on their local clipboard.
+//! Copy incoming images to the OS pasteboard only for sources with an explicit
+//! auto-copy preference. Other arrivals remain in history for manual Copy.
 
-use client_core::store::Store;
+use client_core::store::{settings, Store};
 
 use crate::clipboard::ClipboardService;
 use crate::commands::clips::image_bytes_for;
@@ -14,17 +12,25 @@ fn is_image(content_type: &str) -> bool {
     content_type.starts_with("image")
 }
 
-/// If the incoming clip is an image, look up its raw PNG bytes from the local
-/// store and write them to the OS pasteboard. Best-effort: errors are logged
-/// at warn-level so a malformed clip never crashes the WS drainer.
+/// Copy an incoming image only when its source has auto-copy enabled.
+/// Preference errors fail closed; clipboard failures are logged.
 pub fn paste_incoming_image(
     clipboard: &ClipboardService,
     store: &Store,
     clip_id: &str,
     content_type: &str,
+    source: &str,
 ) {
     if !is_image(content_type) {
         return;
+    }
+    match settings::is_source_auto_copy(store, source) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            log::warn!("auto-paste: source preference lookup failed: {e}");
+            return;
+        }
     }
     let bytes = match image_bytes_for(store, clip_id) {
         Ok(b) => b,
@@ -116,10 +122,25 @@ mod tests {
     }
 
     #[test]
+    fn default_and_disabled_sources_preserve_clipboard() {
+        let store = store_with_image("a", "image", &PNG);
+        let svc = fresh_service();
+        paste_incoming_image(&svc, &store, "a", "image", "remote:test");
+        assert!(!svc.is_self_write(&expected_self_write(&PNG)));
+        settings::set_source_auto_copy(&store, "remote:other", true).unwrap();
+        paste_incoming_image(&svc, &store, "a", "image", "remote:test");
+        assert!(!svc.is_self_write(&expected_self_write(&PNG)));
+        settings::set_source_auto_copy(&store, "remote:test", false).unwrap();
+        paste_incoming_image(&svc, &store, "a", "image", "remote:test");
+        assert!(!svc.is_self_write(&expected_self_write(&PNG)));
+    }
+
+    #[test]
     fn writes_png_for_canonical_image_content_type() {
         let store = store_with_image("a", "image", &PNG);
         let svc = fresh_service();
-        paste_incoming_image(&svc, &store, "a", "image");
+        settings::set_source_auto_copy(&store, "remote:test", true).unwrap();
+        paste_incoming_image(&svc, &store, "a", "image", "remote:test");
         assert!(
             svc.is_self_write(&expected_self_write(&PNG)),
             "image clip must be recorded as a self-write after paste"
@@ -132,7 +153,8 @@ mod tests {
         // auto-paste boundary must handle MIME-style values for older relays.
         let store = store_with_image("b", "image/png", &PNG);
         let svc = fresh_service();
-        paste_incoming_image(&svc, &store, "b", "image/png");
+        settings::set_source_auto_copy(&store, "remote:test", true).unwrap();
+        paste_incoming_image(&svc, &store, "b", "image/png", "remote:test");
         assert!(svc.is_self_write(&expected_self_write(&PNG)));
     }
 
@@ -140,7 +162,8 @@ mod tests {
     fn text_content_type_does_not_touch_clipboard() {
         let store = Store::open(Path::new(":memory:")).unwrap();
         let svc = fresh_service();
-        paste_incoming_image(&svc, &store, "c", "text");
+        settings::set_source_auto_copy(&store, "remote:test", true).unwrap();
+        paste_incoming_image(&svc, &store, "c", "text", "remote:test");
         // No write ⇒ no self-write record, so any synthesized image snapshot
         // must look external.
         assert!(!svc.is_self_write(&expected_self_write(&PNG)));
@@ -150,7 +173,8 @@ mod tests {
     fn missing_image_row_is_silently_skipped() {
         let store = Store::open(Path::new(":memory:")).unwrap();
         let svc = fresh_service();
-        paste_incoming_image(&svc, &store, "no-such-clip", "image");
+        settings::set_source_auto_copy(&store, "remote:test", true).unwrap();
+        paste_incoming_image(&svc, &store, "no-such-clip", "image", "remote:test");
         assert!(!svc.is_self_write(&expected_self_write(&PNG)));
     }
 
@@ -179,7 +203,8 @@ mod tests {
         )
         .unwrap();
         let svc = fresh_service();
-        paste_incoming_image(&svc, &s, "empty", "image");
+        settings::set_source_auto_copy(&s, "remote:test", true).unwrap();
+        paste_incoming_image(&svc, &s, "empty", "image", "remote:test");
         assert!(!svc.is_self_write(&expected_self_write(&PNG)));
     }
 }
