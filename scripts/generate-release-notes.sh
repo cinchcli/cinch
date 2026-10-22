@@ -102,8 +102,8 @@ cat <<EOF
 
 | Platform | Install |
 |---|---|
-| macOS (Apple Silicon) desktop + CLI | \`brew install --cask cinchcli/tap/cinch\` |
-| macOS CLI only                      | \`brew install cinchcli/tap/cinch\` |
+| macOS (Apple Silicon) desktop + CLI | \`brew install --cask cinchcli/tap/cinchcli\` |
+| macOS CLI only                      | \`brew install cinchcli/tap/cinchcli\` |
 | Linux CLI only                      | \`curl -fsSL https://cinchcli.com/install.sh \| sh\` |
 | Windows CLI                         | Download \`cinch-cli-x86_64-pc-windows-msvc.zip\` below |
 | Direct binaries                     | See assets below |
