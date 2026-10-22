@@ -153,7 +153,12 @@ impl RestClient {
         let resp = self
             .send_with_retry(|| self.client.get(&url).bearer_auth(&self.token).build())
             .await?;
-        decode_json_response::<Vec<DeviceInfo>>(resp).await
+        let mut devices = decode_json_response::<Vec<DeviceInfo>>(resp).await?;
+        for device in &mut devices {
+            device.source_key =
+                crate::machine::clip_source_key(&device.source_key, &device.hostname);
+        }
+        Ok(devices)
     }
 
     /// `POST /cinch.v1.MeService/GetMe` (Connect-RPC unary, JSON encoding)
@@ -171,5 +176,46 @@ impl RestClient {
             .await
             .map_err(|e| HttpError::Network(e.to_string()))?;
         decode_json_response::<GetMeResponse>(resp).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn listed_devices_use_clip_sources() {
+        let server = MockServer::start().await;
+        let devices = vec![
+            DeviceInfo {
+                id: "approved".into(),
+                hostname: "atlas".into(),
+                source_key: "approve:approved".into(),
+                ..Default::default()
+            },
+            DeviceInfo {
+                id: "paired".into(),
+                hostname: "other".into(),
+                source_key: "remote:existing".into(),
+                ..Default::default()
+            },
+        ];
+        Mock::given(method("GET"))
+            .and(path("/devices"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&devices))
+            .mount(&server)
+            .await;
+        let client = RestClient::new(
+            server.uri(),
+            "test-token",
+            crate::http::ClientInfo::for_test(),
+        )
+        .unwrap();
+        let actual = client.list_devices().await.unwrap();
+        assert_eq!(actual[0].id, "approved");
+        assert_eq!(actual[0].source_key, "remote:atlas");
+        assert_eq!(actual[1].source_key, "remote:existing");
     }
 }

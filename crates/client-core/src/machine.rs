@@ -47,6 +47,16 @@ pub fn self_source_key() -> String {
     format!("remote:{}", hostname_or_unknown())
 }
 
+/// Returns the clip source for a listed device. Approval keys identify
+/// devices, while their clips use the hostname source.
+pub(crate) fn clip_source_key(source_key: &str, hostname: &str) -> String {
+    if source_key.starts_with("approve:") {
+        format!("remote:{}", hostname)
+    } else {
+        source_key.to_string()
+    }
+}
+
 /// Returns a stable, opaque identifier for this machine, or an empty string
 /// if no source is available. The value is suitable for sending to the relay
 /// (no raw hardware ID) and is consistent across CLI and desktop on the same

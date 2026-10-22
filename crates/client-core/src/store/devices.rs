@@ -32,11 +32,15 @@ pub fn list_devices(store: &Store) -> Result<Vec<StoredDevice>, StoreError> {
         )?;
         let rows: Vec<StoredDevice> = stmt
             .query_map([], |r| {
+                let hostname: String = r.get(1)?;
+                let source_key: Option<String> = r.get(3)?;
+                let source_key =
+                    source_key.map(|source| crate::machine::clip_source_key(&source, &hostname));
                 Ok(StoredDevice {
                     id: r.get(0)?,
-                    hostname: r.get(1)?,
+                    hostname,
                     nickname: r.get(2)?,
-                    source_key: r.get(3)?,
+                    source_key,
                     machine_id: r.get(4)?,
                     public_key: r.get(5)?,
                     paired_at: r.get(6)?,
@@ -49,4 +53,31 @@ pub fn list_devices(store: &Store) -> Result<Vec<StoredDevice>, StoreError> {
             .collect();
         Ok(rows)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_approval_devices_use_clip_sources_without_rewriting_ids() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        store.with_conn(|conn| conn.execute(
+            "INSERT INTO devices (id, hostname, source_key, refreshed_at) VALUES ('approved', 'atlas', 'approve:approved', 0)",
+            [],
+        )).unwrap();
+        let devices = list_devices(&store).unwrap();
+        assert_eq!(devices[0].id, "approved");
+        assert_eq!(devices[0].source_key.as_deref(), Some("remote:atlas"));
+        let persisted: String = store
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT source_key FROM devices WHERE id = 'approved'",
+                    [],
+                    |row| row.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(persisted, "approve:approved");
+    }
 }
