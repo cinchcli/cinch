@@ -5,8 +5,6 @@
 //! Cross-device bootstrap happens via the SSH-driven `cinch device pair
 //! <ssh-target>` command (separate file).
 
-use std::time::Instant;
-
 use crate::exit::ExitError;
 
 mod approve;
@@ -85,31 +83,7 @@ pub async fn run(args: Args) -> Result<(), ExitError> {
             force,
             headless,
             user_hint,
-        } => {
-            let started = Instant::now();
-            crate::telemetry::capture(
-                crate::telemetry::Event::new("cli.auth.login.started")
-                    .with("force", force)
-                    .with("headless", headless),
-            );
-            let result = login::run_login(relay, force, headless, user_hint).await;
-            let duration_ms = started.elapsed().as_millis() as u64;
-            if result.is_ok() {
-                if let Some(user_id) = client_core::auth::load_multi_config()
-                    .ok()
-                    .and_then(|mc| mc.active_profile().map(|p| p.user_id.clone()))
-                    .filter(|id| !id.is_empty())
-                {
-                    crate::telemetry::identify(&user_id);
-                }
-            }
-            crate::telemetry::capture(
-                crate::telemetry::Event::new("cli.auth.login.completed")
-                    .with("success", result.is_ok())
-                    .with("duration_ms", duration_ms),
-            );
-            result
-        }
+        } => login::run_login(relay, force, headless, user_hint).await,
         Cmd::Status => status::run_status().await,
         Cmd::Logout => logout::run_logout().await,
         Cmd::Approve { user_code, relay } => approve::run_approve(&user_code, relay).await,

@@ -28,7 +28,6 @@ pub mod send;
 pub mod session;
 pub mod shared;
 pub mod sources;
-pub mod telemetry;
 pub mod transform;
 pub mod unpin;
 pub mod use_;

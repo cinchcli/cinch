@@ -88,11 +88,9 @@ Clips are stored locally in `~/.cinch/store.db` (SQLite + FTS5). On first launch
 
 ## Telemetry
 
-Official cinch desktop builds (DMG from GitHub Releases) send anonymous usage stats to help prioritize features and catch breakage. No PII, no clipboard contents, no IP addresses. Source-built binaries (`cargo build` without the release secret) have telemetry compiled out and send nothing.
+Cinch does not collect or transmit product usage telemetry. Local diagnostic logs and release update checks remain enabled. Clipboard content is sent to the configured relay only through explicit send actions.
 
-What's collected: app open events, pairing outcomes, OS/arch, app version. That's it.
-
-Opt out: set `TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in your environment, or `touch ~/.cinch/telemetry_opt_out`. Details: [cinchcli.com/telemetry](https://cinchcli.com/telemetry).
+When upgrading from a telemetry-enabled build, quit all older Cinch processes and update both the desktop and any standalone CLI. The new binaries ignore existing telemetry files; they do not change an older binary's consent state. Before replacing an older CLI, run `cinch account telemetry off` if you opted in. To remove retained tracking data after quitting the old processes, delete only `~/.cinch/telemetry_opt_in`, `~/.cinch/telemetry_id`, `~/.cinch/telemetry_hint_shown`, and `~/.cinch/mcp-metrics/`. Keep `~/.cinch/store.db` and credentials.
 
 ## Links
 
