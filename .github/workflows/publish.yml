@@ -223,6 +223,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
+      - name: Verify updater artifact against embedded public key
+        run: |
+          brew install minisign
+          python3 scripts/verify-updater-artifact.py \
+            apps/desktop/src-tauri/tauri.conf.json \
+            target/${{ matrix.target }}/release/bundle/macos/Cinch.app.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos-${{ matrix.target }}

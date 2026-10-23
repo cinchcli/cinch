@@ -64,7 +64,7 @@
       "endpoints": [
         "https://github.com/cinchcli/cinch/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRjBDMzAyOEMzMTJCRTE2NQpSV1JsNFNzeGpBTEQ4RzVJMms3Q1VHd3JRRmhFZWxzRXFGVllCRUhpanJPVEFaSzF0VHhtUnh4RQo="
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwRDg5NzMxNEMwQkY0QUMKUldTczlBdE1NWmZZME41NnE2akU2L3RHaFM5Y1NPM0prSkpqK2lWM3JqQXRtdy9KTFNxUjJOcFIK"
     }
   }
 }
