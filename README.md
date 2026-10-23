@@ -36,6 +36,12 @@ for retry; a local success does not confirm a change on other devices.
 brew install --cask cinchcli/tap/cinchcli
 ```
 
+Desktop 0.11.1 and 0.11.2 need a one-time manual upgrade to 0.11.3 or later.
+Their updater public key does not match the release signing key.
+Quit Cinch, then run `brew update && brew upgrade --cask cinchcli/tap/cinchcli`,
+or install the DMG from [GitHub Releases](https://github.com/cinchcli/cinch/releases/latest).
+Keep signature verification and Gatekeeper enabled.
+
 **macOS — CLI only** (headless servers, CI):
 ```bash
 brew install cinchcli/tap/cinchcli
