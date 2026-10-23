@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { ClipDetail } from './ClipDetail';
 import type { LocalClip } from '../bindings';
 
@@ -21,198 +21,61 @@ const baseClip: LocalClip = {
   pin_note: null,
 };
 
-const noOp = () => {};
-
 describe('ClipDetail', () => {
-  it('renders empty placeholder when no clip selected', () => {
-    render(<ClipDetail clip={null} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
+  it('renders a placeholder when no clip is selected', () => {
+    render(<ClipDetail clip={null} />);
     expect(screen.getByText(/select a clip/i)).toBeInTheDocument();
   });
 
-  it('renders clip content for selected clip', () => {
-    render(<ClipDetail clip={baseClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
-    expect(screen.getByText(/hello world/i)).toBeInTheDocument();
+  it('renders raw text without a repeated title or action toolbar', () => {
+    render(<ClipDetail clip={baseClip} />);
+    expect(screen.getByText(baseClip.content)).toBeInTheDocument();
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('renders a color preview for standalone color text clips', () => {
-    render(
-      <ClipDetail
-        clip={{ ...baseClip, content: '#fff', byte_size: 4 }}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-      />,
-    );
+  it('preserves code whitespace and highlights search matches', () => {
+    const content = 'function run() {\n  return true;\n}';
+    const { container } = render(<ClipDetail clip={{ ...baseClip, content, content_type: 'code' }} searchQuery="return" />);
+    expect(container.querySelector('pre')?.textContent).toBe(content);
+    expect(container.querySelector('mark')).toHaveTextContent('return');
+  });
 
+  it('renders standalone colors but not color fragments in prose', () => {
+    const { rerender } = render(<ClipDetail clip={{ ...baseClip, content: '#fff' }} />);
     expect(screen.getByLabelText('Color preview for #fff')).toBeInTheDocument();
-    expect(screen.getByText('#fff')).toBeInTheDocument();
     expect(screen.getByText('color')).toBeInTheDocument();
-  });
-
-  it('does not render a color preview for text that merely contains a color value', () => {
-    render(
-      <ClipDetail
-        clip={{ ...baseClip, content: 'background: #fff;' }}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-      />,
-    );
-
-    expect(screen.queryByLabelText(/color preview/i)).not.toBeInTheDocument();
+    rerender(<ClipDetail clip={{ ...baseClip, content: 'background: #fff;' }} />);
+    expect(screen.queryByLabelText(/Color preview/)).not.toBeInTheDocument();
     expect(screen.getByText('background: #fff;')).toBeInTheDocument();
   });
 
-  it('shows Copy / Pin / Delete buttons with kbd hints', () => {
-    render(<ClipDetail clip={baseClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
-    expect(screen.getByRole('button', { name: /^copy/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^pin/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^delete/i })).toBeInTheDocument();
-  });
-
-  it('renders button hints from the configured action shortcuts', () => {
-    render(
-      <ClipDetail
-        clip={baseClip}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-        onEdit={noOp}
-        actionShortcuts={{
-          edit: 'CmdOrCtrl+Shift+E',
-          copy: 'CmdOrCtrl+C',
-          pin: 'Alt+P',
-          send: 'CmdOrCtrl+Enter',
-          save: 'Command+K',
-        }}
-      />,
-    );
-    // Hints reflect the passed bindings, not the old hardcoded glyphs.
-    expect(screen.getByRole('button', { name: /^edit ⌘⇧E$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^copy ⌘C$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^pin ⌥P$/i })).toBeInTheDocument();
-  });
-
-  it('renders copied app and source URL metadata', () => {
-    render(
-      <ClipDetail
-        clip={{
-          ...baseClip,
-          source_app_id: 'com.google.Chrome',
-          source_app: 'Google Chrome',
-          source_url: 'https://example.com/article',
-        }}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-      />,
-    );
-    expect(screen.getByText('Google Chrome')).toBeInTheDocument();
+  it('retains source, copied app and source URL metadata', () => {
+    render(<ClipDetail clip={{ ...baseClip, source: 'remote:host', source_app: 'Safari', source_app_id: 'com.apple.Safari', source_url: 'https://example.com/article' }} sourceDisplayNames={{ 'remote:host': 'Work Mac' }} />);
+    expect(screen.getByText('Work Mac')).toBeInTheDocument();
+    expect(screen.getByText('Safari')).toBeInTheDocument();
     expect(screen.getByText('https://example.com/article')).toBeInTheDocument();
-    expect(screen.getByTestId('source-app-icon')).toHaveAttribute(
-      'src',
-      'cinch://app-icon/com.google.Chrome',
-    );
+    expect(screen.getByTestId('source-app-icon')).toHaveAttribute('src', 'cinch://app-icon/com.apple.Safari');
   });
 
-  it('calls onCopy when Copy clicked', () => {
-    const onCopy = vi.fn();
-    render(<ClipDetail clip={baseClip} onCopy={onCopy} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
-    fireEvent.click(screen.getByRole('button', { name: /^copy/i }));
-    expect(onCopy).toHaveBeenCalledWith(baseClip);
+  it('renders store-backed images even without a media path', () => {
+    render(<ClipDetail clip={{ ...baseClip, id: 'image', content_type: 'image', content: '' }} />);
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'cinch://media/image');
   });
 
-  it('renders the image (cinch://media) for an image clip with no media_path', () => {
-    // baseClip already has media_path: null — the image branch must still render.
-    const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
-    const { container } = render(<ClipDetail clip={imageClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
-    const img = container.querySelector('img');
-    expect(img).toBeInTheDocument();
-    expect(img).toHaveAttribute('src', 'cinch://media/cimg');
+  it('shows saved pin notes without an empty note placeholder', () => {
+    const { rerender } = render(<ClipDetail clip={{ ...baseClip, is_pinned: true, pin_note: 'Useful command' }} />);
+    expect(screen.getByText('Useful command')).toBeInTheDocument();
+    rerender(<ClipDetail clip={{ ...baseClip, is_pinned: true, pin_note: null }} />);
+    expect(screen.queryByText('Note')).not.toBeInTheDocument();
   });
 
-  it('shows "Unpin" button when clip is_pinned', () => {
-    render(<ClipDetail clip={{ ...baseClip, is_pinned: true }} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} />);
-    expect(screen.getByRole('button', { name: /^unpin/i })).toBeInTheDocument();
-  });
-
-  it('does NOT render a Save button for text clips', () => {
-    render(
-      <ClipDetail
-        clip={baseClip}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: /^save/i })).not.toBeInTheDocument();
-  });
-
-  it('renders a Save button for image clips', () => {
-    const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
-    render(
-      <ClipDetail
-        clip={imageClip}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-      />,
-    );
-    expect(screen.getByRole('button', { name: /^save/i })).toBeInTheDocument();
-  });
-
-  it('shows the configured save shortcut hint on the Save button for image clips', () => {
-    const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
-    render(
-      <ClipDetail
-        clip={imageClip}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={noOp}
-        actionShortcuts={{
-          edit: 'CmdOrCtrl+E',
-          copy: 'Enter',
-          pin: 'CmdOrCtrl+P',
-          send: 'CmdOrCtrl+Enter',
-          save: 'Command+K',
-        }}
-      />,
-    );
-    expect(screen.getByRole('button', { name: /^save… ⌘K$/i })).toBeInTheDocument();
-  });
-
-  it('calls onSaveImage when Save clicked', () => {
-    const imageClip = { ...baseClip, id: 'cimg', content_type: 'image' as const, content: '' };
-    const onSaveImage = vi.fn();
-    render(
-      <ClipDetail
-        clip={imageClip}
-        onCopy={noOp}
-        onPin={noOp}
-        onDelete={noOp}
-        onSaveImage={onSaveImage}
-      />,
-      );
-    fireEvent.click(screen.getByRole('button', { name: /^save/i }));
-    expect(onSaveImage).toHaveBeenCalledWith(imageClip);
-  });
-
-  it('shows an Edit button for text clips when onEdit is provided', () => {
-    const onEdit = vi.fn();
-    render(<ClipDetail clip={baseClip} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} onEdit={onEdit} />);
-    fireEvent.click(screen.getByRole('button', { name: /^edit/i }));
-    expect(onEdit).toHaveBeenCalledWith(baseClip);
-  });
-
-  it('hides the Edit button for image clips', () => {
-    render(<ClipDetail clip={{ ...baseClip, content_type: 'image' }} onCopy={noOp} onPin={noOp} onDelete={noOp} onSaveImage={noOp} onEdit={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument();
+  it.each([
+    { synced: false, sync_state: 'local', label: 'Local only' },
+    { synced: false, sync_state: 'pending', label: 'Sending…' },
+    { synced: true, sync_state: 'synced', label: 'Synced' },
+  ])('shows $label delivery state', ({ synced, sync_state, label }) => {
+    render(<ClipDetail clip={{ ...baseClip, synced, sync_state }} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 });

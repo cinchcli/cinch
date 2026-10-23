@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
@@ -22,14 +22,12 @@ import { OfflineQueueDroppedToast } from './components/OfflineQueueDroppedToast'
 import { ClipDecryptFailedToast } from './components/ClipDecryptFailedToast';
 import { SendToast } from './components/SendToast';
 import { AddRelayDialog } from './components/AddRelayDialog';
-import { Rail, type RailPanel } from './components/Rail';
 import { SearchBar, type DeviceOption, type AppOption } from './components/SearchBar';
 import { buildDeviceOptions } from './lib/deviceOptions';
 import { ClipList } from './components/ClipList';
 import { ClipListSkeleton } from './components/ClipListSkeleton';
 import { ClipDetail } from './components/ClipDetail';
 import { EditClipModal } from './components/EditClipModal';
-import { PinnedPanel } from './components/PinnedPanel';
 import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { OnboardingScreen } from './components/OnboardingScreen';
@@ -42,7 +40,7 @@ import './App.css';
 
 function handleWindowDrag(e: React.MouseEvent) {
   const target = e.target as HTMLElement;
-  if (!target.closest('button, input, a, textarea')) {
+  if (!target.closest('button, input, a, textarea, select')) {
     void commands.snapDragStart();
     void getCurrentWindow().startDragging();
   }
@@ -53,6 +51,18 @@ const WINDOW_PRESETS = {
   standard: { width: 960,  height: 600 },
   spacious: { width: 1120, height: 720 },
 } as const;
+
+type Panel = 'inbox' | 'pinned' | 'devices';
+interface HistorySnapshot {
+  query: string;
+  source: string | null;
+  app: string | null;
+  filter: ClipFilter;
+  selectedId: string | null;
+  scrollTop: number;
+}
+const PINNED_SHORTCUT = 'CmdOrCtrl+Shift+P';
+const ACTIONS_SHORTCUT = 'CmdOrCtrl+Shift+A';
 
 function App() {
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
@@ -131,11 +141,95 @@ function App() {
     setShowSettings(true);
   };
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [activePanel, setActivePanel] = useState<RailPanel>('inbox');
+  const [activePanel, setActivePanel] = useState<Panel>('inbox');
   const [activeFilter, setActiveFilter] = useState<ClipFilter>('all');
   const searchRef = useRef<HTMLInputElement>(null);
   const clipListRef = useRef<HTMLDivElement>(null);
   const copyRecencyRef = useRef<Map<string, number>>(new Map());
+  const historySnapshotRef = useRef<HistorySnapshot | null>(null);
+  const restoreSelectionRef = useRef<string | null>(null);
+  const restoreScrollRef = useRef<number | null>(null);
+  const skipSelectionScrollRef = useRef(false);
+  const clipRequestRef = useRef(0);
+  const clipViewRef = useRef({ activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter });
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const actionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const [filterRequest, setFilterRequest] = useState<'device' | 'app' | null>(null);
+
+  const closeActions = useCallback(() => {
+    setActionsOpen(false);
+    actionsTriggerRef.current?.focus();
+  }, []);
+
+  const showPanel = useCallback((panel: Panel) => {
+    setActionsOpen(false);
+    if (panel === activePanel) return;
+    if (activePanel === 'inbox') {
+      historySnapshotRef.current = {
+        query: searchQuery, source: selectedSource, app: selectedApp,
+        filter: activeFilter, selectedId: selectedClip?.id ?? null,
+        scrollTop: clipListRef.current?.scrollTop ?? 0,
+      };
+    }
+    const snapshot = panel === 'inbox' ? historySnapshotRef.current : null;
+    ++clipRequestRef.current;
+    setActivePanel(panel);
+    setSearchQuery(snapshot?.query ?? '');
+    setDebouncedQuery(snapshot?.query ?? '');
+    setSelectedSource(snapshot?.source ?? null);
+    setSelectedApp(snapshot?.app ?? null);
+    setActiveFilter(snapshot?.filter ?? 'all');
+    setSelectedClip(null);
+    setClips([]);
+    setClipsLoaded(false);
+    restoreSelectionRef.current = snapshot?.selectedId ?? null;
+    restoreScrollRef.current = snapshot?.scrollTop ?? 0;
+    skipSelectionScrollRef.current = snapshot !== null;
+  }, [activePanel, searchQuery, selectedSource, selectedApp, activeFilter, selectedClip]);
+
+  const resetPinnedView = useCallback(() => {
+    if (clipViewRef.current.activePanel !== 'pinned') return;
+    ++clipRequestRef.current;
+    setActivePanel('inbox');
+    setSelectedSource(null);
+    setSelectedApp(null);
+    setActiveFilter('all');
+    setClips([]);
+    setClipsLoaded(false);
+    setActionsOpen(false);
+    historySnapshotRef.current = null;
+    restoreSelectionRef.current = null;
+    restoreScrollRef.current = 0;
+    skipSelectionScrollRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (activePanel !== 'devices') searchRef.current?.focus();
+  }, [activePanel]);
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    actionsRef.current?.querySelector<HTMLButtonElement>('[role="menu"] button:not(:disabled)')?.focus();
+    const outside = (e: MouseEvent) => {
+      if (e.target instanceof Node && !actionsRef.current?.contains(e.target)) setActionsOpen(false);
+    };
+    document.addEventListener('mousedown', outside);
+    return () => document.removeEventListener('mousedown', outside);
+  }, [actionsOpen]);
+
+  useLayoutEffect(() => {
+    clipViewRef.current = { activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter };
+    ++clipRequestRef.current;
+    return () => { ++clipRequestRef.current; };
+  }, [activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter]);
+
+  useLayoutEffect(() => {
+    if (clipsLoaded && clipListRef.current && restoreScrollRef.current !== null) {
+      clipListRef.current.scrollTop = restoreScrollRef.current;
+      restoreScrollRef.current = null;
+    }
+  }, [clips, clipsLoaded]);
   // Tracks whether a clip-action modal was open on the previous render, so the
   // effect below can detect the open→closed edge and restore keyboard focus.
   const modalWasOpenRef = useRef(false);
@@ -176,30 +270,29 @@ function App() {
   }, [searchQuery]);
 
   const refreshClips = useCallback(async () => {
+    const { activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter } = clipViewRef.current;
+    if (activePanel === 'devices') return;
+    const request = ++clipRequestRef.current;
     try {
-      if (activePanel === 'pinned') {
-        const pinned = await unwrap(commands.listPinnedClips());
-        setClips(pinned);
-        return;
-      }
       let finalQuery = debouncedQuery;
-      if (selectedSource) {
-        finalQuery = `from:${selectedSource} ${finalQuery}`.trim();
-      }
-      if (selectedApp) {
-        finalQuery = `app:${selectedApp} ${finalQuery}`.trim();
-      }
-      if (activeFilter !== 'all') {
-        finalQuery = `type:${activeFilter} ${finalQuery}`.trim();
-      }
+      if (activePanel === 'pinned') finalQuery = `is:pinned ${finalQuery}`.trim();
+      if (selectedSource) finalQuery = `from:${selectedSource} ${finalQuery}`.trim();
+      if (selectedApp) finalQuery = `app:${selectedApp} ${finalQuery}`.trim();
+      if (activeFilter !== 'all') finalQuery = `type:${activeFilter} ${finalQuery}`.trim();
       const results = await unwrap(commands.listClips(finalQuery, 500));
-      setClips(applyInboxRecency(results));
+      if (request !== clipRequestRef.current) return;
+      const next = applyInboxRecency(results);
+      const restoreId = restoreSelectionRef.current;
+      restoreSelectionRef.current = null;
+      setClips(next);
+      setSelectedClip((current) => next.find((clip) => clip.id === (restoreId ?? current?.id)) ?? next[0] ?? null);
     } catch (e) {
+      if (request === clipRequestRef.current) showToast('Could not load history. Try searching again.', 'error');
       console.error('failed to load clips:', e);
     } finally {
-      setClipsLoaded(true);
+      if (request === clipRequestRef.current) setClipsLoaded(true);
     }
-  }, [activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter, applyInboxRecency]);
+  }, [applyInboxRecency, showToast]);
 
   const refreshSources = useCallback(async () => {
     try {
@@ -246,7 +339,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [auth.variant, refreshClips, refreshSources, refreshDevices, refreshAppOptions]);
 
-  useEffect(() => { refreshClips(); }, [refreshClips]);
+  useEffect(() => { void refreshClips(); }, [refreshClips, activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter]);
   useEffect(() => {
     void refreshSources();
     void refreshAppOptions();
@@ -255,9 +348,10 @@ function App() {
   // Scroll selected clip into view when navigating with keyboard
   useEffect(() => {
     if (!selectedClip || !clipListRef.current) return;
+    if (skipSelectionScrollRef.current) { skipSelectionScrollRef.current = false; return; }
     const el = clipListRef.current.querySelector<HTMLElement>(`[data-id="${selectedClip.id}"]`);
     el?.scrollIntoView({ block: 'nearest' });
-  }, [selectedClip]);
+  }, [selectedClip?.id]);
 
   // Return keyboard focus to the selected clip's row when a clip-action modal
   // (pin / edit / delete) closes. Those modals autofocus an input; unmounting
@@ -337,12 +431,13 @@ function App() {
 
   useEffect(() => {
     const unsubBlur = getCurrentWindow().listen('tauri://blur', () => {
+      resetPinnedView();
       setSelectedClip(null);
       setSearchQuery('');
       setDebouncedQuery('');
     });
     return () => { unsubBlur.then((f) => f()); };
-  }, []);
+  }, [resetPinnedView]);
 
   const handleSaveImage = useCallback(async (clip: LocalClip) => {
     try {
@@ -368,12 +463,13 @@ function App() {
         showToast(message, 'copy');
       });
     bumpClipRecency(clip);
+    resetPinnedView();
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedClip(null);
     void refreshClips();
     void commands.focusPreviousApp();
-  }, [bumpClipRecency, refreshClips, showToast]);
+  }, [bumpClipRecency, refreshClips, showToast, resetPinnedView]);
 
   const copyClip = useCallback(async (clip: LocalClip) => {
     try {
@@ -462,7 +558,7 @@ function App() {
 
   const totalClips = sources.reduce((sum, s) => sum + s.clip_count, 0);
 
-  // Build source -> nickname map for SourcePill and from: filter
+  // Machine labels are shared by history metadata and source filters.
   const nicknameBySource = useMemo(() => {
     const map: Record<string, string> = { ...displayNames };
     for (const d of devices) {
@@ -478,7 +574,7 @@ function App() {
     [devices, sources, displayNames, tagColors],
   );
 
-  // Use results from Rust directly — no more client-side fuzzy filtering!
+  // Keyboard order follows the visible time groups.
   const navOrderClips = useMemo(() => {
     if (activePanel === 'pinned') return clips;
     return groupByTimeBucket(clips).flatMap((g) => g.items);
@@ -496,33 +592,45 @@ function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ignore IME composition keydowns (e.g. the Enter that commits a Korean
-      // composition arrives as key "Process" / keyCode 229) so they never
-      // swallow a shortcut. The next, real keydown is handled normally.
-      if (isImeComposition(e)) return;
-
-      // While a modal is open it owns the keyboard (each has its own Esc and,
-      // for the edit modal, ⌘↵ handler). Suppress every global shortcut so
-      // that, e.g., ⌘↵ to save does not also broadcast the selected clip via
-      // sendClip, ⌘P does not pin it, and Esc does not deselect it underneath
-      // the modal.
-      if (editDialog || pinNoteDialog || deleteDialog) return;
-
-      const target = e.target as HTMLElement | null;
-      const isTextEntry =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        !!target?.isContentEditable;
-
-      // Resolve the physical key (e.code) for letter/digit shortcuts so they
-      // survive Korean IME (ㅓ on KeyJ) and non-QWERTY layouts.
+      if (isImeComposition(e) || e.defaultPrevented) return;
+      if (editDialog || pinNoteDialog || deleteDialog || showSettings || handoffRelay !== null || newSourcePrompt) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
       const key = physicalKey(e);
-
-      if ((e.metaKey || e.ctrlKey) && key === 'F') {
+      if (showShortcuts) {
+        if (key === 'Escape') setShowShortcuts(false);
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      const isTextEntry = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement || !!target?.isContentEditable;
+      const actionMatch = Object.values(actionShortcuts).some((shortcut) => matchesAccelerator(e, shortcut));
+      if (!actionMatch && matchesAccelerator(e, PINNED_SHORTCUT)) {
+        e.preventDefault();
+        showPanel(activePanel === 'pinned' ? 'inbox' : 'pinned');
+        return;
+      }
+      if (!actionMatch && matchesAccelerator(e, ACTIONS_SHORTCUT)) {
+        e.preventDefault();
+        if (actionsOpen) closeActions();
+        else setActionsOpen(true);
+        return;
+      }
+      if (actionsOpen) {
+        if (key === 'Escape') { e.preventDefault(); closeActions(); }
+        return;
+      }
+      if (key === 'Escape') {
+        e.preventDefault();
+        if (activePanel !== 'inbox') showPanel('inbox');
+        else if (searchQuery) setSearchQuery('');
+        else searchRef.current?.blur();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && key === 'F' && !actionMatch) {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
+        return;
       }
       if (key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextEntry) {
         e.preventDefault();
@@ -530,135 +638,107 @@ function App() {
         searchRef.current?.select();
         return;
       }
-      if (key === 'Escape') {
-        if (showShortcuts) { setShowShortcuts(false); return; }
-        if (document.activeElement === searchRef.current) {
-          searchRef.current?.blur();
-        } else if (searchQuery) {
-          setSearchQuery('');
-        } else if (selectedClip) {
-          setSelectedClip(null);
-        }
-      }
-      if (key === '?' && !(e.target instanceof HTMLInputElement)) {
+      if (key === '?' && !isTextEntry) {
         e.preventDefault();
-        setShowShortcuts(v => !v);
+        setShowShortcuts(true);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === ',') {
         e.preventDefault();
-        setSettingsTab('general'); setShowSettings(v => !v);
+        setSettingsTab('general'); setShowSettings(true);
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && (key === '1' || key === '2' || key === '3')) {
+      if (!actionMatch && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && ['1', '2', '3'].includes(key)) {
         e.preventDefault();
-        const panels: RailPanel[] = ['inbox', 'pinned', 'devices'];
-        const panel = panels[parseInt(key) - 1];
-        setActivePanel(panel);
-        setSelectedClip(null);
-        setSelectedSource(null);
-        setSelectedApp(null);
+        showPanel((['inbox', 'pinned', 'devices'] as const)[Number(key) - 1]);
         return;
       }
-      if (
-        key === 'Tab' &&
-        !e.metaKey && !e.ctrlKey && !e.altKey &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
-      ) {
-        e.preventDefault();
-        const panels: RailPanel[] = ['inbox', 'pinned', 'devices'];
-        const idx = panels.indexOf(activePanel);
-        const next = e.shiftKey
-          ? (idx - 1 + panels.length) % panels.length
-          : (idx + 1) % panels.length;
-        setActivePanel(panels[next]);
-        setSelectedClip(null);
-        setSelectedSource(null);
-        setSelectedApp(null);
-        return;
-      }
-      // Pin/unpin (default ⌘P): keep the unconditional preventDefault so the
-      // default binding still suppresses the webview print dialog; act only
-      // when a clip is selected.
+      if (activePanel === 'devices') return;
       if (matchesAccelerator(e, actionShortcuts.pin)) {
         e.preventDefault();
         if (selectedClip) {
-          if (selectedClip.is_pinned) {
-            handleUnpin(selectedClip);
-          } else {
-            setPinNoteDialog({ clip: selectedClip });
-          }
+          if (selectedClip.is_pinned) void handleUnpin(selectedClip);
+          else setPinNoteDialog({ clip: selectedClip });
         }
         return;
       }
-      // Edit (default ⌘E): text clips only, never while typing in a field.
       if (matchesAccelerator(e, actionShortcuts.edit) && !isTextEntry && selectedClip && selectedClip.content_type !== 'image') {
         e.preventDefault();
         setEditDialog({ clip: selectedClip });
         return;
       }
-      // Delete (⌘⌫): confirm before removing the selected clip. Honors the ⌘⌫
-      // hint already shown on the Delete button and the empty-state placeholder
-      // in ClipDetail. Skipped while typing in a field so ⌘⌫ keeps its native
-      // "delete to line start" behavior in the search box; preventDefault
-      // suppresses the webview's Cmd+Backspace back-navigation.
       if ((e.metaKey || e.ctrlKey) && key === 'Backspace' && !isTextEntry) {
         e.preventDefault();
         if (selectedClip) setDeleteDialog({ clip: selectedClip });
         return;
       }
-      // Save image (default ⌘K on macOS, Ctrl+Shift+K elsewhere): only for
-      // image clips, never while typing in a field.
-      if (matchesAccelerator(e, actionShortcuts.save) && !isTextEntry && selectedClip && selectedClip.content_type === 'image') {
+      if (matchesAccelerator(e, actionShortcuts.save) && !isTextEntry && selectedClip?.content_type === 'image') {
         e.preventDefault();
         void handleSaveImage(selectedClip);
         return;
       }
-      if (selectedClip) {
-        // Send (default ⌘↵) is checked before Copy (default ↵). Exact-modifier
-        // matching already keeps them mutually exclusive, but the else-if
-        // preserves the original "only one fires" intent.
-        if (matchesAccelerator(e, actionShortcuts.send)) {
-          e.preventDefault();
-          void sendClip(selectedClip);
-        } else if (matchesAccelerator(e, actionShortcuts.copy) && (!isTextEntry || e.target === searchRef.current)) {
-          e.preventDefault();
-          copyClip(selectedClip);
-        }
-        // ⌘C stays a fixed copy alias (only when no text is selected).
-        if ((e.metaKey || e.ctrlKey) && key === 'C') {
-          if (!window.getSelection()?.toString()) copyClip(selectedClip);
-        }
-      }
-      // Ctrl+H / Ctrl+L — cycle sources (only when not typing in search)
-      if (e.ctrlKey && (key === 'H' || key === 'L') && !(e.target instanceof HTMLInputElement)) {
+      if (selectedClip && matchesAccelerator(e, actionShortcuts.send)) {
         e.preventDefault();
-        const all = [null, ...sources.map((s) => s.source)];
+        void sendClip(selectedClip);
+        return;
+      }
+      if (selectedClip && matchesAccelerator(e, actionShortcuts.copy) && (!isTextEntry || e.target === searchRef.current)) {
+        e.preventDefault();
+        void copyClip(selectedClip);
+        return;
+      }
+      const searchHasSelection = target === searchRef.current && target instanceof HTMLInputElement &&
+        target.selectionStart !== target.selectionEnd;
+      if (selectedClip && (e.metaKey || e.ctrlKey) && key === 'C' &&
+          (!isTextEntry || target === searchRef.current) && !searchHasSelection && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        void copyClip(selectedClip);
+        return;
+      }
+      if (e.ctrlKey && (key === 'H' || key === 'L') && !isTextEntry) {
+        e.preventDefault();
+        const all = [null, ...sources.map((source) => source.source)];
         const idx = all.indexOf(selectedSource);
-        const next = key === 'L'
-          ? (idx + 1) % all.length
-          : (idx - 1 + all.length) % all.length;
-        setSelectedSource(all[next]);
+        setSelectedSource(all[key === 'L' ? (idx + 1) % all.length : (idx - 1 + all.length) % all.length]);
         setSelectedClip(null);
       }
       const isDown = key === 'ArrowDown' || (e.ctrlKey && key === 'J');
       const isUp = key === 'ArrowUp' || (e.ctrlKey && key === 'K');
-      if (isDown || isUp) {
-        if (navOrderClips.length === 0) return;
+      if ((isDown || isUp) && (!isTextEntry || target === searchRef.current)) {
+        if (!navOrderClips.length) return;
         e.preventDefault();
-        const idx = selectedClip ? navOrderClips.findIndex((c) => c.id === selectedClip.id) : -1;
-        const next = idx === -1
-          ? 0
-          : isDown
-            ? Math.min(idx + 1, navOrderClips.length - 1)
-            : Math.max(idx - 1, 0);
+        const idx = selectedClip ? navOrderClips.findIndex((clip) => clip.id === selectedClip.id) : -1;
+        const next = idx === -1 ? 0 : isDown ? Math.min(idx + 1, navOrderClips.length - 1) : Math.max(idx - 1, 0);
         setSelectedClip(navOrderClips[next]);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, handleSaveImage, showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, actionShortcuts]);
+  }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, handleSaveImage,
+    showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, showSettings, handoffRelay,
+    newSourcePrompt, actionShortcuts, actionsOpen, closeActions, showPanel]);
+
+  const runAction = (action: () => void) => { closeActions(); action(); };
+  const openFilter = (mode: 'device' | 'app') => {
+    setFilterRequest(mode);
+    searchRef.current?.focus();
+  };
+  const menuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault(); e.stopPropagation(); closeActions(); return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    const index = items.findIndex((item) => item === document.activeElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 :
+      (index + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  };
+  const pinnedShortcutAvailable = !Object.values(actionShortcuts).some((shortcut) =>
+    formatShortcutDisplay(shortcut) === formatShortcutDisplay(PINNED_SHORTCUT));
+  const actionsShortcutAvailable = !Object.values(actionShortcuts).some((shortcut) =>
+    formatShortcutDisplay(shortcut) === formatShortcutDisplay(ACTIONS_SHORTCUT));
 
   const currentDeviceID =
     auth.variant === 'Authenticated' ? auth.payload.device_id : '';
@@ -689,117 +769,107 @@ function App() {
 
   return (
     <main data-testid="dashboard-root" style={S.main}>
-      <Rail
-        active={activePanel}
-        onSelect={(panel) => {
-          setActivePanel(panel);
-          setSelectedClip(null);
-          setSelectedSource(null);
-          setSelectedApp(null);
-          setActiveFilter('all');
-        }}
-        onOpenSettings={() => openSettings()}
-      />
-
       <div style={S.mainCol}>
-        {auth.variant === 'LocalOnly' && (
-          <div style={S.connectionNotice}>
-            <span>Local clipboard. No account or relay required.</span>
-            <button style={dialogStyles.btnGhost} onClick={() => { setSelectedClip(null); setActivePanel('devices'); }}>
-              Connect a relay
-            </button>
-          </div>
-        )}
         {auth.variant === 'Authenticating' && <AuthLoadingNotice progress={auth.payload.progress} />}
         {auth.variant === 'ErrorRecoverable' && <AuthErrorNotice reason={auth.payload.reason} />}
         <UpdateBanner currentVersion={currentDesktopVersion} latest={latestVersions} />
-        <SearchBar
-          ref={searchRef}
-          value={searchQuery}
-          onChange={setSearchQuery}
-          onClear={() => setSearchQuery('')}
-          themeMode={themeMode}
-          onSetThemeMode={setThemeMode}
-          onMouseDown={handleWindowDrag}
-          activeFilter={activeFilter}
-          onFilterChange={setActiveFilter}
-          deviceOptions={deviceOptions}
-          selectedSource={selectedSource}
-          onSourceChange={setSelectedSource}
-          appOptions={appOptions}
-          selectedApp={selectedApp}
-          onAppChange={setSelectedApp}
-        />
-
-        <div style={S.body}>
-        {activePanel === 'devices' && auth.variant !== 'Authenticated' ? (
-          <OnboardingScreen
-            onShowSettings={() => openSettings('privacy')}
-            connecting={auth.variant === 'Authenticating'}
-          />
-        ) : activePanel === 'devices' ? (
-          <DevicesPanel
-            currentDeviceID={currentDeviceID}
-            currentMachineId={currentMachineId}
-            onShowToast={(msg) => showToast(msg, 'copy')}
-            onDeviceChange={refreshDevices}
-          />
-        ) : activePanel === 'pinned' ? (
-          <PinnedPanel
-            clips={clips}
-            selected={selectedClip}
-            onSelect={setSelectedClip}
-            onCopy={copyClip}
-            onPin={(c) => setPinNoteDialog({ clip: c })}
-            onUnpin={handleUnpin}
-            onDelete={(c) => handleDelete(c.id)}
-            onSaveImage={handleSaveImage}
-            query={debouncedQuery}
-            deviceNicknames={nicknameBySource}
-            tagColors={tagColors}
-            listRef={clipListRef}
-            actionShortcuts={actionShortcuts}
-          />
-        ) : !clipsLoaded ? (
-          <ClipListSkeleton />
-        ) : clips.length === 0 && !debouncedQuery && !selectedSource && !selectedApp && activeFilter === 'all' ? (
-          <GettingStartedCard onConnectRelay={() => { setSelectedClip(null); setActivePanel('devices'); }} />
+        {activePanel === 'devices' ? (
+          <div className="history-toolbar" onMouseDown={handleWindowDrag}>
+            <button type="button" onClick={() => showPanel('inbox')}>← Back to history</button>
+          </div>
         ) : (
-          <>
-            <ClipList
-              ref={clipListRef}
-              clips={clips}
-              selected={selectedClip}
-              onSelect={setSelectedClip}
-              onCopy={copyClip}
-              onSend={auth.variant === 'Authenticated' ? sendClip : undefined}
-              query={debouncedQuery}
-              deviceNicknames={nicknameBySource}
-              tagColors={tagColors}
-            />
-            <ClipDetail
-              clip={selectedClip}
-              onCopy={copyClip}
-              onPin={(c) => c.is_pinned ? handleUnpin(c) : setPinNoteDialog({ clip: c })}
-              onDelete={(c) => handleDelete(c.id)}
-              onSaveImage={handleSaveImage}
-              onEdit={(c) => setEditDialog({ clip: c })}
-              searchQuery={debouncedQuery}
-              tagColors={tagColors}
-              sourceDisplayNames={nicknameBySource}
-              actionShortcuts={actionShortcuts}
-            />
-          </>
+          <SearchBar
+            key={activePanel}
+            ref={searchRef}
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onClear={() => setSearchQuery('')}
+            pinnedOnly={activePanel === 'pinned'}
+            onLeavePinned={() => showPanel('inbox')}
+            filterRequest={filterRequest}
+            onFilterRequestHandled={() => setFilterRequest(null)}
+            onMouseDown={handleWindowDrag}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+            deviceOptions={deviceOptions}
+            selectedSource={selectedSource}
+            onSourceChange={setSelectedSource}
+            appOptions={appOptions}
+            selectedApp={selectedApp}
+            onAppChange={setSelectedApp}
+          />
         )}
-        </div>
-      </div>
 
-      {selectedClip && (
-        <HiddenActions
-          onCopy={() => copyClip(selectedClip)}
-          onDelete={() => handleDelete(selectedClip.id)}
-        />
-      )}
+        <div className="history-body" style={S.body}>
+          {activePanel === 'devices' && auth.variant !== 'Authenticated' ? (
+            <OnboardingScreen onShowSettings={() => openSettings('privacy')} connecting={auth.variant === 'Authenticating'} />
+          ) : activePanel === 'devices' ? (
+            <DevicesPanel currentDeviceID={currentDeviceID} currentMachineId={currentMachineId}
+              onShowToast={(msg) => showToast(msg, 'copy')} onDeviceChange={refreshDevices} />
+          ) : !clipsLoaded ? (
+            <ClipListSkeleton />
+          ) : activePanel === 'inbox' && clips.length === 0 && !debouncedQuery && !selectedSource && !selectedApp && activeFilter === 'all' ? (
+            <GettingStartedCard onConnectRelay={() => showPanel('devices')} />
+          ) : (
+            <>
+              <ClipList ref={clipListRef} clips={clips} selected={selectedClip}
+                onSelect={setSelectedClip} onCopy={copyClip} query={debouncedQuery}
+                pinnedOnly={activePanel === 'pinned'} deviceNicknames={nicknameBySource} />
+              <ClipDetail clip={selectedClip} searchQuery={debouncedQuery} sourceDisplayNames={nicknameBySource} />
+            </>
+          )}
+        </div>
+
+        <footer className="history-footer">
+          <span className="history-status">{auth.variant === 'Authenticated' ? '' : 'Local only'}</span>
+          {activePanel !== 'devices' && (
+            <button type="button" disabled={!selectedClip} onClick={() => selectedClip && void copyClip(selectedClip)}>
+              Copy <kbd>{formatShortcutDisplay(actionShortcuts.copy)}</kbd>
+            </button>
+          )}
+          <div className="history-actions" ref={actionsRef}>
+            <button type="button" ref={actionsTriggerRef} aria-haspopup="menu" aria-expanded={actionsOpen}
+              aria-controls="history-actions-menu" onClick={() => setActionsOpen((open) => !open)}>
+              Actions {actionsShortcutAvailable && <kbd>{formatShortcutDisplay(ACTIONS_SHORTCUT)}</kbd>}
+            </button>
+            {actionsOpen && (
+              <div id="history-actions-menu" className="history-menu" role="menu" aria-label="Actions" onKeyDown={menuKeyDown}>
+                <button type="button" role="menuitem" onClick={() => runAction(() => showPanel(activePanel === 'pinned' ? 'inbox' : 'pinned'))}>
+                  {activePanel === 'pinned' ? 'Show recent history' : 'Show pinned'}
+                  {pinnedShortcutAvailable && <kbd>{formatShortcutDisplay(PINNED_SHORTCUT)}</kbd>}
+                </button>
+                {activePanel !== 'devices' && (
+                  <>
+                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('device'))}>Filter by device <kbd>@</kbd></button>
+                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('app'))}>Filter by app <kbd>&gt;</kbd></button>
+                  </>
+                )}
+                {selectedClip && activePanel !== 'devices' && (
+                  <>
+                    <div role="separator" />
+                    <button type="button" role="menuitem" onClick={() => runAction(() => selectedClip.is_pinned ? void handleUnpin(selectedClip) : setPinNoteDialog({ clip: selectedClip }))}>
+                      {selectedClip.is_pinned ? 'Unpin' : 'Pin'} <kbd>{formatShortcutDisplay(actionShortcuts.pin)}</kbd>
+                    </button>
+                    {selectedClip.content_type !== 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => setEditDialog({ clip: selectedClip }))}>Edit <kbd>{formatShortcutDisplay(actionShortcuts.edit)}</kbd></button>}
+                    {selectedClip.content_type === 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => void handleSaveImage(selectedClip))}>Save… <kbd>{formatShortcutDisplay(actionShortcuts.save)}</kbd></button>}
+                    {auth.variant === 'Authenticated' && <button type="button" role="menuitem" onClick={() => runAction(() => void sendClip(selectedClip))}>Send <kbd>{formatShortcutDisplay(actionShortcuts.send)}</kbd></button>}
+                    <button type="button" role="menuitem" className="destructive" onClick={() => runAction(() => setDeleteDialog({ clip: selectedClip }))}>Delete <kbd>{formatShortcutDisplay('CmdOrCtrl+Backspace')}</kbd></button>
+                  </>
+                )}
+                <div role="separator" />
+                <button type="button" role="menuitem" onClick={() => runAction(() => showPanel('devices'))}>
+                  {auth.variant === 'Authenticated' ? 'Devices' : 'Connect a relay'}
+                </button>
+                <button type="button" role="menuitem" onClick={() => runAction(() => openSettings())}>Settings <kbd>{formatShortcutDisplay('CmdOrCtrl+,')}</kbd></button>
+                <button type="button" role="menuitem" onClick={() => runAction(() => setThemeMode(themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system'))}>
+                  Theme: {themeMode} <span className="menu-hint">Next: {themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system'}</span>
+                </button>
+                <button type="button" role="menuitem" onClick={() => runAction(() => setShowShortcuts(true))}>Keyboard shortcuts <kbd>?</kbd></button>
+              </div>
+            )}
+          </div>
+        </footer>
+      </div>
 
       {pinNoteDialog && (
         <PinNoteDialog
@@ -918,16 +988,6 @@ function AuthErrorNotice({ reason }: { reason: AuthErrorReason }) {
 
 // ─── Internal helper components ────────────────────────────
 
-// Off-screen buttons so screen-readers/keyboard can still trigger actions.
-function HiddenActions({ onCopy, onDelete }: { onCopy: () => void; onDelete: () => void }) {
-  return (
-    <div style={{ position: 'absolute', left: -9999, top: -9999 }} aria-hidden="true">
-      <button onClick={onCopy}><IconCopy /></button>
-      <button onClick={onDelete}><IconTrash /></button>
-    </div>
-  );
-}
-
 function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; actionShortcuts: ActionShortcuts }) {
   const groups: { title: string; rows: { keys: string[]; label: string }[] }[] = [
     {
@@ -939,8 +999,8 @@ function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; acti
         { keys: ['⌘1'], label: 'Go to Inbox' },
         { keys: ['⌘2'], label: 'Go to Pinned' },
         { keys: ['⌘3'], label: 'Go to Devices' },
-        { keys: ['⇥'], label: 'Next panel (Inbox → Pinned → Devices)' },
-        { keys: ['⇧⇥'], label: 'Previous panel' },
+        { keys: [formatShortcutDisplay(PINNED_SHORTCUT)], label: 'Toggle pinned view (unless assigned to a clip action)' },
+        { keys: [formatShortcutDisplay(ACTIONS_SHORTCUT)], label: 'Open actions (unless assigned to a clip action)' },
       ],
     },
     {
@@ -961,7 +1021,7 @@ function ShortcutPanel({ onClose, actionShortcuts }: { onClose: () => void; acti
       title: 'Search',
       rows: [
         { keys: ['⌘F', '/'], label: 'Focus search' },
-        { keys: ['Esc'], label: 'Clear search / deselect' },
+        { keys: ['Esc'], label: 'Return to history / clear search' },
       ],
     },
     {
@@ -1163,8 +1223,6 @@ const S: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     border: `1px solid ${C.border}`,
   },
-  // Right column: search toolbar + panes, sitting to the right of the
-  // full-height rail (the rail is now the leftmost full-height element).
   mainCol: {
     display: 'flex',
     flexDirection: 'column',
