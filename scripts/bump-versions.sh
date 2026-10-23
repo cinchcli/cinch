@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Updates the version in all five locations across the monorepo, then runs the
-# parity check to confirm everything agrees.
+# Updates the five manifests and workspace package entries in Cargo.lock,
+# then checks manifest version parity.
 # Usage: ./scripts/bump-versions.sh <new-version>
 
 set -euo pipefail
@@ -23,5 +23,17 @@ inplace_sed "s/^version = \"[^\"]+\"/version = \"${NEW}\"/" apps/desktop/src-tau
 inplace_sed "s/(\"version\":[[:space:]]*\")[^\"]+/\\1${NEW}/" apps/desktop/package.json
 inplace_sed "s/(\"version\":[[:space:]]*\")[^\"]+/\\1${NEW}/" apps/desktop/src-tauri/tauri.conf.json
 
+python3 - "$NEW" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path("Cargo.lock")
+content = path.read_text()
+for name in ("cinch-cli", "cinch-desktop", "cinchcli-core"):
+    pattern = r'(\[\[package\]\]\nname = "' + re.escape(name) + r'"\nversion = ")[^"]+(")'
+    content, count = re.subn(pattern, lambda m: m[1] + sys.argv[1] + m[2], content)
+    if count != 1:
+        raise SystemExit(f"Expected one Cargo.lock entry for {name}, found {count}")
+path.write_text(content)
+PY
+
 ./scripts/check-version-parity.sh "$NEW"
-echo "Bumped all 5 manifests to ${NEW}"
+echo "Bumped all 5 manifests and Cargo.lock to ${NEW}"
