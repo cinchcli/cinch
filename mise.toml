@@ -1,0 +1,15 @@
+[tasks.release]
+description = "Publish remote main after its CI passes (default: patch)"
+usage = """
+arg "[bump]" help="Version increment" default="patch" {
+  choices "patch" "minor" "major"
+}
+flag "--dry-run" help="Check main and CI without publishing"
+"""
+run = """
+if [ "$usage_dry_run" = "true" ]; then
+  python3 scripts/release.py "$usage_bump" --dry-run
+else
+  python3 scripts/release.py "$usage_bump"
+fi
+"""

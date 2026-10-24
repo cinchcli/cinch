@@ -18,10 +18,22 @@ on:
         description: 'Build but do not publish'
         type: boolean
         default: false
+      expected_sha:
+        description: 'Expected main SHA (mise release checks this before dispatch)'
+        type: string
+        default: ''
   # No `schedule:` trigger — nightlies are off. The infrastructure
   # (channel=nightly option, next-version.sh nightly path) is left in place
   # so manual nightlies via workflow_dispatch still work if needed; just
   # re-add `schedule: [cron: '0 1 * * *']` to bring back automatic ones.
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,6 +49,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Verify main source and CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo "::error::Publish must run from main"; exit 1; }
+          if [ -n "$EXPECTED_SHA" ] && [ "$EXPECTED_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Main changed after release preflight"
+            exit 1
+          fi
+          python3 scripts/release.py --check --expected-sha "$GITHUB_SHA"
       - id: compute
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
