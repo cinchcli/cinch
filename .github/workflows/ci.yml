@@ -70,3 +70,5 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: ./scripts/check-version-parity.sh
+      - name: Test DMG notarization gate
+        run: python3 scripts/test_notarize_dmg.py
