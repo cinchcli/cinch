@@ -781,6 +781,7 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   toolbarAside: {
+    maxWidth: '100%',
     display: 'flex',
     alignItems: 'center',
     flexWrap: 'wrap',
