@@ -16,8 +16,6 @@ const DEFAULT_APPS: AppOption[] = [
   { id: 'com.apple.Terminal',   label: 'Terminal', count: 9 },
 ];
 
-type ThemeMode = 'light' | 'dark' | 'system';
-
 function renderBar(overrides: Partial<{
   value: string;
   onChange: (s: string) => void;
@@ -29,22 +27,17 @@ function renderBar(overrides: Partial<{
   appOptions: AppOption[];
   selectedApp: string | null;
   onAppChange: (a: string | null) => void;
-  themeMode: ThemeMode;
-  onSetThemeMode: (m: ThemeMode) => void;
 }> = {}) {
   const onChange = overrides.onChange ?? vi.fn();
   const onFilterChange = overrides.onFilterChange ?? vi.fn();
   const onSourceChange = overrides.onSourceChange ?? vi.fn();
   const onAppChange = overrides.onAppChange ?? vi.fn();
-  const onSetThemeMode = overrides.onSetThemeMode ?? vi.fn();
   const result = render(
     <SearchBar
       ref={createRef()}
       value={overrides.value ?? ''}
       onChange={onChange}
       onClear={vi.fn()}
-      themeMode={overrides.themeMode ?? 'dark'}
-      onSetThemeMode={onSetThemeMode}
       onMouseDown={vi.fn()}
       activeFilter={overrides.activeFilter ?? 'all'}
       onFilterChange={onFilterChange}
@@ -60,7 +53,7 @@ function renderBar(overrides: Partial<{
   // a safe handle even after a sigil opens a dropdown (which changes the
   // placeholder).
   const input = screen.getByLabelText('Search clips') as HTMLInputElement;
-  return { ...result, input, onChange, onFilterChange, onSourceChange, onAppChange, onSetThemeMode };
+  return { ...result, input, onChange, onFilterChange, onSourceChange, onAppChange };
 }
 
 describe('SearchBar', () => {
@@ -178,9 +171,9 @@ describe('SearchBar', () => {
       expect(onFilterChange).toHaveBeenCalledWith('all');
     });
 
-    it('placeholder shows # and @ hints when no filter or source is active', () => {
+    it('shows a short search placeholder when no filter is active', () => {
       renderBar({ activeFilter: 'all' });
-      expect(screen.getByPlaceholderText(/# type, @ device/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Search clips/i)).toBeInTheDocument();
     });
 
     it('placeholder is empty when a filter chip is active', () => {
@@ -432,9 +425,9 @@ describe('SearchBar', () => {
       expect(onAppChange).not.toHaveBeenCalled();
     });
 
-    it('placeholder shows the > app hint when nothing is active', () => {
+    it('keeps the unfiltered placeholder concise', () => {
       renderBar({ activeFilter: 'all', selectedSource: null, selectedApp: null });
-      expect(screen.getByPlaceholderText(/> app/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Search clips/i)).toBeInTheDocument();
     });
 
     it('renders all three chips when type, app, and device are active', () => {
@@ -608,7 +601,7 @@ describe('SearchBar', () => {
       const onAppChange = vi.fn();
       const base = {
         value: '', onChange: vi.fn(), onClear: vi.fn(),
-        themeMode: 'dark' as const, onSetThemeMode: vi.fn(), onMouseDown: vi.fn(),
+        onMouseDown: vi.fn(),
         activeFilter: 'all' as const, onFilterChange: vi.fn(),
         deviceOptions: DEFAULT_DEVICES, selectedSource: null, onSourceChange: vi.fn(),
         selectedApp: null, onAppChange,
@@ -743,92 +736,10 @@ describe('SearchBar', () => {
     });
   });
 
-  describe('theme menu', () => {
-    it('does not show the menu by default', () => {
-      renderBar();
-      expect(screen.queryByTestId('theme-menu')).not.toBeInTheDocument();
-    });
-
-    it('opens the menu when the theme button is clicked', () => {
-      renderBar();
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      expect(screen.getByTestId('theme-menu')).toBeInTheDocument();
-    });
-
-    it('lists Light, Dark, and System options', () => {
-      renderBar();
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      expect(screen.getByTestId('theme-option-light')).toBeInTheDocument();
-      expect(screen.getByTestId('theme-option-dark')).toBeInTheDocument();
-      expect(screen.getByTestId('theme-option-system')).toBeInTheDocument();
-    });
-
-    it('marks the active mode with aria-checked=true', () => {
-      renderBar({ themeMode: 'system' });
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      expect(screen.getByTestId('theme-option-system')).toHaveAttribute('aria-checked', 'true');
-      expect(screen.getByTestId('theme-option-light')).toHaveAttribute('aria-checked', 'false');
-      expect(screen.getByTestId('theme-option-dark')).toHaveAttribute('aria-checked', 'false');
-    });
-
-    it('selecting an option calls onSetThemeMode and closes the menu', () => {
-      const { onSetThemeMode } = renderBar({ themeMode: 'dark' });
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      fireEvent.mouseDown(screen.getByTestId('theme-option-system'));
-      expect(onSetThemeMode).toHaveBeenCalledWith('system');
-      expect(screen.queryByTestId('theme-menu')).not.toBeInTheDocument();
-    });
-
-    it('clicking the toggle a second time closes the menu', () => {
-      renderBar();
-      const toggle = screen.getByTestId('theme-toggle');
-      fireEvent.click(toggle);
-      expect(screen.getByTestId('theme-menu')).toBeInTheDocument();
-      fireEvent.click(toggle);
-      expect(screen.queryByTestId('theme-menu')).not.toBeInTheDocument();
-    });
-
-    it('Escape closes the menu', () => {
-      renderBar();
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      expect(screen.getByTestId('theme-menu')).toBeInTheDocument();
-      fireEvent.keyDown(document, { key: 'Escape' });
-      expect(screen.queryByTestId('theme-menu')).not.toBeInTheDocument();
-    });
-
-    it('clicking outside the menu closes it', () => {
-      renderBar();
-      fireEvent.click(screen.getByTestId('theme-toggle'));
-      expect(screen.getByTestId('theme-menu')).toBeInTheDocument();
-      fireEvent.mouseDown(document.body);
-      expect(screen.queryByTestId('theme-menu')).not.toBeInTheDocument();
-    });
-
-    it('the toggle icon reflects the current mode', () => {
-      const { rerender } = renderBar({ themeMode: 'light' });
-      const buttonLight = screen.getByTestId('theme-toggle');
-      expect(buttonLight).toHaveAttribute('aria-label', 'Theme: Light');
-
-      rerender(
-        <SearchBar
-          ref={createRef()}
-          value=""
-          onChange={vi.fn()}
-          onClear={vi.fn()}
-          themeMode="system"
-          onSetThemeMode={vi.fn()}
-          onMouseDown={vi.fn()}
-          activeFilter="all"
-          onFilterChange={vi.fn()}
-          deviceOptions={DEFAULT_DEVICES}
-          selectedSource={null}
-          onSourceChange={vi.fn()}
-          appOptions={DEFAULT_APPS}
-          selectedApp={null}
-          onAppChange={vi.fn()}
-        />
-      );
-      expect(screen.getByTestId('theme-toggle')).toHaveAttribute('aria-label', 'Theme: System');
-    });
+  it('opens the type picker from its visible control', () => {
+    const { input } = renderBar();
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by type' }));
+    expect(input).toHaveFocus();
+    expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
   });
 });

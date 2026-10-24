@@ -33,7 +33,7 @@ describe('ClipList', () => {
   it('renders empty state when no clips and no query', () => {
     render(
       <ClipList clips={[]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     expect(screen.getByText(/no clips/i)).toBeInTheDocument();
   });
@@ -41,7 +41,7 @@ describe('ClipList', () => {
   it('renders search-miss empty state when query and no clips', () => {
     render(
       <ClipList clips={[]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="foo" deviceNicknames={{}} now={NOW} />
+                query="foo" deviceNicknames={{}} now={NOW} />
     );
     expect(screen.getByText(/no results/i)).toBeInTheDocument();
     expect(screen.getByText(/foo/)).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe('ClipList', () => {
     ];
     render(
       <ClipList clips={clips} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     expect(screen.getByText('Today')).toBeInTheDocument();
     expect(screen.getByText('Yesterday')).toBeInTheDocument();
@@ -67,7 +67,6 @@ describe('ClipList', () => {
         selected={null}
         onSelect={() => {}}
         onCopy={() => {}}
-        onSend={() => {}}
         query=""
         deviceNicknames={{}}
         now={NOW}
@@ -77,14 +76,14 @@ describe('ClipList', () => {
     expect(screen.queryByText('Older')).not.toBeInTheDocument();
   });
 
-  it('marks the selected clip with aria-selected', () => {
+  it('marks the selected clip with aria-current', () => {
     const c = clip({ id: 'a' });
     render(
       <ClipList clips={[c]} selected={c} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     const row = screen.getByRole('button', { name: /hello world/i });
-    expect(row).toHaveAttribute('aria-selected', 'true');
+    expect(row).toHaveAttribute('aria-current', 'true');
   });
 
   it('calls onSelect when row clicked', () => {
@@ -92,7 +91,7 @@ describe('ClipList', () => {
     const onSelect = vi.fn();
     render(
       <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     fireEvent.click(screen.getByRole('button', { name: /hello world/i }));
     expect(onSelect).toHaveBeenCalledWith(c);
@@ -103,51 +102,42 @@ describe('ClipList', () => {
     const onCopy = vi.fn();
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={onCopy}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     fireEvent.doubleClick(screen.getByRole('button', { name: /hello world/i }));
     expect(onCopy).toHaveBeenCalledWith(c);
   });
 
-  it('renders meta row (source + time) before the content preview', () => {
-    const c = clip({ id: 'a', content: 'unique-preview-text', source: 'remote:host-x' });
-    render(
-      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{ 'remote:host-x': 'host-x' }} now={NOW} />
-    );
-    const row = screen.getByRole('button', { name: /unique-preview-text/i });
-    const meta = row.querySelector('[data-testid="clip-meta"]');
-    const preview = row.querySelector('[data-testid="clip-preview"]');
-    expect(meta).toBeInTheDocument();
-    expect(preview).toBeInTheDocument();
-    // DOM order: meta must come before preview as a sibling
-    const children = Array.from(row.children);
-    expect(children.indexOf(meta as Element)).toBeLessThan(children.indexOf(preview as Element));
+  it('keeps provenance in the row tooltip without a metadata line', () => {
+    const c = clip({ source: 'remote:host-x' });
+    render(<ClipList clips={[c]} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" deviceNicknames={{ 'remote:host-x': 'Work Mac' }} />);
+    expect(screen.getByRole('button', { name: c.content })).toHaveAttribute('title', 'Work Mac');
+    expect(screen.queryByText('Work Mac')).not.toBeInTheDocument();
   });
 
   it('shows a pin indicator when the clip is pinned', () => {
     const c = clip({ id: 'a', is_pinned: true });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
-    expect(screen.getByTestId('clip-pin-indicator')).toBeInTheDocument();
+    expect(screen.getByTitle('Pinned')).toBeInTheDocument();
   });
 
   it('hides the pin indicator when the clip is not pinned', () => {
     const c = clip({ id: 'a', is_pinned: false });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
-    expect(screen.queryByTestId('clip-pin-indicator')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Pinned')).not.toBeInTheDocument();
   });
 
   it('renders image preview for an image clip with no media_path (store-backed)', () => {
     const c = clip({ id: 'img-row', content_type: 'image', byte_size: 245760, content: '' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     // media_path defaults to null via the factory — image preview must still render
     expect(screen.getByText(/Image \(240\.0 KB\)/)).toBeInTheDocument();
@@ -157,70 +147,38 @@ describe('ClipList', () => {
     const c = clip({ id: 'blank', content: '\n', byte_size: 1 });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
-    const preview = screen.getByTestId('clip-preview');
+    const preview = screen.getByRole('button', { name: /Blank/ });
     // A lone newline would otherwise trim to '' and render an invisible row.
     expect(preview.textContent).toContain('Blank');
-    expect(preview.getAttribute('style') || '').toMatch(/font-style:\s*italic/);
   });
 
-  it('preview uses 2-line clamp, not nowrap', () => {
-    const c = clip({ id: 'a', content: 'line content' });
-    render(
-      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
-    );
-    const preview = screen.getByTestId('clip-preview');
-    const styleAttr = preview.getAttribute('style') || '';
-    expect(styleAttr).toMatch(/-webkit-line-clamp:\s*2/);
-    expect(styleAttr).not.toMatch(/white-space:\s*nowrap/);
+  it('preserves chronological placement of pinned clips', () => {
+    const clips = [clip({ id: 'recent', content: 'recent clip' }), clip({ id: 'pin', content: 'older pin', is_pinned: true })];
+    render(<ClipList clips={clips} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" />);
+    expect(screen.getAllByRole('button').map((row) => row.getAttribute('data-id'))).toEqual(['recent', 'pin']);
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
   });
 
   it('shows a Sending… badge for pending clips', () => {
     const c = clip({ id: 'p1', sync_state: 'pending' });
     render(
       <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
+                query="" deviceNicknames={{}} now={NOW} />
     );
     expect(screen.getByText('Sending…')).toBeInTheDocument();
   });
 
-  it('shows a Sent badge for synced clips and no badge for local clips', () => {
-    const synced = clip({ id: 'syn', sync_state: 'synced' });
-    const { rerender } = render(
-      <ClipList clips={[synced]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
-    );
-    expect(screen.getByText('Sent')).toBeInTheDocument();
-
-    const local = clip({ id: 'loc', sync_state: 'local' });
-    rerender(
-      <ClipList clips={[local]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
-    );
-    expect(screen.queryByTestId('clip-sync-state')).not.toBeInTheDocument();
+  it('leaves completed sync metadata to the preview', () => {
+    render(<ClipList clips={[clip({ sync_state: 'synced' })]} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" />);
+    expect(screen.queryByText('Sent')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
   });
 
-  it('Send button broadcasts the clip (calls onSend with the clip)', () => {
-    const onSend = vi.fn();
-    const c = clip({ id: 's1', sync_state: 'local' });
-    render(
-      <ClipList clips={[c]} selected={null} onSelect={() => {}} onCopy={() => {}}
-                onSend={onSend} query="" deviceNicknames={{}} now={NOW} />
-    );
-    fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
-    expect(onSend).toHaveBeenCalledWith(c);
-  });
-
-  it('does not trigger row select when the Send button is clicked', () => {
-    const onSelect = vi.fn();
-    const c = clip({ id: 's2', sync_state: 'local' });
-    render(
-      <ClipList clips={[c]} selected={null} onSelect={onSelect} onCopy={() => {}}
-                onSend={() => {}} query="" deviceNicknames={{}} now={NOW} />
-    );
-    fireEvent.click(screen.getByRole('button', { name: /send clip/i }));
-    expect(onSelect).not.toHaveBeenCalled();
+  it('renders pinned results without a permanent group heading', () => {
+    render(<ClipList clips={[clip({ is_pinned: true })]} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" pinnedOnly />);
+    expect(screen.queryByText('Today')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
   });
 });

@@ -91,6 +91,17 @@ describe("SettingsPane", () => {
     });
   });
 
+  it("shows local-only status without empty account fields and retains category navigation", async () => {
+    render(<SettingsPane onClose={() => {}} clipCount={0} />);
+    expect(screen.getByText("Local only")).toBeInTheDocument();
+    expect(screen.queryByText("Email")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "Privacy" }));
+    await screen.findByText("Local retention");
+    expect(screen.getByRole("button", { name: "Privacy" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("main", { name: "Storage and privacy" })).toBeInTheDocument();
+  });
+
   describe("Global shortcut field", () => {
     it("renders the global shortcut input with label", async () => {
       render(<SettingsPane onClose={() => {}} clipCount={0} />);
