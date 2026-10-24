@@ -210,11 +210,8 @@ jobs:
             exit 1
           fi
           echo "Notarization credentials verified"
-      - name: Build desktop bundle (embedded CLI, signs + notarizes + staples inline)
-        # Tauri runs codesign on the binary/app/zip, then submits to notarytool
-        # with --wait, then staples — all inside this single step when APPLE_ID,
-        # APPLE_PASSWORD, and APPLE_TEAM_ID are present. No follow-up notarize
-        # step is needed.
+      - name: Build desktop bundle (embedded CLI and notarized app)
+        # Tauri notarizes and staples the app before creating the signed DMG.
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -223,6 +220,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cd apps/desktop && pnpm tauri build --target ${{ matrix.target }}
+      - name: Notarize and verify DMG
+        timeout-minutes: 25
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          bash scripts/notarize-dmg.sh \
+            "target/${{ matrix.target }}/release/bundle/dmg/Cinch_${{ needs.prepare.outputs.version }}_aarch64.dmg"
       - name: Verify updater artifact against embedded public key
         run: |
           brew install minisign
