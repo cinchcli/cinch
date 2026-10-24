@@ -1,0 +1,7 @@
+.devices-panel {
+  min-width: 0;
+  padding: 12px 16px;
+}
+.settings-content .devices-panel {
+  padding: 0;
+}

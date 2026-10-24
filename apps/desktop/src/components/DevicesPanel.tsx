@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { commands, events } from '../bindings';
 import { unwrap } from '../lib/tauri';
 import { C, formatTime } from '../design';
-import { sourcePillVars } from '../lib/sourceColor';
+import './DevicesPanel.css';
 import { useMachineLabels } from '../lib/state/machineLabels';
 import type { Device, SourceAlertSetting, SourceInfo } from '../bindings';
 import { useLatestVersions } from '../lib/state/versions';
@@ -263,7 +263,7 @@ export function DevicesPanel({
 
   if (loading) {
     return (
-      <div style={S.panel}>
+      <div className="devices-panel" style={S.panel}>
         <header style={S.toolbar}>
           <div style={S.titleBlock}>
             <div className="skeleton-shimmer" style={S.skeletonBlockTitle} />
@@ -320,35 +320,16 @@ export function DevicesPanel({
 
   if (merged.length === 0) {
     return (
-      <div style={S.panel}>
+      <div className="devices-panel" style={S.panel}>
         <header style={S.toolbar}>
-          <div style={S.titleBlock}>
-            <h1 style={S.pageTitle}>Devices</h1>
-            <p style={S.pageSubtitle}>
-              Paired devices and remote sources that send clips to this desk.
-            </p>
-          </div>
-          <div style={S.toolbarAside}>
-            <span style={S.statPillMuted}>0 connected</span>
-          </div>
+          <h2 style={S.pageTitle}>Devices</h2>
         </header>
         <div style={S.emptyState}>
-          <div style={S.emptyCard}>
-            <div style={S.emptyKicker}>Getting started</div>
-            <div style={S.emptyHeading}>No devices yet</div>
-            <div style={S.emptyBody}>
-              Pair a device so clips can sync between your devices.
-            </div>
-            <code style={S.emptyCode}>cinch auth pair</code>
-            <button
-              type="button"
-              className="btn-primary"
-              style={S.emptyPrimaryBtn}
-              onClick={() => setShowSshDialog(true)}
-            >
-              Add via SSH
-            </button>
-          </div>
+          <p style={S.emptyBody}>No devices yet. Add a machine to share clips with it.</p>
+          <button type="button" className="devices-btn" style={S.toolbarPrimary}
+            onClick={() => setShowSshDialog(true)}>
+            Add via SSH
+          </button>
           {showSshDialog && (
             <AddSshMachineDialog
               onClose={() => {
@@ -363,9 +344,6 @@ export function DevicesPanel({
     );
   }
 
-  const pairedCount = devices.length;
-  const totalCount = merged.length;
-
   // The device being confirmed for revoke (needed for ConfirmDialog label)
   const confirmingDevice = confirmingRevokeId
     ? devices.find((d) => d.id === confirmingRevokeId)
@@ -376,34 +354,16 @@ export function DevicesPanel({
       confirmingRevokeId
     : confirmingRevokeId;
 
-  // ── Device grid ──────────────────────────────────────────
+  // ── Device list ──────────────────────────────────────────
 
   return (
-    <div style={S.panel}>
+    <div className="devices-panel" style={S.panel}>
       <header style={S.toolbar}>
-        <div style={S.titleBlock}>
-          <h1 style={S.pageTitle}>Devices</h1>
-          <p style={S.pageSubtitle}>
-            {pairedCount} paired · {totalCount} total · manage alerts and display names
-          </p>
-        </div>
-        <div style={S.toolbarAside}>
-          <span style={S.statPill}>
-            <span style={S.statStrong}>{pairedCount}</span> paired
-          </span>
-          <span style={S.statPillMuted}>
-            <span style={S.statStrong}>{totalCount}</span> in list
-          </span>
-          <button
-            type="button"
-            className="btn-primary"
-            style={S.toolbarPrimary}
-            onClick={() => setShowSshDialog(true)}
-            aria-label="Add device via SSH"
-          >
-            Add via SSH
-          </button>
-        </div>
+        <h2 style={S.pageTitle}>Devices</h2>
+        <button type="button" className="devices-btn" style={S.toolbarPrimary}
+          onClick={() => setShowSshDialog(true)} aria-label="Add device via SSH">
+          Add via SSH
+        </button>
       </header>
 
       <ul aria-label="Devices" style={{ ...S.list, listStyle: 'none', margin: 0, padding: 0 }}>
@@ -411,14 +371,10 @@ export function DevicesPanel({
           if (entry.kind === 'local') {
             return (
               <li key="local" style={{ ...S.rowWrap, listStyle: 'none' }}>
-                <div style={{ ...S.row, ...S.rowCurrent }}>
-                  <div style={S.rowAccent} aria-hidden />
+                <div style={S.row}>
                   <div style={S.rowMain}>
-                    <div style={S.rowTop}>
-                      <span style={S.thisDeviceBadge}>This device</span>
-                    </div>
                     <div style={S.cardName}>This device</div>
-                    <div style={S.cardMeta}>Local clipboard · this Cinch instance</div>
+                    <div style={S.cardMeta}>Local clipboard</div>
                   </div>
                 </div>
               </li>
@@ -434,7 +390,6 @@ export function DevicesPanel({
             return (
               <li key={s.source} style={{ ...S.rowWrap, listStyle: 'none' }}>
                 <div style={S.row}>
-                  <div style={{ ...S.rowAccent, background: sourcePillVars(s.source).fg }} aria-hidden />
                   <div style={S.rowMain}>
                     <div style={S.rowTop}>
                       <span style={S.sourcePill}>{displayName}</span>
@@ -496,8 +451,7 @@ export function DevicesPanel({
 
           return (
             <li key={device.id} style={{ ...S.rowWrap, listStyle: 'none' }}>
-              <div style={{ ...S.row, ...(isCurrentDevice ? S.rowCurrent : {}) }}>
-                <div style={{ ...S.rowAccent, background: sourcePillVars(sourceKey).fg }} aria-hidden />
+              <div style={S.row}>
                 <div style={S.rowMain}>
                   <div style={S.rowTop}>
                     <span style={S.sourcePill}>
@@ -508,7 +462,7 @@ export function DevicesPanel({
                     )}
                   </div>
                   <div style={S.cardMeta}>
-                    push relay · {device.clip_count ?? 0} clips · {lastSeen(device)}
+                    {device.online ? 'Online' : 'Offline'} · {device.clip_count ?? 0} clips · Last sent {lastSeen(device)}
                   </div>
                   <div style={{ ...S.cardMeta, marginTop: 4 }}>
                     <DeviceVersionCell
@@ -566,23 +520,6 @@ export function DevicesPanel({
           );
         })}
 
-        <li style={{ ...S.rowWrap, listStyle: 'none', borderBottom: 'none' }}>
-          <button
-            type="button"
-            className="pair-row"
-            style={S.pairRow}
-            onClick={() => setShowSshDialog(true)}
-            aria-label="Add device via SSH"
-          >
-            <span style={S.pairPlus} aria-hidden>
-              +
-            </span>
-            <span style={S.pairRowText}>
-              <span style={S.pairHeading}>Pair another device</span>
-              <span style={S.pairBody}>SSH wizard · installs Cinch where you develop</span>
-            </span>
-          </button>
-        </li>
       </ul>
 
       {showSshDialog && (
@@ -743,10 +680,10 @@ const S: Record<string, React.CSSProperties> = {
 
   toolbar: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 'var(--sp-lg)',
-    padding: 'var(--sp-lg) var(--sp-xl)',
+    gap: 12,
+    padding: '8px 0 12px',
     borderBottom: `1px solid ${C.border}`,
     flexShrink: 0,
     flexWrap: 'wrap',
@@ -762,74 +699,24 @@ const S: Record<string, React.CSSProperties> = {
 
   pageTitle: {
     margin: 0,
-    fontSize: 20,
-    fontWeight: 650,
-    letterSpacing: '-0.03em',
-    color: C.t1,
-    fontFamily: 'var(--font-body)',
-    lineHeight: 1.2,
-  },
-
-  pageSubtitle: {
-    margin: 0,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 500,
-    color: C.t3,
-    fontFamily: 'var(--font-body)',
-    lineHeight: 1.45,
-    maxWidth: 440,
-  },
-
-  toolbarAside: {
-    maxWidth: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 'var(--sp-sm)',
-    flexShrink: 0,
-  },
-
-  statPill: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: C.t2,
-    fontFamily: 'var(--font-mono)',
-    fontVariantNumeric: 'tabular-nums',
-    padding: 'var(--sp-xs) var(--sp-sm)',
-    borderRadius: 9999,
-    background: C.card2,
-    border: `1px solid ${C.border}`,
-    whiteSpace: 'nowrap',
-  },
-
-  statPillMuted: {
-    fontSize: 11,
-    fontWeight: 500,
-    color: C.t3,
-    fontFamily: 'var(--font-mono)',
-    fontVariantNumeric: 'tabular-nums',
-    padding: 'var(--sp-xs) var(--sp-sm)',
-    borderRadius: 9999,
-    background: 'transparent',
-    border: `1px solid ${C.border}`,
-    whiteSpace: 'nowrap',
-  },
-
-  statStrong: {
     color: C.t1,
-    fontWeight: 700,
   },
+
+
+
+
+
 
   toolbarPrimary: {
-    background: C.accent,
-    color: C.accentOn,
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    padding: 'var(--sp-sm) var(--sp-md)',
+    background: 'transparent',
+    color: C.t2,
+    border: `1px solid ${C.border}`,
+    borderRadius: 5,
+    padding: '5px 9px',
     fontSize: 12,
-    fontWeight: 600,
     cursor: 'pointer',
-    fontFamily: 'var(--font-body)',
     whiteSpace: 'nowrap',
   },
 
@@ -839,7 +726,7 @@ const S: Record<string, React.CSSProperties> = {
     flex: 1,
     minHeight: 0,
     overflowY: 'auto',
-    padding: 'var(--sp-md) 0',
+    padding: 0,
   },
 
   rowWrap: {
@@ -848,35 +735,20 @@ const S: Record<string, React.CSSProperties> = {
 
   row: {
     display: 'flex',
-    alignItems: 'flex-start',
-    gap: 'var(--sp-md)',
-    padding: 'var(--sp-md) var(--sp-xl)',
-    minHeight: 72,
-    boxSizing: 'border-box',
-    background: C.bg,
-    transition: 'background 120ms ease',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    padding: '14px 0',
   },
 
-  rowCurrent: {
-    background: C.selected,
-  },
 
-  rowAccent: {
-    width: 3,
-    alignSelf: 'stretch',
-    borderRadius: 2,
-    flexShrink: 0,
-    marginTop: 2,
-    marginBottom: 2,
-    background: C.borderHover,
-  },
 
   rowMain: {
-    flex: 1,
+    flex: '1 1 220px',
     minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 'var(--sp-xs)',
+    gap: 4,
   },
 
   rowTop: {
@@ -889,52 +761,13 @@ const S: Record<string, React.CSSProperties> = {
   rowActions: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 'var(--sp-sm)',
+    gap: 6,
     flexWrap: 'wrap',
-    flexShrink: 0,
-    paddingTop: 2,
+    maxWidth: '100%',
   },
 
-  pairRow: {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--sp-md)',
-    padding: 'var(--sp-lg) var(--sp-xl)',
-    margin: '0 var(--sp-md)',
-    boxSizing: 'border-box',
-    background: 'transparent',
-    border: `1px dashed ${C.border}`,
-    borderRadius: 'var(--radius-lg)',
-    cursor: 'pointer',
-    textAlign: 'left',
-    font: 'inherit',
-    color: 'inherit',
-  },
 
-  pairPlus: {
-    width: 36,
-    height: 36,
-    borderRadius: 'var(--radius-md)',
-    background: C.card2,
-    border: `1px solid ${C.border}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 20,
-    fontWeight: 500,
-    color: C.t2,
-    flexShrink: 0,
-    lineHeight: 1,
-  },
 
-  pairRowText: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    minWidth: 0,
-  },
 
   sourcePill: {
     fontSize: 13,
@@ -945,29 +778,20 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    maxWidth: 220,
+    maxWidth: '100%',
   },
 
   thisDeviceBadge: {
-    background: C.card2,
     fontSize: 11,
-    fontWeight: 600,
     color: C.t3,
-    padding: '2px var(--sp-sm)',
-    borderRadius: 'var(--radius-sm)',
     fontFamily: 'var(--font-body)',
-    whiteSpace: 'nowrap',
   },
 
   cardName: {
-    fontSize: 15,
-    fontWeight: 600,
+    fontSize: 13,
+    fontWeight: 500,
     color: C.t1,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    letterSpacing: '-0.012em',
-    lineHeight: 1.4,
+    overflowWrap: 'anywhere',
   },
 
   nicknameInput: {
@@ -979,7 +803,6 @@ const S: Record<string, React.CSSProperties> = {
     border: `1px solid ${C.borderHover}`,
     borderRadius: 'var(--radius-md)',
     padding: 'var(--sp-sm)',
-    outline: 'none',
     lineHeight: 1.4,
     width: '100%',
     boxSizing: 'border-box',
@@ -993,13 +816,10 @@ const S: Record<string, React.CSSProperties> = {
 
   cardMeta: {
     fontSize: 12,
-    fontWeight: 500,
     color: C.t3,
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-body)',
     fontVariantNumeric: 'tabular-nums',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    overflowWrap: 'anywhere',
   },
 
   customizeBtn: {
@@ -1036,9 +856,9 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   settingsSaveBtn: {
-    background: C.accent,
-    color: C.accentOn,
-    border: `1px solid ${C.accent}`,
+    background: C.t1,
+    color: C.bg,
+    border: `1px solid ${C.t1}`,
     borderRadius: 'var(--radius-md)',
     padding: 'var(--sp-xs) var(--sp-md)',
     fontSize: 12,
@@ -1049,16 +869,13 @@ const S: Record<string, React.CSSProperties> = {
   },
 
   settingsPanel: {
-    marginLeft: 'var(--sp-xl)',
-    marginRight: 'var(--sp-lg)',
-    marginBottom: 'var(--sp-md)',
-    padding: 'var(--sp-md)',
-    borderRadius: 'var(--radius-md)',
-    border: `1px solid ${C.border}`,
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 6,
     background: C.card2,
     display: 'flex',
     flexDirection: 'column',
-    gap: 'var(--sp-md)',
+    gap: 12,
   },
 
   fieldBlock: {
@@ -1124,90 +941,27 @@ const S: Record<string, React.CSSProperties> = {
     border: `1px solid ${C.border}`,
   },
 
-  pairHeading: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: C.t1,
-    fontFamily: 'var(--font-body)',
-  },
 
-  pairBody: {
-    fontSize: 12,
-    fontWeight: 500,
-    color: C.t3,
-    fontFamily: 'var(--font-body)',
-  },
 
   emptyState: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 'var(--sp-xl)',
-    minHeight: 0,
-  },
-  emptyCard: {
-    maxWidth: 380,
-    width: '100%',
-    padding: 'var(--sp-xl)',
-    borderRadius: 'var(--radius-lg)',
-    border: `1px solid ${C.border}`,
-    background: C.card,
-    textAlign: 'center',
     display: 'flex',
     flexDirection: 'column',
-    gap: 'var(--sp-sm)',
-    alignItems: 'center',
-  },
-  emptyKicker: {
-    fontSize: 11,
-    fontWeight: 500,
-    letterSpacing: '0.01em',
-    color: C.t4,
-    fontFamily: 'var(--font-body)',
-  },
-  emptyHeading: {
-    fontSize: 17,
-    fontWeight: 600,
-    color: C.t1,
-    fontFamily: 'var(--font-body)',
-    letterSpacing: '-0.02em',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: '16px 0',
   },
   emptyBody: {
-    fontSize: 13,
-    fontWeight: 500,
+    fontSize: 12,
     color: C.t3,
-    fontFamily: 'var(--font-body)',
-    lineHeight: 1.55,
-  },
-  emptyCode: {
-    fontSize: 12,
-    fontFamily: 'var(--font-mono)',
-    color: C.t2,
-    padding: 'var(--sp-sm) var(--sp-md)',
-    borderRadius: 'var(--radius-sm)',
-    background: C.card2,
-    border: `1px solid ${C.border}`,
-  },
-  emptyPrimaryBtn: {
-    marginTop: 'var(--sp-sm)',
-    background: C.accent,
-    color: C.accentOn,
-    border: 'none',
-    borderRadius: 'var(--radius-md)',
-    padding: 'var(--sp-sm) var(--sp-lg)',
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'var(--font-body)',
   },
 
   skeletonRow: {
     display: 'flex',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 'var(--sp-md)',
-    padding: 'var(--sp-md) var(--sp-xl)',
-    minHeight: 72,
+    padding: '14px 0',
+    minHeight: 60,
     borderBottom: `1px solid ${C.border}`,
   },
   skeletonRowMain: {
@@ -1234,7 +988,8 @@ const S: Record<string, React.CSSProperties> = {
   },
   skeletonBlockSubtitle: {
     height: 12,
-    width: 280,
+    width: 180,
+    maxWidth: '100%',
     borderRadius: 4,
     background: C.card2,
     opacity: 0.35,

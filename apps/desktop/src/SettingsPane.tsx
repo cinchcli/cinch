@@ -500,7 +500,6 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
               <hr style={S.divider} />
 
               <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Remote devices</div>
                 <DevicesPanel
                   currentDeviceID={auth.variant === "Authenticated" ? auth.payload.device_id : ""}
                   currentMachineId={auth.variant === "Authenticated" ? auth.payload.machine_id : ""}
