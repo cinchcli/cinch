@@ -15,6 +15,7 @@
   --text-faint: #97979F;
   --text-vfaint: #767680;
   --selection-bar: #F1F1F2;
+  --focus-ring: #85858F;
   --accent: #80B8B3;
   --accent-muted: #60A49D;
   --accent-subtle: rgba(128, 184, 179, 0.10);
@@ -80,6 +81,7 @@ html.light {
   --text-vfaint:  #85858F;
 
   --selection-bar: #2F3437;
+  --focus-ring: #777781;
 
   --accent:        #2F7F78;
   --accent-muted:  #1F5F59;
@@ -165,7 +167,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 

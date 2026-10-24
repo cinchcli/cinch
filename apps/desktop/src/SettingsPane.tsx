@@ -1,11 +1,6 @@
-// SettingsPane — minimalist sidebar+content layout.
-//
-// Left column: vertical category nav (General / Privacy / Devices / Agents & CLI / Keyboard).
-// Right column: scrollable content with generous macro-whitespace and 1px
-// dividers between sections — no nested card containers around form fields.
-//
-// Verbatim copy is load-bearing for PRV-02 / PRV-03 messaging — do NOT
-// reword retention/clear-history strings without a UI-SPEC edit.
+// Settings categories share a compact header and scrollable content.
+// Retention and clear-history copy follows PRV-02 / PRV-03. Update the UI spec
+// before changing those safety disclosures.
 
 import { useEffect, useId, useState, type CSSProperties } from "react";
 import { register, unregister, isRegistered } from "@tauri-apps/plugin-global-shortcut";
@@ -24,7 +19,8 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { C } from "./design";
-import { IconX, IconCinch, IconLock, IconEye, IconArrowRight, IconCheck } from "./icons";
+import "./SettingsPane.css";
+import { IconX, IconLock, IconEye, IconArrowRight, IconCheck } from "./icons";
 import ConfirmDialog from "./ConfirmDialog";
 import RetentionSlider from "./RetentionSlider";
 import { AddRelayDialog } from "./components/AddRelayDialog";
@@ -67,12 +63,12 @@ export type SettingsTab = "general" | "privacy" | "devices" | "agents" | "shortc
 
 export const SETTINGS_TABS: SettingsTab[] = ["general", "privacy", "devices", "agents", "shortcuts"];
 
-export const CATEGORY_META: Record<SettingsTab, { label: string; title: string; subtitle: string }> = {
-  general: { label: "General", title: "General", subtitle: "Your account, appearance, window size, and notifications." },
-  privacy: { label: "Privacy", title: "Storage & privacy", subtitle: "What the relay can see, how long clips live on this Mac and on the relay, and how to wipe this Mac." },
-  devices: { label: "Devices", title: "Relay & devices", subtitle: "Manage your relay connection, the machines linked to this account, and pending sign-ins." },
-  agents: { label: "Agents & CLI", title: "Agents & CLI", subtitle: "Connect your coding agent over MCP and use the cinch command line." },
-  shortcuts: { label: "Keyboard", title: "Keyboard", subtitle: "Customize the launch shortcut and the per-clip actions. The list below shows the remaining built-in shortcuts." },
+export const CATEGORY_META: Record<SettingsTab, { label: string; title: string }> = {
+  general: { label: "General", title: "General settings" },
+  privacy: { label: "Privacy", title: "Storage and privacy" },
+  devices: { label: "Devices", title: "Relay and devices" },
+  agents: { label: "Agents & CLI", title: "Agents and CLI" },
+  shortcuts: { label: "Keyboard", title: "Keyboard shortcuts" },
 };
 
 /** Register the global shortcut to show/focus the main window. */
@@ -101,8 +97,6 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
     count: number;
   } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [closeHovered, setCloseHovered] = useState(false);
-  const [destructiveHovered, setDestructiveHovered] = useState(false);
 
   const [windowPreset, setWindowPreset] = useState<WindowPreset>(resolveWindowPreset);
   const [notifyOnRemoteLogin, setNotifyOnRemoteLogin] = useNotifyOnRemoteLogin();
@@ -440,61 +434,23 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
   const meta = CATEGORY_META[activeTab];
 
   return (
-    <div style={S.page} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      {/* Floating close — top-right of the page */}
-      <button
-        style={{ ...S.closeBtn, background: closeHovered ? C.hover : "transparent" }}
-        onClick={onClose}
-        onMouseEnter={() => setCloseHovered(true)}
-        onMouseLeave={() => setCloseHovered(false)}
-        aria-label="Close settings"
-        type="button"
-      >
-        <IconX size={14} />
-      </button>
-
-      {/* Left nav */}
-      <aside style={S.nav} aria-label="Settings categories">
-        <div style={S.navHeader}>
-          <span style={S.navLogo} aria-hidden="true">
-            <IconCinch size={20} />
-          </span>
-          <h1 id={titleId} style={S.navTitle}>Settings</h1>
-        </div>
-        <div style={S.navList}>
-          {SETTINGS_TABS.map((tab) => {
-            const active = activeTab === tab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                aria-current={active ? "page" : undefined}
-                style={{
-                  ...S.navItem,
-                  background: active ? C.selected : "transparent",
-                  color: active ? C.t1 : C.t2,
-                }}
-              >
-                {active && <span style={S.navItemBar} aria-hidden="true" />}
-                {CATEGORY_META[tab].label}
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Right content */}
-      <main style={S.content}>
-        <div style={S.ambient} aria-hidden="true" />
-        <div style={S.contentInner}>
-          <header style={S.contentHeader}>
-            <h2 style={S.contentTitle}>{meta.title}</h2>
-            <p style={S.contentSubtitle}>{meta.subtitle}</p>
-          </header>
-
-          <hr style={S.headerDivider} />
-
+    <div className="settings-pane" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <header className="settings-header">
+        <h1 id={titleId}>Settings</h1>
+        <button className="settings-close" onClick={onClose} aria-label="Close settings" type="button">
+          <kbd>Esc</kbd><IconX size={14} />
+        </button>
+      </header>
+      <nav className="settings-nav" aria-label="Settings categories">
+        {SETTINGS_TABS.map((tab) => (
+          <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+            aria-current={activeTab === tab ? "page" : undefined}>
+            {CATEGORY_META[tab].label}
+          </button>
+        ))}
+      </nav>
+      <main className="settings-content" aria-label={meta.title} key={activeTab}>
+        <div className="settings-content-inner">
           {/* Devices */}
           {activeTab === "devices" && (
             <>
@@ -715,13 +671,16 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
 
               <div style={S.fieldGroup}>
                 <div style={S.fieldHeading}>Built-in shortcuts</div>
+                <div style={S.fieldDescription}>Custom clip actions take priority over the Pinned and Actions shortcuts.</div>
                 {([
                   {
                     group: "Navigation",
                     rows: [
                       { keys: ["↑", "↓"], desc: "Move between clips" },
                       { keys: ["j", "k"], desc: "Move between clips (vim)" },
-                      { keys: ["Tab"], desc: "Switch between All / Pinned" },
+                      { keys: ["⌘⇧P"], desc: "Show pinned / recent history" },
+                      { keys: ["⌘⇧A"], desc: "Open actions" },
+                      { keys: ["Tab"], desc: "Move between controls" },
                     ],
                   },
                   {
@@ -872,15 +831,9 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
                     ...S.destructiveBtn,
                     cursor: clipCount === 0 ? "not-allowed" : "pointer",
                     opacity: clipCount === 0 ? 0.4 : 1,
-                    boxShadow:
-                      destructiveHovered && clipCount > 0
-                        ? "rgba(255,99,99,0.15) 0 0 20px 5px"
-                        : "none",
                   }}
                   disabled={clipCount === 0}
                   onClick={() => setClearOpen(true)}
-                  onMouseEnter={() => setDestructiveHovered(true)}
-                  onMouseLeave={() => setDestructiveHovered(false)}
                 >
                   {clipCount > 0 ? `Clear ${clipCount} clips…` : "Clear local history"}
                 </button>
@@ -894,103 +847,71 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
             </>
           )}
 
-          {/* General */}
           {activeTab === "general" && (
-            <>
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Account</div>
-                <div style={S.fieldDescription}>The identity this Mac is signed in as. Read-only.</div>
-                <AccountIdentity />
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Theme</div>
-                <div style={S.fieldDescription}>Match the system, or pick light or dark.</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                  {(["system", "light", "dark"] as ThemeMode[]).map((m) => {
-                    const active = mode === m;
-                    return (
-                      <button key={m} type="button" onClick={() => setMode(m)}
-                        style={{ ...S.segmentBtn, background: active ? C.t1 : "transparent", color: active ? C.bg : C.t2, borderColor: active ? C.t1 : C.border }}>
-                        {m === "system" ? "System" : m === "light" ? "Light" : "Dark"}
-                      </button>
-                    );
-                  })}
+            <div className="settings-general">
+              <section className="settings-row">
+                <div>
+                  <h2>Account</h2>
+                  <p>{auth.variant === "LocalOnly" ? "No account needed for local history." : "Your connected identity."}</p>
                 </div>
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Window size</div>
-                <div style={S.fieldDescription}>Choose a preset size.</div>
-                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                  {(Object.keys(WINDOW_PRESETS) as WindowPreset[]).map((key) => {
-                    const active = windowPreset === key;
-                    return (
-                      <button key={key} type="button" onClick={() => void applyWindowPreset(key)}
-                        style={{ ...S.segmentBtn, background: active ? C.t1 : "transparent", color: active ? C.bg : C.t2, borderColor: active ? C.t1 : C.border }}>
-                        {WINDOW_PRESETS[key].label}
-                      </button>
-                    );
-                  })}
+                {auth.variant === "LocalOnly" ? <span className="settings-value">Local only</span> : <AccountIdentity />}
+              </section>
+              <section className="settings-row">
+                <div>
+                  <h2>Theme</h2>
+                  <p>Match the system, or choose an appearance.</p>
                 </div>
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Notifications</div>
-                <div style={S.fieldDescription}>Control which system notifications cinch shows.</div>
-                <label style={S.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={notifyOnRemoteLogin}
+                <div className="settings-segments" role="group" aria-label="Theme">
+                  {(["system", "light", "dark"] as ThemeMode[]).map((m) => (
+                    <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>
+                      {m === "system" ? "System" : m === "light" ? "Light" : "Dark"}
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="settings-row">
+                <div>
+                  <h2>Window size</h2>
+                  <p>Resize the clipboard window.</p>
+                </div>
+                <div className="settings-segments" role="group" aria-label="Window size">
+                  {(Object.keys(WINDOW_PRESETS) as WindowPreset[]).map((key) => (
+                    <button key={key} type="button" aria-pressed={windowPreset === key} onClick={() => void applyWindowPreset(key)}>
+                      {WINDOW_PRESETS[key].label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="settings-row">
+                <div>
+                  <h2>Notifications</h2>
+                  <p>Show a notification when a remote login needs approval.</p>
+                </div>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={notifyOnRemoteLogin}
                     onChange={(e) => setNotifyOnRemoteLogin(e.target.checked)}
                     aria-label="Show macOS notification when a remote login is pending approval"
-                    style={S.srOnlyInput}
-                  />
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      ...S.checkBox,
-                      ...(notifyOnRemoteLogin ? S.checkBoxOn : null),
-                    }}
-                  >
+                    style={S.srOnlyInput} />
+                  <span aria-hidden="true" style={{ ...S.checkBox, ...(notifyOnRemoteLogin ? S.checkBoxOn : null) }}>
                     {notifyOnRemoteLogin && <IconCheck size={11} />}
                   </span>
-                  <span>Show macOS notification when a remote login is pending approval</span>
                 </label>
-              </div>
-
-              <hr style={S.divider} />
-
-              <div style={S.fieldGroup}>
-                <div style={S.fieldHeading}>Launch at login</div>
-                <div style={S.fieldDescription}>Automatically start cinch when you log in to your Mac.</div>
-                <label style={S.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={autostart}
+              </section>
+              <section className="settings-row">
+                <div>
+                  <h2>Launch at login</h2>
+                  <p>Start Cinch when you log in to your Mac.</p>
+                </div>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={autostart}
                     onChange={(e) => void handleAutostartChange(e.target.checked)}
-                    aria-label="Launch cinch at login"
-                    style={S.srOnlyInput}
-                  />
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      ...S.checkBox,
-                      ...(autostart ? S.checkBoxOn : null),
-                    }}
-                  >
+                    aria-label="Launch cinch at login" style={S.srOnlyInput} />
+                  <span aria-hidden="true" style={{ ...S.checkBox, ...(autostart ? S.checkBoxOn : null) }}>
                     {autostart && <IconCheck size={11} />}
                   </span>
-                  <span>Launch at login</span>
                 </label>
-              </div>
-            </>
+              </section>
+            </div>
           )}
 
           <ConfirmDialog
@@ -1042,123 +963,6 @@ export default function SettingsPane({ onClose, clipCount, initialTab, onActionS
 // ─── Styles ────────────────────────────────────────────────
 
 const S: Record<string, CSSProperties> = {
-  page: {
-    background: C.bg,
-    color: C.t1,
-    height: "100vh",
-    display: "flex",
-    flexDirection: "row",
-    borderRadius: "var(--radius-xl)",
-    border: `1px solid var(--border)`,
-    overflow: "hidden",
-    position: "relative",
-  },
-  closeBtn: {
-    position: "absolute",
-    top: 14,
-    right: 16,
-    width: 28,
-    height: 28,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: "none",
-    borderRadius: 6,
-    color: C.t2,
-    cursor: "pointer",
-    transition: "background 120ms ease, color 120ms ease",
-    zIndex: 2,
-  },
-
-  // ─── Left nav ───────────────────────────────────────────
-  nav: {
-    width: 208,
-    flexShrink: 0,
-    background: C.card,
-    borderRight: `1px solid ${C.border}`,
-    display: "flex",
-    flexDirection: "column",
-    paddingTop: 52,
-  },
-  navHeader: {
-    padding: "0 20px",
-    marginBottom: 28,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  },
-  navLogo: {
-    width: 20,
-    height: 20,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: C.t1,
-    flexShrink: 0,
-  },
-  navTitle: {
-    fontSize: 18,
-    fontWeight: 500,
-    letterSpacing: "-0.015em",
-    color: C.t1,
-    margin: 0,
-  },
-  navList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-    padding: "0 8px",
-  },
-  navItem: {
-    position: "relative",
-    appearance: "none",
-    border: "none",
-    fontFamily: "inherit",
-    fontSize: 13,
-    fontWeight: 500,
-    letterSpacing: "0.1px",
-    padding: "7px 12px",
-    borderRadius: 6,
-    textAlign: "left",
-    cursor: "pointer",
-    transition: "color 120ms ease, background 120ms ease",
-  },
-  navItemBar: {
-    position: "absolute",
-    left: -8,
-    top: "50%",
-    transform: "translateY(-50%)",
-    width: 2,
-    height: 14,
-    // Monochrome text-color bar (matches the mockup's --bar and the codebase
-    // --selection-bar token). Teal --accent is reserved for focus rings +
-    // the offline pulse — see App.css and the redesign brief §7.
-    background: "var(--selection-bar)",
-    borderRadius: 2,
-  },
-
-  // ─── Right content ──────────────────────────────────────
-  content: {
-    flex: 1,
-    minWidth: 0,
-    overflowY: "auto",
-    position: "relative",
-  },
-  ambient: {
-    position: "absolute",
-    inset: 0,
-    pointerEvents: "none",
-    background:
-      "radial-gradient(800px 360px at 100% 0%, rgba(237,230,214,0.022), transparent 60%)",
-  },
-  contentInner: {
-    position: "relative",
-    maxWidth: 560,
-    padding: "52px 56px 88px",
-  },
-  contentHeader: {
-    marginBottom: 0,
-  },
   // ─── Trust block (what the relay can see) ───────────────
   trustList: {
     margin: 0,
@@ -1168,8 +972,8 @@ const S: Record<string, CSSProperties> = {
   trustRow: {
     display: "flex",
     flexDirection: "row",
-    gap: 14,
-    padding: "13px 0",
+    gap: 10,
+    padding: "10px 0",
     borderTop: `1px solid ${C.border}`,
   },
   trustIcon: {
@@ -1204,31 +1008,10 @@ const S: Record<string, CSSProperties> = {
     color: C.t3,
     maxWidth: 460,
   },
-  contentTitle: {
-    fontSize: 26,
-    fontWeight: 500,
-    letterSpacing: "-0.022em",
-    lineHeight: 1.15,
-    color: C.t1,
-    margin: 0,
-  },
-  contentSubtitle: {
-    fontSize: 13.5,
-    fontWeight: 400,
-    lineHeight: 1.55,
-    color: C.t2,
-    marginTop: 8,
-    maxWidth: 460,
-  },
-  headerDivider: {
-    border: "none",
-    borderTop: `1px solid ${C.border}`,
-    margin: "32px 0 28px",
-  },
   divider: {
     border: "none",
     borderTop: `1px solid ${C.border}`,
-    margin: "28px 0",
+    margin: "20px 0",
   },
 
   // ─── Field shells ───────────────────────────────────────
@@ -1236,45 +1019,23 @@ const S: Record<string, CSSProperties> = {
     display: "block",
   },
   fieldHeading: {
-    fontSize: 14,
-    fontWeight: 600,
+    fontSize: 13,
+    fontWeight: 500,
     letterSpacing: "-0.005em",
     color: C.t1,
     marginBottom: 4,
   },
   fieldDescription: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 400,
     lineHeight: 1.55,
     color: C.t2,
-    marginBottom: 14,
+    marginBottom: 10,
     maxWidth: 440,
   },
 
   // ─── Controls ───────────────────────────────────────────
-  segmentBtn: {
-    fontFamily: "inherit",
-    fontSize: 12,
-    fontWeight: 500,
-    letterSpacing: "0.1px",
-    padding: "6px 14px",
-    borderRadius: 6,
-    border: `1px solid ${C.border}`,
-    cursor: "pointer",
-    transition: "background 120ms ease, color 120ms ease, border-color 120ms ease",
-  },
-  checkboxRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 11,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 400,
-    color: C.t2,
-    lineHeight: 1.45,
-  },
-  // Real checkbox kept in the a11y tree (label-associated, focusable, togglable)
-  // but visually replaced by the monochrome box below — no teal accentColor.
+  // CSS outlines the adjacent visible control when a hidden checkbox has focus.
   srOnlyInput: {
     position: "absolute",
     width: 1,
@@ -1311,13 +1072,14 @@ const S: Record<string, CSSProperties> = {
     border: `1px solid ${C.border}`,
     borderRadius: 6,
     color: C.t1,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 500,
-    padding: "8px 14px",
-    outline: "none",
+    padding: "6px 10px",
     cursor: "pointer",
     letterSpacing: "0.4px",
-    minWidth: 160,
+    width: 160,
+    maxWidth: "100%",
+    minWidth: 0,
     fontFamily: "var(--font-mono)",
   },
 
@@ -1335,8 +1097,8 @@ const S: Record<string, CSSProperties> = {
     letterSpacing: "0.1px",
   },
   primaryBtn: {
-    background: C.accent,
-    color: C.accentOn,
+    background: C.t1,
+    color: C.bg,
     border: "none",
     borderRadius: 5,
     fontSize: 12,
@@ -1355,27 +1117,28 @@ const S: Record<string, CSSProperties> = {
     fontSize: 12,
     fontWeight: 600,
     letterSpacing: "0.2px",
-    transition: "box-shadow 180ms ease",
     fontFamily: "inherit",
   },
 
   // ─── Relay card ─────────────────────────────────────────
   relayCard: {
-    background: C.card,
-    border: `1px solid ${C.border}`,
-    borderRadius: 8,
-    padding: "16px 18px",
+    background: "transparent",
+    border: "none",
+    borderRadius: 0,
+    padding: 0,
   },
   relayHost: {
     fontSize: 13,
     fontWeight: 500,
     color: C.t1,
     marginBottom: 4,
+    overflowWrap: "anywhere",
     fontFamily: "var(--font-mono)",
     letterSpacing: "-0.005em",
   },
   relayUserId: {
-    fontSize: 11.5,
+    fontSize: 12,
+    overflowWrap: "anywhere",
     color: C.t3,
     fontFamily: "var(--font-mono)",
     letterSpacing: "0.2px",
@@ -1383,7 +1146,7 @@ const S: Record<string, CSSProperties> = {
 
   // ─── Keyboard reference ─────────────────────────────────
   kbdGroup: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   kbdGroupTitle: {
     fontSize: 11,
@@ -1396,7 +1159,8 @@ const S: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "9px 0",
+    padding: "7px 0",
+    gap: 12,
   },
   kbdDesc: {
     fontSize: 13,
@@ -1420,11 +1184,11 @@ const S: Record<string, CSSProperties> = {
 
   // ─── States ─────────────────────────────────────────────
   disclosure: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: 400,
     lineHeight: 1.55,
     color: C.t3,
-    marginTop: 18,
+    marginTop: 12,
     maxWidth: 460,
   },
   errorRegion: {
