@@ -49,6 +49,11 @@ vi.mock('@tauri-apps/api/window', () => ({
     })),
 }));
 
+function clickView(name: string | RegExp) {
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    fireEvent.click(screen.getByRole('menuitem', { name }));
+}
+
 function clickAction(name: string | RegExp) {
     fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
     fireEvent.click(screen.getByRole('menuitem', { name }));
@@ -97,7 +102,7 @@ describe('App', () => {
         render(<App />);
 
         await screen.findByTestId('getting-started-card');
-        clickAction('Connect a relay');
+        fireEvent.click(screen.getByRole('button', { name: 'Connect a relay (optional)' }));
         expect(screen.getByTestId('onboarding-root')).toBeInTheDocument();
         expect(screen.getByText('Optional connection')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
@@ -189,7 +194,7 @@ describe('App', () => {
         clickAction(/^Pin\s/);
         fireEvent.click(screen.getByRole('button', { name: 'Pin' }));
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('pin_clip', { id: 'offline-1', note: null }));
-        clickAction(/^Show pinned/);
+        clickView(/^Show pinned/);
         expect(await screen.findByRole('button', { name: 'offline note' })).toBeInTheDocument();
         expect(invoke).not.toHaveBeenCalledWith('list_devices');
     });
@@ -954,7 +959,7 @@ describe('App', () => {
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
             fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: 'needle' } });
-            clickAction(/^Show pinned/);
+            clickView(/^Show pinned/);
             await screen.findByRole('button', { name: 'needle saved' });
             if (dismissal === 'copy') {
                 fireEvent.keyDown(window, { key: 'Enter' });
@@ -1003,7 +1008,7 @@ describe('App', () => {
             });
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction('Devices');
+            fireEvent.keyDown(window, { code: 'Digit3', key: '3', metaKey: true });
             fireEvent.click(await screen.findByRole('button', { name: /Customize Prod/i }));
             fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
             expect(screen.getByRole('dialog', { name: 'Revoke device?' })).toBeInTheDocument();
@@ -1016,7 +1021,7 @@ describe('App', () => {
         it('unpins locally without deleting the clip or leaving pinned mode', async () => {
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction(/^Show pinned/);
+            clickView(/^Show pinned/);
             await screen.findByRole('button', { name: 'needle saved' });
             clickAction(/^Unpin/);
             expect(await screen.findByText('No pinned clips')).toBeInTheDocument();
@@ -1035,7 +1040,7 @@ describe('App', () => {
                 cmd === 'list_clips' && (args as { query: string }).query === 'is:pinned' ? pending : baseInvoke(cmd, args));
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction(/^Show pinned/);
+            clickView(/^Show pinned/);
             await waitFor(() => expect(invoke).toHaveBeenCalledWith('list_clips', { query: 'is:pinned', limit: 500 }));
             fireEvent.keyDown(window, { key: 'Escape' });
             await screen.findByRole('button', { name: 'needle recent' });
@@ -1052,7 +1057,7 @@ describe('App', () => {
                 cmd === 'unpin_clip' ? pending.then(() => baseInvoke(cmd, args)) : baseInvoke(cmd, args));
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction(/^Show pinned/);
+            clickView(/^Show pinned/);
             await screen.findByRole('button', { name: 'needle saved' });
             clickAction(/^Unpin/);
             fireEvent.click(screen.getByRole('button', { name: 'Return to recent history' }));
@@ -1073,7 +1078,7 @@ describe('App', () => {
             expect(screen.getByText('Pin clip')).toBeInTheDocument();
             expect(screen.queryByRole('button', { name: 'Return to recent history' })).not.toBeInTheDocument();
             fireEvent.keyDown(window, { key: 'Escape' });
-            clickAction('Show pinned');
+            clickView('Show pinned');
             expect(await screen.findByRole('button', { name: 'needle saved' })).toBeInTheDocument();
         });
 
@@ -1092,9 +1097,9 @@ describe('App', () => {
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
             fireEvent.keyDown(window, { code: 'KeyA', key: 'a', metaKey: true, shiftKey: true });
-            expect(screen.getByRole('menuitem', { name: /^Show pinned/ })).toHaveFocus();
+            expect(screen.getByRole('menuitem', { name: /^Copy/ })).toHaveFocus();
             fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
-            expect(screen.getByRole('menuitem', { name: /Filter by device/ })).toHaveFocus();
+            expect(screen.getByRole('menuitem', { name: /^Pin / })).toHaveFocus();
             fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
             expect(screen.queryByRole('menu')).not.toBeInTheDocument();
             expect(screen.getByRole('button', { name: /^Actions/ })).toHaveFocus();
@@ -1104,28 +1109,100 @@ describe('App', () => {
             expect(screen.queryByRole('button', { name: 'Return to recent history' })).not.toBeInTheDocument();
         });
 
-        it('opens source and app filters from Actions', async () => {
+        it('opens source and app filters from View', async () => {
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction(/Filter by device/);
+            clickView(/Filter by device/);
             expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
             expect(screen.getByLabelText('Search clips')).toHaveFocus();
             fireEvent.keyDown(screen.getByLabelText('Search clips'), { key: 'Escape' });
-            clickAction(/Filter by app/);
+            clickView(/Filter by app/);
             expect(screen.getByTestId('app-dropdown')).toBeInTheDocument();
         });
 
-        it('cycles persisted light, dark and system appearance from Actions', async () => {
+        it('keeps theme, devices and keyboard preferences in Settings, not clip actions', async () => {
             localStorage.setItem('cinch-theme', 'system');
             render(<App />);
             await screen.findByRole('button', { name: 'needle recent' });
-            clickAction(/^Theme: system/);
+            fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+            const actions = screen.getByRole('menu', { name: 'Clip actions' });
+            expect(within(actions).getAllByRole('menuitem').map((item) => item.textContent?.match(/^[A-Za-z]+/)?.[0]))
+                .toEqual(['Copy', 'Pin', 'Edit', 'Delete']);
+            fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+            expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Light' }));
             expect(document.documentElement).toHaveClass('light');
             expect(localStorage.getItem('cinch-theme')).toBe('light');
-            clickAction(/^Theme: light/);
+            fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
             expect(document.documentElement).not.toHaveClass('light');
-            clickAction(/^Theme: dark/);
+            fireEvent.click(screen.getByRole('button', { name: 'System' }));
             expect(localStorage.getItem('cinch-theme')).toBe('system');
+            expect(screen.getByRole('button', { name: /Devices/ })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /Keyboard/ })).toBeInTheDocument();
+        });
+
+        it('switches between menus and returns focus to the View trigger', async () => {
+            render(<App />);
+            await screen.findByRole('button', { name: 'needle recent' });
+            fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+            fireEvent.click(screen.getByRole('button', { name: 'View' }));
+            expect(screen.queryByRole('menu', { name: 'Clip actions' })).not.toBeInTheDocument();
+            const view = screen.getByRole('menu', { name: 'View' });
+            expect(within(view).getAllByRole('menuitem')).toHaveLength(3);
+            expect(within(view).getByRole('menuitem', { name: /^Show pinned/ })).toHaveFocus();
+            fireEvent.keyDown(view, { key: 'End' });
+            expect(within(view).getByRole('menuitem', { name: /Filter by app/ })).toHaveFocus();
+            fireEvent.keyDown(view, { key: 'Escape' });
+            expect(screen.getByRole('button', { name: 'View' })).toHaveFocus();
+            fireEvent.click(screen.getByRole('button', { name: 'View' }));
+            fireEvent.click(screen.getByRole('button', { name: /^Actions/ }));
+            expect(screen.queryByRole('menu', { name: 'View' })).not.toBeInTheDocument();
+            expect(screen.getByRole('menu', { name: 'Clip actions' })).toBeInTheDocument();
+        });
+
+        it('closes the filter picker when opening View', async () => {
+            render(<App />);
+            await screen.findByRole('button', { name: 'needle recent' });
+            fireEvent.change(screen.getByLabelText('Search clips'), { target: { value: '@' } });
+            expect(screen.getByTestId('device-dropdown')).toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'View' }));
+            expect(screen.queryByTestId('device-dropdown')).not.toBeInTheDocument();
+            expect(screen.getByRole('menu', { name: 'View' })).toBeInTheDocument();
+        });
+
+        it('returns focus to search after deleting the last clip', async () => {
+            clips = [clips[0]];
+            let releaseList!: (value: LocalClip[]) => void;
+            const pendingList = new Promise<LocalClip[]>((resolve) => { releaseList = resolve; });
+            const baseInvoke = vi.mocked(invoke).getMockImplementation()!;
+            vi.mocked(invoke).mockImplementation((cmd, args) => {
+                if (cmd === 'delete_clip') { clips = []; return Promise.resolve(); }
+                if (cmd === 'list_clips' && clips.length === 0) return pendingList;
+                return baseInvoke(cmd, args);
+            });
+            render(<App />);
+            await screen.findByRole('button', { name: 'needle recent' });
+            clickAction(/^Delete/);
+            fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+            await waitFor(() => expect(screen.getByRole('button', { name: /^Actions/ })).toBeDisabled());
+            await act(async () => { releaseList([]); });
+            await screen.findByTestId('getting-started-card');
+            expect(screen.getByRole('button', { name: /^Actions/ })).toBeDisabled();
+            expect(screen.getByLabelText('Search clips')).toHaveFocus();
+        });
+
+        it('disables clip actions for empty results while keeping View and Settings available', async () => {
+            clips = [];
+            render(<App />);
+            await screen.findByTestId('getting-started-card');
+            expect(screen.getByRole('button', { name: /^Actions/ })).toBeDisabled();
+            fireEvent.keyDown(window, { code: 'KeyA', key: 'a', metaKey: true, shiftKey: true });
+            expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+            clickView(/^Show pinned/);
+            await screen.findByText('No pinned clips');
+            expect(screen.getByRole('button', { name: /^Actions/ })).toBeDisabled();
+            fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+            expect(screen.getByRole('main', { name: 'General settings' })).toBeInTheDocument();
         });
 
         it('sends only through an explicit authenticated action', async () => {
