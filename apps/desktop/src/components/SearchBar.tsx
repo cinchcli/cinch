@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState, useCallback, type CSSProperties } from 'react';
+import { forwardRef, useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
 import { C } from '../design';
 import { IconSearch, IconX } from '../icons';
 import { CLIP_FILTERS, type ClipFilter } from '../lib/clipFilters';
@@ -34,6 +34,7 @@ interface SearchBarProps {
   onClear: () => void;
   pinnedOnly?: boolean;
   onLeavePinned?: () => void;
+  viewMenu?: ReactNode;
   filterRequest?: 'device' | 'app' | null;
   onFilterRequestHandled?: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
@@ -71,7 +72,7 @@ const MODE_PLACEHOLDER: Record<Mode, string> = {
 
 export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
   ({
-    value, onChange, onClear, pinnedOnly = false, onLeavePinned,
+    value, onChange, onClear, pinnedOnly = false, onLeavePinned, viewMenu,
     filterRequest, onFilterRequestHandled, onMouseDown,
     activeFilter, onFilterChange,
     deviceOptions, selectedSource, onSourceChange,
@@ -357,6 +358,8 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
         )}
         {activeFilter === 'all' && <button type="button" className="type-filter" aria-label="Filter by type" onClick={() => enterMode('type', '', activeFilter)}>All types <span aria-hidden="true">⌄</span></button>}
 
+        {viewMenu && <div className="history-view-slot" onFocusCapture={exitMode} onMouseDown={exitMode}>{viewMenu}</div>}
+
         {mode === 'type' && (
           <div style={S.dropdown} role="listbox" data-testid="filter-dropdown">
             {matchingFilters.map((f) => (
@@ -448,9 +451,10 @@ const S: Record<string, CSSProperties> = {
   bar: {
     display: 'flex',
     alignItems: 'center',
-    height: 54,
-    padding: '0 18px',
-    gap: 12,
+    minHeight: 54,
+    flexWrap: 'wrap',
+    padding: '8px 18px',
+    gap: 8,
     background: C.card,
     borderBottom: `1px solid ${C.border}`,
     flexShrink: 0,
@@ -458,7 +462,7 @@ const S: Record<string, CSSProperties> = {
   },
   glass: { color: C.t2, display: 'flex', alignItems: 'center' },
   input: {
-    flex: 1,
+    flex: '1 1 60px',
     background: 'transparent',
     border: 'none',
     outline: 'none',

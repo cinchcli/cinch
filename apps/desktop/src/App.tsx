@@ -32,7 +32,7 @@ import { DevicesPanel } from './components/DevicesPanel';
 import { GettingStartedCard } from './components/GettingStartedCard';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { dialogStyles } from './components/dialogPrimitives';
-import { IconCopy, IconTrash, IconX } from './icons';
+import { IconCopy, IconTrash, IconX, IconGear } from './icons';
 import { UpdateBanner } from './components/UpdateBanner';
 import { useLatestVersions } from './lib/state/versions';
 import packageJson from '../package.json';
@@ -40,7 +40,7 @@ import './App.css';
 
 function handleWindowDrag(e: React.MouseEvent) {
   const target = e.target as HTMLElement;
-  if (!target.closest('button, input, a, textarea, select')) {
+  if (!target.closest('button, input, a, textarea, select, [role="menu"], [role="listbox"]')) {
     void commands.snapDragStart();
     void getCurrentWindow().startDragging();
   }
@@ -65,7 +65,7 @@ const PINNED_SHORTCUT = 'CmdOrCtrl+Shift+P';
 const ACTIONS_SHORTCUT = 'CmdOrCtrl+Shift+A';
 
 function App() {
-  const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  useTheme();
 
   useEffect(() => {
     const saved = localStorage.getItem('cinch-window-size') as keyof typeof WINDOW_PRESETS | null;
@@ -137,6 +137,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const openSettings = (tab: SettingsTab = 'general') => {
+    setOpenMenu(null);
     setSettingsTab(tab);
     setShowSettings(true);
   };
@@ -152,18 +153,21 @@ function App() {
   const skipSelectionScrollRef = useRef(false);
   const clipRequestRef = useRef(0);
   const clipViewRef = useRef({ activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter });
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'actions' | 'view' | null>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const actionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const viewTriggerRef = useRef<HTMLButtonElement>(null);
   const [filterRequest, setFilterRequest] = useState<'device' | 'app' | null>(null);
+  const canUseClipActions = selectedClip !== null && activePanel !== 'devices';
 
-  const closeActions = useCallback(() => {
-    setActionsOpen(false);
-    actionsTriggerRef.current?.focus();
-  }, []);
+  const closeMenu = useCallback(() => {
+    setOpenMenu(null);
+    (openMenu === 'view' ? viewTriggerRef : actionsTriggerRef).current?.focus();
+  }, [openMenu]);
 
   const showPanel = useCallback((panel: Panel) => {
-    setActionsOpen(false);
+    setOpenMenu(null);
     if (panel === activePanel) return;
     if (activePanel === 'inbox') {
       historySnapshotRef.current = {
@@ -197,7 +201,7 @@ function App() {
     setActiveFilter('all');
     setClips([]);
     setClipsLoaded(false);
-    setActionsOpen(false);
+    setOpenMenu(null);
     historySnapshotRef.current = null;
     restoreSelectionRef.current = null;
     restoreScrollRef.current = 0;
@@ -209,14 +213,25 @@ function App() {
   }, [activePanel]);
 
   useEffect(() => {
-    if (!actionsOpen) return;
-    actionsRef.current?.querySelector<HTMLButtonElement>('[role="menu"] button:not(:disabled)')?.focus();
+    if (!openMenu) return;
+    const container = openMenu === 'view' ? viewRef : actionsRef;
+    container.current?.querySelector<HTMLButtonElement>('[role="menu"] button:not(:disabled)')?.focus();
     const outside = (e: MouseEvent) => {
-      if (e.target instanceof Node && !actionsRef.current?.contains(e.target)) setActionsOpen(false);
+      if (e.target instanceof Node && !container.current?.contains(e.target)) setOpenMenu(null);
     };
     document.addEventListener('mousedown', outside);
     return () => document.removeEventListener('mousedown', outside);
-  }, [actionsOpen]);
+  }, [openMenu]);
+
+  useEffect(() => {
+    if (canUseClipActions) return;
+    if (openMenu === 'actions') {
+      setOpenMenu(null);
+      searchRef.current?.focus();
+    } else if (document.activeElement === document.body || document.activeElement === actionsTriggerRef.current) {
+      searchRef.current?.focus();
+    }
+  }, [openMenu, canUseClipActions, clips.length]);
 
   useLayoutEffect(() => {
     clipViewRef.current = { activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter };
@@ -611,12 +626,12 @@ function App() {
       }
       if (!actionMatch && matchesAccelerator(e, ACTIONS_SHORTCUT)) {
         e.preventDefault();
-        if (actionsOpen) closeActions();
-        else setActionsOpen(true);
+        if (openMenu === 'actions') closeMenu();
+        else if (canUseClipActions) setOpenMenu('actions');
         return;
       }
-      if (actionsOpen) {
-        if (key === 'Escape') { e.preventDefault(); closeActions(); }
+      if (openMenu) {
+        if (key === 'Escape') { e.preventDefault(); closeMenu(); }
         return;
       }
       if (key === 'Escape') {
@@ -716,16 +731,16 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [searchQuery, selectedClip, navOrderClips, sources, selectedSource, copyClip, sendClip, handleSaveImage,
     showShortcuts, activePanel, editDialog, pinNoteDialog, deleteDialog, showSettings, handoffRelay,
-    newSourcePrompt, actionShortcuts, actionsOpen, closeActions, showPanel]);
+    newSourcePrompt, actionShortcuts, openMenu, closeMenu, canUseClipActions, showPanel]);
 
-  const runAction = (action: () => void) => { closeActions(); action(); };
+  const runAction = (action: () => void) => { closeMenu(); action(); };
   const openFilter = (mode: 'device' | 'app') => {
     setFilterRequest(mode);
     searchRef.current?.focus();
   };
   const menuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape' || e.key === 'Tab') {
-      e.preventDefault(); e.stopPropagation(); closeActions(); return;
+      e.preventDefault(); e.stopPropagation(); closeMenu(); return;
     }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
     e.preventDefault(); e.stopPropagation();
@@ -797,6 +812,25 @@ function App() {
             appOptions={appOptions}
             selectedApp={selectedApp}
             onAppChange={setSelectedApp}
+            viewMenu={
+              <div className="history-view" ref={viewRef}>
+                <button type="button" ref={viewTriggerRef} aria-haspopup="menu" aria-expanded={openMenu === 'view'}
+                  aria-controls="history-view-menu" onClick={() => setOpenMenu((menu) => menu === 'view' ? null : 'view')}>
+                  View <span aria-hidden="true">⌄</span>
+                </button>
+                {openMenu === 'view' && (
+                  <div id="history-view-menu" className="history-menu history-view-menu" role="menu" aria-label="View" tabIndex={-1} onKeyDown={menuKeyDown}>
+                    <button type="button" role="menuitem" onClick={() => runAction(() => showPanel(activePanel === 'pinned' ? 'inbox' : 'pinned'))}>
+                      {activePanel === 'pinned' ? 'Show recent history' : 'Show pinned'}
+                      {pinnedShortcutAvailable && <kbd>{formatShortcutDisplay(PINNED_SHORTCUT)}</kbd>}
+                    </button>
+                    <div role="separator" />
+                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('device'))}>Filter by device <kbd>@</kbd></button>
+                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('app'))}>Filter by app <kbd>&gt;</kbd></button>
+                  </div>
+                )}
+              </div>
+            }
           />
         )}
 
@@ -821,50 +855,36 @@ function App() {
         </div>
 
         <footer className="history-footer">
-          <span className="history-status">{auth.variant === 'Authenticated' ? '' : 'Local only'}</span>
+          <div className="history-app-controls">
+            <button type="button" onClick={() => openSettings()} title={formatShortcutDisplay('CmdOrCtrl+,')}>
+              <IconGear /> Settings
+            </button>
+            {auth.variant !== 'Authenticated' && <span className="history-status">Local only</span>}
+          </div>
           {activePanel !== 'devices' && (
             <button type="button" disabled={!selectedClip} onClick={() => selectedClip && void copyClip(selectedClip)}>
               Copy <kbd>{formatShortcutDisplay(actionShortcuts.copy)}</kbd>
             </button>
           )}
           <div className="history-actions" ref={actionsRef}>
-            <button type="button" ref={actionsTriggerRef} aria-haspopup="menu" aria-expanded={actionsOpen}
-              aria-controls="history-actions-menu" onClick={() => setActionsOpen((open) => !open)}>
+            <button type="button" ref={actionsTriggerRef} disabled={!canUseClipActions}
+              aria-haspopup="menu" aria-expanded={openMenu === 'actions' && canUseClipActions}
+              aria-controls="history-actions-menu" onClick={() => setOpenMenu((menu) => menu === 'actions' ? null : 'actions')}>
               Actions {actionsShortcutAvailable && <kbd>{formatShortcutDisplay(ACTIONS_SHORTCUT)}</kbd>}
             </button>
-            {actionsOpen && (
-              <div id="history-actions-menu" className="history-menu" role="menu" aria-label="Actions" onKeyDown={menuKeyDown}>
-                <button type="button" role="menuitem" onClick={() => runAction(() => showPanel(activePanel === 'pinned' ? 'inbox' : 'pinned'))}>
-                  {activePanel === 'pinned' ? 'Show recent history' : 'Show pinned'}
-                  {pinnedShortcutAvailable && <kbd>{formatShortcutDisplay(PINNED_SHORTCUT)}</kbd>}
+            {openMenu === 'actions' && selectedClip && canUseClipActions && (
+              <div id="history-actions-menu" className="history-menu" role="menu" aria-label="Clip actions" tabIndex={-1} onKeyDown={menuKeyDown}>
+                <button type="button" role="menuitem" onClick={() => runAction(() => void copyClip(selectedClip))}>
+                  Copy <kbd>{formatShortcutDisplay(actionShortcuts.copy)}</kbd>
                 </button>
-                {activePanel !== 'devices' && (
-                  <>
-                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('device'))}>Filter by device <kbd>@</kbd></button>
-                    <button type="button" role="menuitem" onClick={() => runAction(() => openFilter('app'))}>Filter by app <kbd>&gt;</kbd></button>
-                  </>
-                )}
-                {selectedClip && activePanel !== 'devices' && (
-                  <>
-                    <div role="separator" />
-                    <button type="button" role="menuitem" onClick={() => runAction(() => selectedClip.is_pinned ? void handleUnpin(selectedClip) : setPinNoteDialog({ clip: selectedClip }))}>
-                      {selectedClip.is_pinned ? 'Unpin' : 'Pin'} <kbd>{formatShortcutDisplay(actionShortcuts.pin)}</kbd>
-                    </button>
-                    {selectedClip.content_type !== 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => setEditDialog({ clip: selectedClip }))}>Edit <kbd>{formatShortcutDisplay(actionShortcuts.edit)}</kbd></button>}
-                    {selectedClip.content_type === 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => void handleSaveImage(selectedClip))}>Save… <kbd>{formatShortcutDisplay(actionShortcuts.save)}</kbd></button>}
-                    {auth.variant === 'Authenticated' && <button type="button" role="menuitem" onClick={() => runAction(() => void sendClip(selectedClip))}>Send <kbd>{formatShortcutDisplay(actionShortcuts.send)}</kbd></button>}
-                    <button type="button" role="menuitem" className="destructive" onClick={() => runAction(() => setDeleteDialog({ clip: selectedClip }))}>Delete <kbd>{formatShortcutDisplay('CmdOrCtrl+Backspace')}</kbd></button>
-                  </>
-                )}
+                <button type="button" role="menuitem" onClick={() => runAction(() => selectedClip.is_pinned ? void handleUnpin(selectedClip) : setPinNoteDialog({ clip: selectedClip }))}>
+                  {selectedClip.is_pinned ? 'Unpin' : 'Pin'} <kbd>{formatShortcutDisplay(actionShortcuts.pin)}</kbd>
+                </button>
+                {selectedClip.content_type !== 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => setEditDialog({ clip: selectedClip }))}>Edit <kbd>{formatShortcutDisplay(actionShortcuts.edit)}</kbd></button>}
+                {selectedClip.content_type === 'image' && <button type="button" role="menuitem" onClick={() => runAction(() => void handleSaveImage(selectedClip))}>Save… <kbd>{formatShortcutDisplay(actionShortcuts.save)}</kbd></button>}
+                {auth.variant === 'Authenticated' && <button type="button" role="menuitem" onClick={() => runAction(() => void sendClip(selectedClip))}>Send <kbd>{formatShortcutDisplay(actionShortcuts.send)}</kbd></button>}
                 <div role="separator" />
-                <button type="button" role="menuitem" onClick={() => runAction(() => showPanel('devices'))}>
-                  {auth.variant === 'Authenticated' ? 'Devices' : 'Connect a relay'}
-                </button>
-                <button type="button" role="menuitem" onClick={() => runAction(() => openSettings())}>Settings <kbd>{formatShortcutDisplay('CmdOrCtrl+,')}</kbd></button>
-                <button type="button" role="menuitem" onClick={() => runAction(() => setThemeMode(themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system'))}>
-                  Theme: {themeMode} <span className="menu-hint">Next: {themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system'}</span>
-                </button>
-                <button type="button" role="menuitem" onClick={() => runAction(() => setShowShortcuts(true))}>Keyboard shortcuts <kbd>?</kbd></button>
+                <button type="button" role="menuitem" className="destructive" onClick={() => runAction(() => setDeleteDialog({ clip: selectedClip }))}>Delete <kbd>{formatShortcutDisplay('CmdOrCtrl+Backspace')}</kbd></button>
               </div>
             )}
           </div>
