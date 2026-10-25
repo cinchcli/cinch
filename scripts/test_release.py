@@ -42,9 +42,9 @@ class ReleaseTests(unittest.TestCase):
                        "message": "release: release/0.12.1"},
             "parents": [{"sha": parent}],
             "files": [
-                {"filename": "Cargo.lock",
+                {"filename": "Cargo.lock", "status": "modified",
                  "patch": '@@ -1 +1 @@\n-version = "0.12.0"\n+version = "0.12.1"'},
-                {"filename": "apps/desktop/package.json",
+                {"filename": "apps/desktop/package.json", "status": "modified",
                  "patch": '@@ -1 +1 @@\n-  "version": "0.12.0",\n+  "version": "0.12.1",'},
             ],
         }
@@ -118,7 +118,9 @@ class ReleaseTests(unittest.TestCase):
     def test_release_bot_head_with_other_changes_needs_its_own_ci(self):
         for change in (
             {"filename": "scripts/release.py", "patch": "+print('x')"},
-            {"filename": "Cargo.lock", "patch": '+name = "evil"'},
+            {"filename": "Cargo.lock", "status": "modified", "patch": '+name = "evil"'},
+            {"filename": "Cargo.lock", "status": "modified"},
+            {"filename": "Cargo.lock", "status": "removed", "patch": '-version = "1.0.0"'},
         ):
             with self.subTest(change=change["filename"]):
                 self.release_bot_head()

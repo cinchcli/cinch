@@ -41,10 +41,14 @@ def release_bot_parent(sha):
             or not commit["commit"]["message"].startswith("release: ")
             or len(commit["parents"]) != 1):
         return None
+    if not commit["files"]:
+        return None
     for changed in commit["files"]:
-        if changed["filename"] not in VERSION_FILES:
+        if (changed["filename"] not in VERSION_FILES
+                or changed.get("status") != "modified"
+                or not changed.get("patch")):
             return None
-        for line in changed.get("patch", "").splitlines():
+        for line in changed["patch"].splitlines():
             if line.startswith(("+", "-")) and not VERSION_LINE.match(line):
                 return None
     return commit["parents"][0]["sha"]
