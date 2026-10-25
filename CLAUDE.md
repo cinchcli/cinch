@@ -42,7 +42,9 @@ during preflight, wait for its CI and rerun the command.
 
 The workflow builds and signs artifacts, notarizes the app and DMG, verifies the
 updater, commits version metadata, tags the release and updates Homebrew.
-Its version-only bot commit is the automated exception to the PR rule.
+Its version-only bot commit is the automated exception to the PR rule. That
+push does not start CI, so the release gate accepts a bot commit at main HEAD
+when it changes only version lines and its parent's main CI passed.
 Inspect the Actions run and downloaded release assets before calling a release
 complete. After an interrupted dispatch, inspect Actions before retrying.
 

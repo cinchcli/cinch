@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -16,17 +17,51 @@ def api(path):
     ))
 
 
+RELEASE_BOT = ("cinch-release[bot]", "cinch-release@users.noreply.github.com")
+VERSION_FILES = {
+    "Cargo.lock",
+    "apps/desktop/package.json",
+    "apps/desktop/src-tauri/Cargo.toml",
+    "apps/desktop/src-tauri/tauri.conf.json",
+    "crates/cli/Cargo.toml",
+    "crates/client-core/Cargo.toml",
+}
+VERSION_LINE = re.compile(r'^[+-](?:version = |\s*"version":\s*)"[0-9A-Za-z.+-]+",?$')
+
+
+def release_bot_parent(sha):
+    """Parent SHA when `sha` is the Publish workflow's version-only commit.
+
+    That commit is pushed with GITHUB_TOKEN, which does not start CI, so the
+    gate checks the CI of the commit it was built from instead.
+    """
+    commit = api(f"commits/{sha}")
+    author = commit["commit"]["author"]
+    if ((author["name"], author["email"]) != RELEASE_BOT
+            or not commit["commit"]["message"].startswith("release: ")
+            or len(commit["parents"]) != 1):
+        return None
+    for changed in commit["files"]:
+        if changed["filename"] not in VERSION_FILES:
+            return None
+        for line in changed.get("patch", "").splitlines():
+            if line.startswith(("+", "-")) and not VERSION_LINE.match(line):
+                return None
+    return commit["parents"][0]["sha"]
+
+
 def verified_main(expected_sha=None):
     sha = api("git/ref/heads/main")["object"]["sha"]
     if expected_sha and sha != expected_sha:
         raise RuntimeError("Remote main changed. Check its CI and run release again.")
+    ci_sha = release_bot_parent(sha) or sha
     runs = api(
-        f"actions/workflows/ci.yml/runs?branch=main&event=push&head_sha={sha}&per_page=1"
+        f"actions/workflows/ci.yml/runs?branch=main&event=push&head_sha={ci_sha}&per_page=1"
     )["workflow_runs"]
     if not runs:
-        raise RuntimeError(f"No main CI run found for {sha}. Merge a PR and wait for CI.")
+        raise RuntimeError(f"No main CI run found for {ci_sha}. Merge a PR and wait for CI.")
     run = runs[0]
-    if (run["head_sha"] != sha or run["head_branch"] != "main"
+    if (run["head_sha"] != ci_sha or run["head_branch"] != "main"
             or run["event"] != "push" or run["status"] != "completed"
             or run["conclusion"] != "success"):
         raise RuntimeError(f"Main CI has not passed: {run['html_url']}")

@@ -19,13 +19,37 @@ class ReleaseTests(unittest.TestCase):
         }
         self.runs = [self.run]
         self.paths = []
+        self.ci_sha = self.sha
+        self.head = {
+            "commit": {"author": {"name": "Jinmu Go", "email": "dev@example.com"},
+                       "message": "feat: change"},
+            "parents": [{"sha": "p" * 40}], "files": [],
+        }
 
     def api(self, path):
         self.paths.append(path)
         if path == "git/ref/heads/main":
             return {"object": {"sha": self.sha}}
-        self.assertIn(f"head_sha={self.sha}", path)
+        if path == f"commits/{self.sha}":
+            return self.head
+        self.assertIn(f"head_sha={self.ci_sha}", path)
         return {"workflow_runs": self.runs}
+
+    def release_bot_head(self):
+        parent = "p" * 40
+        self.head = {
+            "commit": {"author": {"name": release.RELEASE_BOT[0], "email": release.RELEASE_BOT[1]},
+                       "message": "release: release/0.12.1"},
+            "parents": [{"sha": parent}],
+            "files": [
+                {"filename": "Cargo.lock",
+                 "patch": '@@ -1 +1 @@\n-version = "0.12.0"\n+version = "0.12.1"'},
+                {"filename": "apps/desktop/package.json",
+                 "patch": '@@ -1 +1 @@\n-  "version": "0.12.0",\n+  "version": "0.12.1",'},
+            ],
+        }
+        self.run["head_sha"] = parent
+        self.ci_sha = parent
 
     def invoke(self, args):
         with patch.object(release, "api", side_effect=self.api), \
@@ -83,6 +107,26 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(code, 1)
                 dispatch.assert_not_called()
                 self.run[key] = previous
+
+    def test_release_bot_head_uses_parent_ci(self):
+        self.release_bot_head()
+        code, dispatch = self.invoke([])
+        self.assertEqual(code, 0)
+        self.assertIn(f"expected_sha={self.sha}", dispatch.call_args.args[0])
+        self.assertIn(f"head_sha={'p' * 40}", self.paths[-1])
+
+    def test_release_bot_head_with_other_changes_needs_its_own_ci(self):
+        for change in (
+            {"filename": "scripts/release.py", "patch": "+print('x')"},
+            {"filename": "Cargo.lock", "patch": '+name = "evil"'},
+        ):
+            with self.subTest(change=change["filename"]):
+                self.release_bot_head()
+                self.head["files"].append(change)
+                self.ci_sha = self.sha
+                code, dispatch = self.invoke([])
+                self.assertEqual(code, 1)
+                dispatch.assert_not_called()
 
     def test_api_error_never_dispatches(self):
         with patch.object(release, "api", side_effect=subprocess.CalledProcessError(1, "gh")), \
