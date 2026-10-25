@@ -22,6 +22,32 @@ make dev-desktop     # pnpm tauri dev
 make verify-versions # check version parity across all components
 ```
 
+## Release workflow
+
+Make changes on an issue branch and open a PR. Complete checks and review there,
+then squash merge into main. Do not push implementation changes directly to main.
+
+With mise, Python 3 and an authenticated GitHub CLI installed:
+
+```bash
+mise release --dry-run  # Check remote main and its successful push CI; publish nothing
+mise release            # Publish a patch release from that checked main
+mise release minor      # Or choose a minor/major bump
+```
+
+The explicit form is `mise run release`. The task uses remote main, not the
+current checkout. It does not include local edits or merge a PR. The Publish
+workflow checks the source SHA again and serializes releases. If main changes
+during preflight, wait for its CI and rerun the command.
+
+The workflow builds and signs artifacts, notarizes the app and DMG, verifies the
+updater, commits version metadata, tags the release and updates Homebrew.
+Its version-only bot commit is the automated exception to the PR rule. That
+push does not start CI, so the release gate accepts a bot commit at main HEAD
+when it changes only version lines and its parent's main CI passed.
+Inspect the Actions run and downloaded release assets before calling a release
+complete. After an interrupted dispatch, inspect Actions before retrying.
+
 ## Versioning
 
 Single version across all components. Bump in:
