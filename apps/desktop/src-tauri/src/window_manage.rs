@@ -94,17 +94,13 @@ pub(crate) fn show_on_active_monitor(app: &tauri::AppHandle) {
 /// Captures the pid of the macOS frontmost application and stores it in PreviousAppPid state.
 #[cfg(target_os = "macos")]
 fn capture_frontmost_app_pid(app: &tauri::AppHandle) {
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
-
-    let pid: i32 = unsafe {
-        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
-        let frontmost: *mut Object = msg_send![workspace, frontmostApplication];
-        if frontmost.is_null() {
-            return;
-        }
-        msg_send![frontmost, processIdentifier]
+    let Some(pid) = crate::clipboard::backend::macos::frontmost_app_pid() else {
+        return;
     };
+    // Summoning while Cinch is already in front keeps the app to return to.
+    if pid as u32 == std::process::id() {
+        return;
+    }
 
     if let Some(state) = app.try_state::<PreviousAppPid>() {
         if let Ok(mut guard) = state.lock() {

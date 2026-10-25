@@ -9,7 +9,11 @@ use std::process::Command;
 
 use super::{Backend, ClipboardError, PollContent, PollSnapshot};
 
-pub(crate) struct MacBackend;
+pub(crate) struct MacBackend {
+    /// The copy source resolved for a pasteboard change count. Resolving it
+    /// spawns `lsappinfo`, so it runs only when the pasteboard changes.
+    source_app: Option<(i64, FrontmostApp)>,
+}
 
 #[derive(Debug, Clone)]
 struct FrontmostApp {
@@ -19,13 +23,21 @@ struct FrontmostApp {
 
 impl MacBackend {
     pub(crate) fn new() -> Self {
-        Self
+        Self { source_app: None }
     }
 }
 
 impl Backend for MacBackend {
     fn read_snapshot(&mut self) -> Result<PollSnapshot, ClipboardError> {
-        let frontmost_app = get_frontmost_app();
+        let change_count = get_pasteboard_change_count();
+        let frontmost_app = match &self.source_app {
+            Some((count, app)) if *count == change_count => app.clone(),
+            _ => {
+                let app = get_frontmost_app();
+                self.source_app = Some((change_count, app.clone()));
+                app
+            }
+        };
         let app_identity = frontmost_app.bundle_id;
         let app_name = frontmost_app.display_name;
 
@@ -157,21 +169,18 @@ fn get_pasteboard_change_count() -> i64 {
 }
 
 fn get_frontmost_app() -> FrontmostApp {
-    unsafe {
-        let Some(cls) = Class::get("NSWorkspace") else {
+    // The poll loop runs on a runtime worker thread without an autorelease
+    // pool; drain the objects created here on every call.
+    objc::rc::autoreleasepool(|| unsafe {
+        let app = frontmost_app_pid()
+            .and_then(|pid| running_app(pid))
+            .or_else(|| workspace_frontmost_app());
+        let Some(app) = app else {
             return FrontmostApp {
                 bundle_id: None,
                 display_name: None,
             };
         };
-        let ws: *mut Object = msg_send![cls, sharedWorkspace];
-        let app: *mut Object = msg_send![ws, frontmostApplication];
-        if app.is_null() {
-            return FrontmostApp {
-                bundle_id: None,
-                display_name: None,
-            };
-        }
 
         let bid: *mut Object = msg_send![app, bundleIdentifier];
         let bundle_id = nsstring_to_string(bid);
@@ -182,7 +191,63 @@ fn get_frontmost_app() -> FrontmostApp {
             bundle_id,
             display_name,
         }
+    })
+}
+
+/// PID of the active app. `lsappinfo` asks LaunchServices on every call.
+/// `NSWorkspace.frontmostApplication` is only refreshed when the main run loop
+/// processes workspace notifications, so it stays stale while the app is idle
+/// (clips were attributed to `loginwindow` long after the screen unlocked).
+pub(crate) fn frontmost_app_pid() -> Option<i32> {
+    lsappinfo_front_pid().or_else(|| {
+        objc::rc::autoreleasepool(|| unsafe {
+            let app = workspace_frontmost_app()?;
+            Some(msg_send![app, processIdentifier])
+        })
+    })
+}
+
+fn lsappinfo_front_pid() -> Option<i32> {
+    let asn = lsappinfo(&["front"])?;
+    let asn = asn.trim();
+    if !asn.starts_with("ASN:") {
+        return None;
     }
+    parse_lsappinfo_pid(&lsappinfo(&["info", "-only", "pid", asn])?)
+}
+
+fn lsappinfo(args: &[&str]) -> Option<String> {
+    let output = Command::new("/usr/bin/lsappinfo")
+        .args(args)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Parses `lsappinfo info -only pid` output: `"pid"=1234`.
+fn parse_lsappinfo_pid(output: &str) -> Option<i32> {
+    output
+        .trim()
+        .strip_prefix("\"pid\"=")?
+        .parse()
+        .ok()
+        .filter(|pid| *pid > 0)
+}
+
+unsafe fn running_app(pid: i32) -> Option<*mut Object> {
+    let cls = Class::get("NSRunningApplication")?;
+    let app: *mut Object = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+    (!app.is_null()).then_some(app)
+}
+
+unsafe fn workspace_frontmost_app() -> Option<*mut Object> {
+    let cls = Class::get("NSWorkspace")?;
+    let ws: *mut Object = msg_send![cls, sharedWorkspace];
+    let app: *mut Object = msg_send![ws, frontmostApplication];
+    (!app.is_null()).then_some(app)
 }
 
 unsafe fn nsstring_to_string(value: *mut Object) -> Option<String> {
@@ -363,7 +428,17 @@ fn get_pasteboard_type_utis() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{browser_url_script, is_concealed_or_transient, CONCEALED_UTI, TRANSIENT_UTI};
+    use super::{
+        browser_url_script, is_concealed_or_transient, parse_lsappinfo_pid, CONCEALED_UTI,
+        TRANSIENT_UTI,
+    };
+
+    #[test]
+    fn parses_lsappinfo_front_pid() {
+        assert_eq!(parse_lsappinfo_pid("\"pid\"=4379\n"), Some(4379));
+        assert_eq!(parse_lsappinfo_pid(""), None);
+        assert_eq!(parse_lsappinfo_pid("\"pid\"=[ NULL ]"), None);
+    }
 
     #[test]
     fn detect_concealed_transient() {

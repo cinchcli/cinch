@@ -3,6 +3,7 @@ import { C } from '../design';
 import { IconSearch, IconX } from '../icons';
 import { CLIP_FILTERS, type ClipFilter } from '../lib/clipFilters';
 import type { SourceColorSlot } from '../lib/sourceColor';
+import { SourceAppIcon } from './SourceAppIcon';
 
 const FILTER_HINTS: Record<ClipFilter, string> = {
   all:   'show everything',
@@ -295,13 +296,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
               data-testid="app-chip"
               onClick={() => enterMode('app', '', selectedAppOption.id)}
             >
-              <img
-                src={`cinch://app-icon/${encodeURIComponent(selectedAppOption.id)}`}
-                alt=""
-                aria-hidden="true"
-                style={S.chipIcon}
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-              />
+              <SourceAppIcon appId={selectedAppOption.id} size={12} style={S.chipIcon} />
               {selectedAppOption.label}
               <span
                 style={S.chipX}
@@ -422,13 +417,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
                 data-testid={`app-option-${a.id}`}
                 onMouseDown={(e) => { e.preventDefault(); commitId(a.id); exitMode(); }}
               >
-                <img
-                  src={`cinch://app-icon/${encodeURIComponent(a.id)}`}
-                  alt=""
-                  aria-hidden="true"
-                  style={S.appIcon}
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                />
+                <SourceAppIcon appId={a.id} size={14} style={S.appIcon} />
                 {a.label}
                 <span style={S.dropHint}>{a.count} clip{a.count === 1 ? '' : 's'}</span>
               </div>

@@ -56,6 +56,7 @@ pub fn make_specta_builder() -> Builder<tauri::Wry> {
             commands::clips::search_clips,
             commands::clips::get_sources,
             commands::clips::list_source_apps,
+            commands::clips::get_app_icon,
             commands::clips::delete_clip,
             commands::clips::send_clip,
             commands::clips::send_current_clipboard,
@@ -252,27 +253,11 @@ pub fn run() {
                     responder.respond(build_media_response(r));
                 });
             } else {
-                // app-icon / unknown: serve inline on the calling (main) thread.
-                // Unlike the cinch://media path (which only reads SQLite and so
-                // is cheap to background), the icon lookup is AppKit: it creates
-                // autoreleased NSWorkspace/NSImage/NSData objects that the main
-                // run loop's autorelease pool reclaims each iteration. A bare
-                // worker thread has no pool and would leak one per icon, so keep
-                // it here — it's cheap now anyway (~1ms; it renders a small
-                // CGImage rather than the full-resolution icon).
-                let r = if let Some(bundle_id) = uri
-                    .strip_prefix("cinch://app-icon/")
-                    .or_else(|| uri.strip_prefix("cinch://app-icon\\"))
-                {
-                    crate::media::serve_app_icon(bundle_id)
-                } else {
-                    crate::media::MediaResponse {
-                        status: 404,
-                        content_type: "application/octet-stream",
-                        body: Vec::new(),
-                    }
-                };
-                responder.respond(build_media_response(r));
+                responder.respond(build_media_response(crate::media::MediaResponse {
+                    status: 404,
+                    content_type: "application/octet-stream",
+                    body: Vec::new(),
+                }));
             }
         })
         .plugin(tauri_plugin_opener::init())

@@ -1,8 +1,28 @@
 import { forwardRef } from 'react';
 import type { LocalClip } from '../bindings';
-import { IconPin, IconSearch, typeGlyph } from '../icons';
+import { IconPin, IconSearch, agentGlyph, typeGlyph } from '../icons';
+import { clipIcon } from '../lib/clipIcon';
+import { SourceAppIcon } from './SourceAppIcon';
 import { groupByTimeBucket } from '../lib/timeBuckets';
 import { formatBytes } from '../design';
+
+function ClipRowIcon({ clip }: { clip: LocalClip }) {
+  const icon = clipIcon(clip);
+  const glyph = typeGlyph(clip.content_type, 15);
+  return (
+    <span
+      className="clip-row-icon"
+      aria-hidden="true"
+      data-icon={icon.kind === 'agent' ? icon.agent : icon.kind === 'app' ? 'app' : clip.content_type}
+    >
+      {icon.kind === 'agent'
+        ? agentGlyph(icon.agent, 15)
+        : icon.kind === 'app'
+          ? <SourceAppIcon appId={icon.appId} size={15} fallback={glyph} />
+          : glyph}
+    </span>
+  );
+}
 
 interface ClipListProps {
   clips: LocalClip[];
@@ -49,7 +69,7 @@ export const ClipList = forwardRef<HTMLDivElement, ClipListProps>(
                   onClick={() => onSelect(clip)}
                   onDoubleClick={() => onCopy(clip)}
                 >
-                  <span className="clip-row-icon" aria-hidden="true">{typeGlyph(clip.content_type, 15)}</span>
+                  <ClipRowIcon clip={clip} />
                   <span className="clip-row-label">{preview}</span>
                   {clip.sync_state === 'pending' && <span className="clip-row-status">Sending…</span>}
                   {clip.is_pinned && <span className="clip-row-icon" title="Pinned"><IconPin size={12} /></span>}
