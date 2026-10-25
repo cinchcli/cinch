@@ -1,7 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ClipList } from './ClipList';
 import type { LocalClip } from '../bindings';
+
+vi.mock('../bindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../bindings')>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      getAppIcon: vi.fn(async (bundleId: string) => (
+        bundleId.startsWith('com.apple.') ? `data:image/png;base64,${bundleId}` : null
+      )),
+    },
+  };
+});
 
 const NOW = 1_777_614_529; // matches our visual companion timestamp roughly
 
@@ -180,5 +193,45 @@ describe('ClipList', () => {
     render(<ClipList clips={[clip({ is_pinned: true })]} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" pinnedOnly />);
     expect(screen.queryByText('Today')).not.toBeInTheDocument();
     expect(screen.queryByText('Pinned')).not.toBeInTheDocument();
+  });
+
+  it('shows agent command icons ahead of the source app icon', () => {
+    const clips = [
+      clip({ id: 'claude', content: 'claude --resume 4bd827ab', source_app_id: 'com.github.wez.wezterm' }),
+      clip({ id: 'codex', content: 'codex resume 01a0e6c2', content_type: 'code' }),
+      clip({ id: 'pi', content: "  pi --session '/Users/me/.pi/agent/sessions/a.jsonl'" }),
+      clip({ id: 'prose', content: 'claude의 agents.md 를 옮기자', source_app_id: 'com.github.wez.wezterm' }),
+      clip({ id: 'multi', content: 'pi --session a\nsecond line' }),
+    ];
+    const { container } = render(<ClipList clips={clips} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" now={NOW} />);
+    const iconOf = (id: string) => container.querySelector(`[data-id="${id}"] .clip-row-icon`)?.getAttribute('data-icon');
+    expect(iconOf('claude')).toBe('claude');
+    expect(iconOf('codex')).toBe('codex');
+    expect(iconOf('pi')).toBe('pi');
+    expect(iconOf('prose')).toBe('app');
+    expect(iconOf('multi')).toBe('text');
+  });
+
+  it('shows the installed source app icon and falls back to the type glyph otherwise', async () => {
+    const { container } = render(
+      <ClipList clips={[
+        clip({ id: 'installed', source_app_id: 'com.apple.Terminal', content_type: 'code', content: 'ls' }),
+        clip({ id: 'missing', source_app_id: 'company.thebrowser.Browser', content_type: 'url', content: 'https://example.com' }),
+      ]} selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" now={NOW} />,
+    );
+    await waitFor(() => {
+      expect(container.querySelector('[data-id="installed"] .clip-row-icon img')).toHaveAttribute('src', 'data:image/png;base64,com.apple.Terminal');
+    });
+    expect(container.querySelector('[data-id="missing"] .clip-row-icon img')).toBeNull();
+    expect(container.querySelector('[data-id="missing"] .clip-row-icon svg')).not.toBeNull();
+  });
+
+  it('does not show the login window as a source app icon', () => {
+    const { container } = render(
+      <ClipList clips={[clip({ source_app_id: 'com.apple.loginwindow', source_app: 'loginwindow' })]}
+                selected={null} onSelect={vi.fn()} onCopy={vi.fn()} query="" now={NOW} />,
+    );
+    expect(container.querySelector('.clip-row-icon')).toHaveAttribute('data-icon', 'text');
+    expect(container.querySelector('.clip-row-icon img')).toBeNull();
   });
 });

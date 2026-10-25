@@ -189,6 +189,35 @@ export const IconMonitor = ({ size = 14, style }: IconProps) => (
   </svg>
 );
 
+// ─── Agent command icons ─────────────────────────────────
+
+export const IconClaude = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4" />
+  </svg>
+);
+
+export const IconCodex = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <path d="m8 10 3 2-3 2M13 15h3" />
+  </svg>
+);
+
+export const IconPi = ({ size = 14, style }: IconProps) => (
+  <svg {...base(size)} style={style}>
+    <path d="M5 7h14M9 7v11M15 7v8.5a2.5 2.5 0 0 0 2.5 2.5" />
+  </svg>
+);
+
+export function agentGlyph(agent: "claude" | "codex" | "pi", size = 14): ReactElement {
+  switch (agent) {
+    case "claude": return <IconClaude size={size} />;
+    case "codex":  return <IconCodex size={size} />;
+    case "pi":     return <IconPi size={size} />;
+  }
+}
+
 // ─── Type glyph map ───────────────────────────────────────
 
 export function typeGlyph(t: string, size = 14): ReactElement {

@@ -156,22 +156,26 @@ fn get_pasteboard_change_count() -> i64 {
     }
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    // Returns a +1 CFArrayRef (toll-free bridged to NSArray) or NULL.
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> *mut Object;
+}
+
+const CG_WINDOW_LIST_ON_SCREEN_ONLY: u32 = 1 << 0;
+const CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
+
 fn get_frontmost_app() -> FrontmostApp {
-    unsafe {
-        let Some(cls) = Class::get("NSWorkspace") else {
+    // The poll loop runs on a runtime worker thread without an autorelease
+    // pool; drain the objects created here on every call.
+    objc::rc::autoreleasepool(|| unsafe {
+        let app = frontmost_window_owner().or_else(|| workspace_frontmost_app());
+        let Some(app) = app else {
             return FrontmostApp {
                 bundle_id: None,
                 display_name: None,
             };
         };
-        let ws: *mut Object = msg_send![cls, sharedWorkspace];
-        let app: *mut Object = msg_send![ws, frontmostApplication];
-        if app.is_null() {
-            return FrontmostApp {
-                bundle_id: None,
-                display_name: None,
-            };
-        }
 
         let bid: *mut Object = msg_send![app, bundleIdentifier];
         let bundle_id = nsstring_to_string(bid);
@@ -182,7 +186,77 @@ fn get_frontmost_app() -> FrontmostApp {
             bundle_id,
             display_name,
         }
+    })
+}
+
+/// PID of the app the user is working in, resolved the same way as the copy
+/// source in `get_frontmost_app`.
+pub(crate) fn frontmost_app_pid() -> Option<i32> {
+    objc::rc::autoreleasepool(|| unsafe {
+        let app = frontmost_window_owner().or_else(|| workspace_frontmost_app())?;
+        Some(msg_send![app, processIdentifier])
+    })
+}
+
+/// The owner of the topmost on-screen normal window, read from the window
+/// server. `NSWorkspace.frontmostApplication` is only refreshed when the main
+/// run loop processes workspace notifications, so it stays stale while the
+/// app is napping or after a screen lock (clips were attributed to
+/// `loginwindow`). An app with no visible window is not detected here and
+/// falls back to the workspace value.
+unsafe fn frontmost_window_owner() -> Option<*mut Object> {
+    let windows = CGWindowListCopyWindowInfo(
+        CG_WINDOW_LIST_ON_SCREEN_ONLY | CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
+        0,
+    );
+    if windows.is_null() {
+        return None;
     }
+
+    let key = |name: &std::ffi::CStr| -> *mut Object {
+        let cls = Class::get("NSString").expect("NSString class not found");
+        msg_send![cls, stringWithUTF8String: name.as_ptr()]
+    };
+    let layer_key = key(c"kCGWindowLayer");
+    let alpha_key = key(c"kCGWindowAlpha");
+    let pid_key = key(c"kCGWindowOwnerPID");
+
+    let mut owner_pid: Option<i32> = None;
+    let count: usize = msg_send![windows, count];
+    for i in 0..count {
+        let window: *mut Object = msg_send![windows, objectAtIndex: i];
+        let layer: *mut Object = msg_send![window, objectForKey: layer_key];
+        let pid: *mut Object = msg_send![window, objectForKey: pid_key];
+        if layer.is_null() || pid.is_null() {
+            continue;
+        }
+        let layer: i64 = msg_send![layer, longLongValue];
+        if layer != 0 {
+            continue;
+        }
+        let alpha: *mut Object = msg_send![window, objectForKey: alpha_key];
+        if !alpha.is_null() {
+            let alpha: f64 = msg_send![alpha, doubleValue];
+            if alpha <= 0.0 {
+                continue;
+            }
+        }
+        owner_pid = Some(msg_send![pid, intValue]);
+        break;
+    }
+    let _: () = msg_send![windows, release];
+
+    let pid = owner_pid?;
+    let cls = Class::get("NSRunningApplication")?;
+    let app: *mut Object = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+    (!app.is_null()).then_some(app)
+}
+
+unsafe fn workspace_frontmost_app() -> Option<*mut Object> {
+    let cls = Class::get("NSWorkspace")?;
+    let ws: *mut Object = msg_send![cls, sharedWorkspace];
+    let app: *mut Object = msg_send![ws, frontmostApplication];
+    (!app.is_null()).then_some(app)
 }
 
 unsafe fn nsstring_to_string(value: *mut Object) -> Option<String> {

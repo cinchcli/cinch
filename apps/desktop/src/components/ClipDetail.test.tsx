@@ -1,7 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { ClipDetail } from './ClipDetail';
 import type { LocalClip } from '../bindings';
+
+vi.mock('../bindings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../bindings')>();
+  return {
+    ...actual,
+    commands: {
+      ...actual.commands,
+      getAppIcon: vi.fn(async (bundleId: string) => (
+        bundleId.startsWith('com.apple.') ? `data:image/png;base64,${bundleId}` : null
+      )),
+    },
+  };
+});
 
 const baseClip: LocalClip = {
   id: 'c1',
@@ -50,12 +63,20 @@ describe('ClipDetail', () => {
     expect(screen.getByText('background: #fff;')).toBeInTheDocument();
   });
 
-  it('retains source, copied app and source URL metadata', () => {
+  it('retains source, copied app and source URL metadata', async () => {
     render(<ClipDetail clip={{ ...baseClip, source: 'remote:host', source_app: 'Safari', source_app_id: 'com.apple.Safari', source_url: 'https://example.com/article' }} sourceDisplayNames={{ 'remote:host': 'Work Mac' }} />);
     expect(screen.getByText('Work Mac')).toBeInTheDocument();
     expect(screen.getByText('Safari')).toBeInTheDocument();
     expect(screen.getByText('https://example.com/article')).toBeInTheDocument();
-    expect(screen.getByTestId('source-app-icon')).toHaveAttribute('src', 'cinch://app-icon/com.apple.Safari');
+    expect(await screen.findByTestId('source-app-icon')).toHaveAttribute('src', 'data:image/png;base64,com.apple.Safari');
+  });
+
+  it('omits the app icon when the app is not installed', async () => {
+    const { commands } = await import('../bindings');
+    render(<ClipDetail clip={{ ...baseClip, source_app: 'Arc', source_app_id: 'company.thebrowser.Browser' }} />);
+    await waitFor(() => expect(commands.getAppIcon).toHaveBeenCalledWith('company.thebrowser.Browser'));
+    expect(screen.queryByTestId('source-app-icon')).not.toBeInTheDocument();
+    expect(screen.getByText('Arc')).toBeInTheDocument();
   });
 
   it('renders store-backed images even without a media path', () => {

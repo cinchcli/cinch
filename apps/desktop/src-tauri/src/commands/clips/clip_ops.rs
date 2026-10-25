@@ -147,6 +147,15 @@ pub fn list_source_apps(store: State<'_, SharedStore>) -> Result<Vec<SourceAppIn
         .map_err(|e| e.to_string())
 }
 
+/// A macOS app icon as a PNG data URL, or `None` when the app is not
+/// installed. Icons go over IPC because the webview does not dispatch `<img>`
+/// loads for the `cinch://` scheme to its handler.
+#[tauri::command]
+#[specta::specta]
+pub fn get_app_icon(bundle_id: String) -> Option<String> {
+    crate::media::app_icon_data_url(&bundle_id)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_clip(

@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { LocalClip } from '../bindings';
 import { formatBytes } from '../design';
 import { parseColorClip } from '../lib/colorClip';
+import { sourceAppIconId } from '../lib/clipIcon';
+import { SourceAppIcon } from './SourceAppIcon';
 
 interface ClipDetailProps {
   clip: LocalClip | null;
@@ -16,6 +18,7 @@ export function ClipDetail({ clip, searchQuery = '', sourceDisplayNames = {} }: 
   if (!clip) return <div className="clip-detail history-empty">Select a clip</div>;
 
   const isImage = clip.content_type === 'image';
+  const appIconId = sourceAppIconId(clip);
   const color = clip.content_type === 'text' ? parseColorClip(clip.content) : null;
   const trimmed = clip.content.trim();
   const isCode = clip.content_type === 'code' ||
@@ -56,7 +59,7 @@ export function ClipDetail({ clip, searchQuery = '', sourceDisplayNames = {} }: 
         {clip.source_app && (
           <MetaRow label="App" value={
             <span className="clip-app">
-              {clip.source_app_id && <img data-testid="source-app-icon" src={`cinch://app-icon/${encodeURIComponent(clip.source_app_id)}`} alt="" />}
+              {appIconId && <SourceAppIcon appId={appIconId} size={14} testId="source-app-icon" />}
               {clip.source_app}
             </span>
           } />

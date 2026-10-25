@@ -62,7 +62,14 @@ pub(crate) fn serve_clip_image(store: &Store, clip_id: &str) -> MediaResponse {
     }
 }
 
-/// Serve a macOS app icon as PNG from a bundle identifier.
+/// A macOS app icon as a `data:image/png;base64,...` URL.
+pub(crate) fn app_icon_data_url(bundle_id: &str) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let r = serve_app_icon(bundle_id);
+    (r.status == 200).then(|| format!("data:image/png;base64,{}", STANDARD.encode(r.body)))
+}
+
+/// Render a macOS app icon as PNG from a bundle identifier.
 pub(crate) fn serve_app_icon(bundle_id: &str) -> MediaResponse {
     let not_found = || MediaResponse {
         status: 404,
@@ -89,7 +96,9 @@ fn app_icon_png(bundle_id: &str) -> Option<Vec<u8>> {
     // icon). There used to be an `image`-crate TIFF fallback here, but it ran the
     // ~74MB `TIFFRepresentation` on the main thread and then could not even decode
     // 16-bit HDR app icons — a slow path that almost always failed anyway.
-    app_icon_png_native(bundle_id)
+    // The lookup creates autoreleased AppKit objects; drain them here so a
+    // caller thread without a run loop does not leak one set per icon.
+    objc::rc::autoreleasepool(|| app_icon_png_native(bundle_id))
 }
 
 #[cfg(target_os = "macos")]

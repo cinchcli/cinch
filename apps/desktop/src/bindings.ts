@@ -16,6 +16,12 @@ export const commands = {
 	 *  clip count), most-used first. Backs the search bar's `app:` filter picker.
 	 */
 	listSourceApps: () => typedError<SourceAppInfo[], string>(__TAURI_INVOKE("list_source_apps")),
+	/**
+	 *  A macOS app icon as a PNG data URL, or `None` when the app is not
+	 *  installed. Icons go over IPC because the webview does not dispatch `<img>`
+	 *  loads for the `cinch://` scheme to its handler.
+	 */
+	getAppIcon: (bundleId: string) => __TAURI_INVOKE<string | null>("get_app_icon", { bundleId }),
 	deleteClip: (id: string) => typedError<null, string>(__TAURI_INVOKE("delete_clip", { id })),
 	/**
 	 *  Explicitly send an already-captured local clip to the relay (and thus to
