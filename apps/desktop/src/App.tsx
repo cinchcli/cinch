@@ -618,7 +618,10 @@ function App() {
       .catch(() => {/* keep defaults */});
   }, []);
 
-  useEffect(() => {
+  // A layout effect swaps the handler in the same commit that renders new
+  // state. With a passive effect, a key pressed right after the list renders
+  // can still reach the previous handler and act on the old clips.
+  useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isImeComposition(e) || e.defaultPrevented) return;
       if (editDialog || pinNoteDialog || deleteDialog || showSettings || handoffRelay !== null || newSourcePrompt) return;
