@@ -151,6 +151,10 @@ function App() {
   const restoreSelectionRef = useRef<string | null>(null);
   const restoreScrollRef = useRef<number | null>(null);
   const skipSelectionScrollRef = useRef(false);
+  // True between window blur and the next focus. Clips that arrive while the
+  // window is hidden must not pick a selection, or that clip sinks down the
+  // list as newer ones arrive and arrow keys start from it on reopen.
+  const windowBlurredRef = useRef(false);
   const clipRequestRef = useRef(0);
   const clipViewRef = useRef({ activePanel, selectedSource, selectedApp, debouncedQuery, activeFilter });
   const [openMenu, setOpenMenu] = useState<'actions' | 'view' | null>(null);
@@ -300,7 +304,9 @@ function App() {
       const restoreId = restoreSelectionRef.current;
       restoreSelectionRef.current = null;
       setClips(next);
-      setSelectedClip((current) => next.find((clip) => clip.id === (restoreId ?? current?.id)) ?? next[0] ?? null);
+      setSelectedClip((current) => windowBlurredRef.current
+        ? null
+        : next.find((clip) => clip.id === (restoreId ?? current?.id)) ?? next[0] ?? null);
     } catch (e) {
       if (request === clipRequestRef.current) showToast('Could not load history. Try searching again.', 'error');
       console.error('failed to load clips:', e);
@@ -445,13 +451,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const unsubFocus = getCurrentWindow().listen('tauri://focus', () => {
+      windowBlurredRef.current = false;
+    });
     const unsubBlur = getCurrentWindow().listen('tauri://blur', () => {
+      windowBlurredRef.current = true;
       resetPinnedView();
       setSelectedClip(null);
       setSearchQuery('');
       setDebouncedQuery('');
     });
-    return () => { unsubBlur.then((f) => f()); };
+    return () => {
+      unsubFocus.then((f) => f());
+      unsubBlur.then((f) => f());
+    };
   }, [resetPinnedView]);
 
   const handleSaveImage = useCallback(async (clip: LocalClip) => {
