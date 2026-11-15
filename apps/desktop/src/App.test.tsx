@@ -31,7 +31,13 @@ vi.mock('@tauri-apps/api/core', () => ({
         return Promise.resolve();
     }),
 }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+const appEventListeners = vi.hoisted(() => new Map<string, () => void>());
+vi.mock('@tauri-apps/api/event', () => ({
+    listen: vi.fn((name: string, callback: () => void) => {
+        appEventListeners.set(name, callback);
+        return Promise.resolve(() => {});
+    }),
+}));
 vi.mock('@tauri-apps/api/dpi', () => ({
     LogicalSize: vi.fn().mockImplementation((w: number, h: number) => ({ width: w, height: h })),
 }));
@@ -973,6 +979,23 @@ describe('App', () => {
             expect(screen.queryByRole('button', { name: 'Return to recent history' })).not.toBeInTheDocument();
             fireEvent.keyDown(window, { key: 'Escape' });
             expect(screen.getByLabelText('Search clips')).toHaveValue('');
+        });
+
+        it('starts arrow navigation at the newest clip after clips arrive while hidden', async () => {
+            render(<App />);
+            await screen.findByRole('button', { name: 'needle recent' });
+            act(() => { nativeWindowListeners.get('tauri://blur')!(); });
+            const now = Math.floor(Date.now() / 1000);
+            const arrive = async (id: string, at: number) => {
+                clips = [{ ...clips[0], id, content: `needle ${id}`, created_at: at, received_at: at, is_pinned: false }, ...clips];
+                act(() => { appEventListeners.get('clip-received')!(); });
+                await screen.findByRole('button', { name: `needle ${id}` });
+            };
+            await arrive('first', now + 1);
+            await arrive('second', now + 2);
+            act(() => { nativeWindowListeners.get('tauri://focus')!(); });
+            fireEvent.keyDown(screen.getByLabelText('Search clips'), { key: 'ArrowDown' });
+            expect(screen.getByRole('button', { name: 'needle second' })).toHaveAttribute('aria-current', 'true');
         });
 
         it.each([false, true])('honors native search selection for Cmd+C: selected=%s', async (hasSelection) => {
