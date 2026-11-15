@@ -18,3 +18,5 @@ pre-push:
   commands:
     cargo-test:
       run: cargo test --workspace
+    desktop-test:
+      run: cd apps/desktop && pnpm test

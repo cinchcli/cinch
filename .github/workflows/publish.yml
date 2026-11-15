@@ -22,10 +22,12 @@ on:
         description: 'Expected main SHA (mise release checks this before dispatch)'
         type: string
         default: ''
-  # No `schedule:` trigger — nightlies are off. The infrastructure
-  # (channel=nightly option, next-version.sh nightly path) is left in place
-  # so manual nightlies via workflow_dispatch still work if needed; just
-  # re-add `schedule: [cron: '0 1 * * *']` to bring back automatic ones.
+  # Weekly dry run of the release build. It builds every target and checks the
+  # macOS runner, signing and Apple notarization credentials without publishing,
+  # so a retired runner or an expired Apple agreement fails here before a real
+  # release. Nightlies stay manual via workflow_dispatch channel=nightly.
+  schedule:
+    - cron: '0 1 * * 1'
 
 permissions:
   contents: read
@@ -63,8 +65,8 @@ jobs:
       - id: compute
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            CHANNEL="nightly"
-            DRY=false
+            CHANNEL="release"
+            DRY=true
           else
             CHANNEL="${{ inputs.channel }}"
             DRY="${{ inputs.dry_run }}"
